@@ -110,16 +110,7 @@ ONE_MIN_API_URL = "https://api.1min.ai/api/features"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features?isStreaming=true"
 ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
-ONE_MIN_TOOLS_URL = "https://api.1min.ai/api/tools"
-ONE_MIN_TEXT_TO_SPEECH_URL = "https://api.1min.ai/api/text-to-speech"
-ONE_MIN_SPEECH_TO_TEXT_URL = "https://api.1min.ai/api/speech-to-text"
-ONE_MIN_SEARCH_URL = "https://api.1min.ai/api/websearch"
-ONE_MIN_ANALYTICS_URL = "https://api.1min.ai/api/analytics"
-ONE_MIN_EMBEDDINGS_API_URL = "https://api.1min.ai/api/embeddings"
-ONE_MIN_IMAGE_API_URL = "https://api.1min.ai/api/images"
-ONE_MIN_MODERATION_API_URL = "https://api.1min.ai/api/moderations"
-ONE_MIN_ASSISTANTS_API_URL = "https://api.1min.ai/api/assistants"
-ONE_MIN_FILES_API_URL = "https://api.1min.ai/api/files"
+
 
 # Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
