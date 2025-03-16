@@ -135,7 +135,8 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "mistral-small-latest",
     "mistral-nemo",
     "open-mistral-7b",
-
+   # "whisper-1"
+   # "alloy"
    # Replicate
    "meta/llama-2-70b-chat", 
    "meta/meta-llama-3-70b-instruct", 
@@ -170,12 +171,10 @@ tools_supported_models = [
 
 # Define models that support text-to-speech
 # tts_supported_models = [
-#     "nova", 
-#     "alloy", 
-#     "echo", 
-#     "fable", 
-#     "onyx", 
-#     "shimmer"
+#     "alloy"
+# ]
+# stt_supported_models = [
+#     "whisper-1"
 # ]
 
 # Define models that support web search
