@@ -1002,71 +1002,12 @@ def transform_response(one_min_response, request_data, prompt_tokens):
 @app.route('/v1/embeddings', methods=['POST', 'OPTIONS'])
 @limiter.limit("500 per minute")
 def embeddings():
-    """Handle embeddings requests"""
+    """Handle embeddings API requests"""
     if request.method == 'OPTIONS':
         return handle_options_request()
-
-    try:
-        # Get the request data
-        request_data = request.get_json()
-        
-        # Extract API key from Authorization header
-        api_key = extract_api_key()
-        if not api_key:
-            return ERROR_HANDLER(1001)
-        
-        # Validate the input data
-        if not request_data.get('input'):
-            return ERROR_HANDLER(1002, detail="Input is required")
-        
-        model = request_data.get('model', 'text-embedding-ada-002')
-        input_text = request_data.get('input', '')
-        
-        # Prepare the payload for 1minAI API
-        payload = {
-            "text": input_text if isinstance(input_text, str) else input_text,
-            "api_key": api_key
-        }
-        
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        # Make the request to 1minAI embeddings API
-        response = requests.post(ONE_MIN_EMBEDDINGS_API_URL, json=payload, headers=headers)
-        response.raise_for_status()
-        
-        one_min_response = response.json()
-        
-        # Transform the response to OpenAI format
-        transformed_response = {
-            "object": "list",
-            "data": [
-                {
-                    "object": "embedding",
-                    "embedding": one_min_response.get('embedding', []),
-                    "index": 0
-                }
-            ],
-            "model": map_model_to_openai(model),
-            "usage": {
-                "prompt_tokens": calculate_token(input_text if isinstance(input_text, str) else json.dumps(input_text)),
-                "total_tokens": calculate_token(input_text if isinstance(input_text, str) else json.dumps(input_text))
-            }
-        }
-        
-        # Return the response
-        flask_response = make_response(jsonify(transformed_response))
-        set_response_headers(flask_response)
-        
-        return flask_response, 200
     
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 401:
-            return ERROR_HANDLER(1020, key="[REDACTED]")
-        return ERROR_HANDLER(1500, detail=str(e))
-    except Exception as e:
-        return ERROR_HANDLER(1500, detail=str(e))
+    # В официальной документации 1min.ai тип EMBEDDINGS не подтвержден
+    return ERROR_HANDLER(1500, detail="Embeddings API is not supported by 1min.ai")
 
 @app.route('/v1/images/generations', methods=['POST', 'OPTIONS'])
 @limiter.limit("500 per minute")
@@ -1137,67 +1078,12 @@ def images_generations():
 @app.route('/v1/moderations', methods=['POST', 'OPTIONS'])
 @limiter.limit("500 per minute")
 def moderations():
-    """Handle content moderation requests"""
+    """Handle moderation API requests"""
     if request.method == 'OPTIONS':
         return handle_options_request()
-
-    try:
-        # Get the request data
-        request_data = request.get_json()
-        
-        # Extract API key from Authorization header
-        api_key = extract_api_key()
-        if not api_key:
-            return ERROR_HANDLER(1001)
-        
-        # Validate the input data
-        if not request_data.get('input'):
-            return ERROR_HANDLER(1002, detail="Input is required")
-        
-        # Prepare the payload for 1minAI API
-        payload = {
-            "text": request_data.get('input', ''),
-            "api_key": api_key
-        }
-        
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        # Make the request to 1minAI moderation API
-        response = requests.post(ONE_MIN_MODERATION_API_URL, json=payload, headers=headers)
-        response.raise_for_status()
-        
-        one_min_response = response.json()
-        
-        # Transform the response to OpenAI format
-        transformed_response = {
-            "id": f"modr-{uuid.uuid4()}",
-            "model": "text-moderation-latest",
-            "results": []
-        }
-        
-        # Process the moderation results
-        if 'results' in one_min_response:
-            for result in one_min_response['results']:
-                transformed_response['results'].append({
-                    "flagged": result.get('flagged', False),
-                    "categories": result.get('categories', {}),
-                    "category_scores": result.get('category_scores', {})
-                })
-        
-        # Return the response
-        flask_response = make_response(jsonify(transformed_response))
-        set_response_headers(flask_response)
-        
-        return flask_response, 200
     
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 401:
-            return ERROR_HANDLER(1020, key="[REDACTED]")
-        return ERROR_HANDLER(1500, detail=str(e))
-    except Exception as e:
-        return ERROR_HANDLER(1500, detail=str(e))
+    # В официальной документации 1min.ai тип MODERATION не подтвержден
+    return ERROR_HANDLER(1500, detail="Moderations API is not supported by 1min.ai")
 
 @app.route('/v1/assistants', methods=['GET', 'POST', 'OPTIONS'])
 @limiter.limit("500 per minute")
@@ -1206,62 +1092,9 @@ def assistants():
     if request.method == 'OPTIONS':
         return handle_options_request()
     
-    # Extract API key from Authorization header
-    api_key = extract_api_key()
-    if not api_key:
-        return ERROR_HANDLER(1001)
-    
-    if request.method == 'GET':
-        # List assistants
-        return ERROR_HANDLER(1500, detail="Assistants API listing is not implemented in this version")
-    
-    elif request.method == 'POST':
-        try:
-            # Create a new assistant
-            request_data = request.get_json()
-            
-            # Forward the request to 1minAI assistants API
-            payload = {
-                "api_key": api_key,
-                "name": request_data.get('name'),
-                "description": request_data.get('description'),
-                "instructions": request_data.get('instructions'),
-                "model": request_data.get('model', DEFAULT_MODEL),
-                "tools": request_data.get('tools', [])
-            }
-            
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            response = requests.post(ONE_MIN_ASSISTANTS_API_URL, json=payload, headers=headers)
-            response.raise_for_status()
-            
-            one_min_response = response.json()
-            
-            # Transform to OpenAI format
-            transformed_response = {
-                "id": one_min_response.get('id', f"asst_{uuid.uuid4()}"),
-                "object": "assistant",
-                "created_at": int(time.time()),
-                "name": one_min_response.get('name'),
-                "description": one_min_response.get('description'),
-                "instructions": one_min_response.get('instructions'),
-                "model": map_model_to_openai(one_min_response.get('model')),
-                "tools": one_min_response.get('tools', [])
-            }
-            
-            flask_response = make_response(jsonify(transformed_response))
-            set_response_headers(flask_response)
-            
-            return flask_response, 200
-        
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 401:
-                return ERROR_HANDLER(1020, key="[REDACTED]")
-            return ERROR_HANDLER(1500, detail=str(e))
-        except Exception as e:
-            return ERROR_HANDLER(1500, detail=str(e))
+    # В официальной документации 1min.ai тип ASSISTANT_CREATE не подтвержден
+    return ERROR_HANDLER(1500, detail="Assistants API is not supported by 1min.ai")
+
 
 @app.route('/v1/files', methods=['GET', 'POST', 'OPTIONS'])
 @limiter.limit("500 per minute")
@@ -1270,99 +1103,8 @@ def files():
     if request.method == 'OPTIONS':
         return handle_options_request()
     
-    # Extract API key from Authorization header
-    api_key = extract_api_key()
-    if not api_key:
-        return ERROR_HANDLER(1001)
-    
-    if request.method == 'GET':
-        # List files
-        try:
-            params = {
-                "api_key": api_key
-            }
-            
-            response = requests.get(ONE_MIN_FILES_API_URL, params=params)
-            response.raise_for_status()
-            
-            one_min_response = response.json()
-            
-            # Transform to OpenAI format
-            transformed_response = {
-                "object": "list",
-                "data": []
-            }
-            
-            if 'files' in one_min_response:
-                for file in one_min_response['files']:
-                    transformed_response['data'].append({
-                        "id": file.get('id'),
-                        "object": "file",
-                        "bytes": file.get('size', 0),
-                        "created_at": file.get('created_at', int(time.time())),
-                        "filename": file.get('filename'),
-                        "purpose": file.get('purpose', 'assistants')
-                    })
-            
-            flask_response = make_response(jsonify(transformed_response))
-            set_response_headers(flask_response)
-            
-            return flask_response, 200
-        
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 401:
-                return ERROR_HANDLER(1020, key="[REDACTED]")
-            return ERROR_HANDLER(1500, detail=str(e))
-        except Exception as e:
-            return ERROR_HANDLER(1500, detail=str(e))
-    
-    elif request.method == 'POST':
-        # Upload a file
-        try:
-            # Check if file is present in request
-            if 'file' not in request.files:
-                return ERROR_HANDLER(1002, detail="File is required")
-            
-            file = request.files['file']
-            purpose = request.form.get('purpose', 'assistants')
-            
-            # Prepare multipart form data
-            files = {
-                'file': (file.filename, file.stream, file.content_type)
-            }
-            
-            data = {
-                'api_key': api_key,
-                'purpose': purpose
-            }
-            
-            # Make request to 1minAI file upload API
-            response = requests.post(ONE_MIN_FILES_API_URL, files=files, data=data)
-            response.raise_for_status()
-            
-            one_min_response = response.json()
-            
-            # Transform to OpenAI format
-            transformed_response = {
-                "id": one_min_response.get('id', f"file-{uuid.uuid4()}"),
-                "object": "file",
-                "bytes": one_min_response.get('size', 0),
-                "created_at": one_min_response.get('created_at', int(time.time())),
-                "filename": one_min_response.get('filename', file.filename),
-                "purpose": purpose
-            }
-            
-            flask_response = make_response(jsonify(transformed_response))
-            set_response_headers(flask_response)
-            
-            return flask_response, 200
-        
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 401:
-                return ERROR_HANDLER(1020, key="[REDACTED]")
-            return ERROR_HANDLER(1500, detail=str(e))
-        except Exception as e:
-            return ERROR_HANDLER(1500, detail=str(e))
+    # В официальной документации 1min.ai тип FILES_LIST не подтвержден
+    return ERROR_HANDLER(1500, detail="Files API is not supported by 1min.ai")
 
 def stream_response(response, request_data, model, prompt_tokens):
     """
