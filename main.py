@@ -627,25 +627,6 @@ def web_search(query, api_key):
         logger.error(f"Web search error: {str(e)}")
         return {"results": []}
 
-@app.route('/v1/audio/transcriptions', methods=['POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def audio_transcriptions():
-    if request.method == 'OPTIONS':
-        return handle_options_request()
-    
-    return process_stt_request()
-
-@app.route('/v1/audio/speech', methods=['POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def audio_speech():
-    if request.method == 'OPTIONS':
-        return handle_options_request()
-    
-    # Temporarily return an error that the function is disabled
-    return ERROR_HANDLER(1600, detail="TTS functionality is temporarily disabled")
-    
-    # request_data = request.json
-    # return process_tts_request(request_data)
 
 @app.route('/v1/chat/completions', methods=['POST', 'OPTIONS'])
 @limiter.limit("500 per minute")
@@ -998,15 +979,6 @@ def transform_response(one_min_response, request_data, prompt_tokens):
     
     return transformed_response
 
-@app.route('/v1/embeddings', methods=['POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def embeddings():
-    """Handle embeddings API requests"""
-    if request.method == 'OPTIONS':
-        return handle_options_request()
-    
-    # В официальной документации 1min.ai тип EMBEDDINGS не подтвержден
-    return ERROR_HANDLER(1500, detail="Embeddings API is not supported by 1min.ai")
 
 @app.route('/v1/images/generations', methods=['POST', 'OPTIONS'])
 @limiter.limit("500 per minute")
@@ -1073,37 +1045,6 @@ def images_generations():
         return ERROR_HANDLER(1500, detail=str(e))
     except Exception as e:
         return ERROR_HANDLER(1500, detail=str(e))
-
-@app.route('/v1/moderations', methods=['POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def moderations():
-    """Handle moderation API requests"""
-    if request.method == 'OPTIONS':
-        return handle_options_request()
-    
-    # В официальной документации 1min.ai тип MODERATION не подтвержден
-    return ERROR_HANDLER(1500, detail="Moderations API is not supported by 1min.ai")
-
-@app.route('/v1/assistants', methods=['GET', 'POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def assistants():
-    """Handle assistants API requests"""
-    if request.method == 'OPTIONS':
-        return handle_options_request()
-    
-    # В официальной документации 1min.ai тип ASSISTANT_CREATE не подтвержден
-    return ERROR_HANDLER(1500, detail="Assistants API is not supported by 1min.ai")
-
-
-@app.route('/v1/files', methods=['GET', 'POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def files():
-    """Handle file upload and retrieval"""
-    if request.method == 'OPTIONS':
-        return handle_options_request()
-    
-    # В официальной документации 1min.ai тип FILES_LIST не подтвержден
-    return ERROR_HANDLER(1500, detail="Files API is not supported by 1min.ai")
 
 def stream_response(response, request_data, model, prompt_tokens):
     """
