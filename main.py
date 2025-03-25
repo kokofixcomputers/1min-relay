@@ -19,15 +19,15 @@ from io import BytesIO
 import coloredlogs
 import printedcolors
 import base64
-import tempfile
-import re
+import hashlib
+from PIL import Image
+import random
+import string
+import traceback
+import collections
 
 # Suppress warnings from flask_limiter
 warnings.filterwarnings("ignore", category=UserWarning, module="flask_limiter.extension")
-
-# Set default port and debug mode
-PORT = os.environ.get('PORT', 5001)
-DEBUG_MODE = os.environ.get('DEBUG', 'False').lower() == 'true'
 
 # Create a logger object
 logger = logging.getLogger("1min-relay")
@@ -35,22 +35,41 @@ logger = logging.getLogger("1min-relay")
 # Install coloredlogs with desired log level
 coloredlogs.install(level='DEBUG', logger=logger)
 
-warnings.filterwarnings("ignore", category=FutureWarning, module="mistral_common.tokens.tokenizers.mistral")
-
-def check_memcached_connection(host='memcached', port=11211):
+def check_memcached_connection():
+    """
+    Проверяет доступность memcached, сначала в Docker, затем локально
+    
+    Returns:
+        tuple: (bool, str) - (доступен ли memcached, строка подключения или None)
+    """
+    # Проверяем Docker memcached
     try:
-        client = Client((host, port))
+        client = Client(('memcached', 11211))
         client.set('test_key', 'test_value')
         if client.get('test_key') == b'test_value':
             client.delete('test_key')  # Clean up
-            return True
-        else:
-            return False
-    except:
-        return False
-        
+            logger.info("Using memcached in Docker container")
+            return True, "memcached://memcached:11211"
+    except Exception as e:
+        logger.debug(f"Docker memcached not available: {str(e)}")
+    
+    # Проверяем локальный memcached
+    try:
+        client = Client(('127.0.0.1', 11211))
+        client.set('test_key', 'test_value')
+        if client.get('test_key') == b'test_value':
+            client.delete('test_key')  # Clean up
+            logger.info("Using local memcached at 127.0.0.1:11211")
+            return True, "memcached://127.0.0.1:11211"
+    except Exception as e:
+        logger.debug(f"Local memcached not available: {str(e)}")
+    
+    # Если memcached недоступен
+    logger.warning("Memcached is not available. Using in-memory storage for rate limiting. Not-Recommended")
+    return False, None
+
 logger.info('''
-    _ __  __ _      ___     _           
+  _ __  __ _      ___     _           
  / |  \/  (_)_ _ | _ \___| |__ _ _  _ 
  | | |\/| | | ' \|   / -_) / _` | || |
  |_|_|  |_|_|_||_|_|_\___|_\__,_|\_, |
@@ -87,14 +106,13 @@ def calculate_token(sentence, model="DEFAULT"):
         encoding = tiktoken.encoding_for_model("gpt-4")
         tokens = encoding.encode(sentence)
         return len(tokens)
-
-# Initialize Flask app
 app = Flask(__name__)
-if check_memcached_connection():
+memcached_available, memcached_uri = check_memcached_connection()
+if memcached_available:
     limiter = Limiter(
         get_remote_address,
         app=app,
-        storage_uri="memcached://memcached:11211",  # Connect to Memcached created with docker
+        storage_uri=memcached_uri,
     )
 else:
     # Used for ratelimiting without memcached
@@ -102,15 +120,12 @@ else:
         get_remote_address,
         app=app,
     )
-    logger.warning("Memcached is not available. Using in-memory storage for rate limiting. Not-Recommended")
 
 
-# 1minAI API endpoints
 ONE_MIN_API_URL = "https://api.1min.ai/api/features"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
-ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features?isStreaming=true"
+ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
 ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
-
 
 # Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
@@ -135,8 +150,7 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "mistral-small-latest",
     "mistral-nemo",
     "open-mistral-7b",
-   # "whisper-1"
-   # "alloy"
+
    # Replicate
    "meta/llama-2-70b-chat", 
    "meta/meta-llama-3-70b-instruct", 
@@ -148,50 +162,9 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
 vision_supported_models = [
     "gpt-4o",
     "gpt-4o-mini",
-    "gpt-4-turbo",
-    "claude-3-5-sonnet-20240620",
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-3-haiku-20240307",
-    "gemini-1.5-pro",
-    "gemini-1.5-flash"
+    "gpt-4-turbo"
 ]
 
-# Define models that support tool use (function calling)
-tools_supported_models = [
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4-turbo",
-    "gpt-4",
-    "claude-3-5-sonnet-20240620",
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-3-haiku-20240307"
-]
-
-# Define models that support text-to-speech
-# tts_supported_models = [
-#     "alloy"
-# ]
-# stt_supported_models = [
-#     "whisper-1"
-# ]
-
-# Define models that support web search
-web_search_supported_models = [
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4-turbo",
-    "gpt-4",
-    "claude-3-5-sonnet-20240620",
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-3-haiku-20240307",
-    "mistral-large-latest",
-    "mistral-small-latest",
-    "mistral-nemo",
-    "deepseek-chat"
-]
 
 # Default values
 SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o", "deepseek-chat"]
@@ -212,60 +185,11 @@ if permit_not_in_available_env and permit_not_in_available_env.lower() == "true"
 AVAILABLE_MODELS = []
 AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
 
-# Default model to use
-DEFAULT_MODEL = "mistral-nemo"
-
-def map_model_to_openai(model):
-    """Map 1minAI model name to OpenAI compatible model name"""
-    if model == "mistral-nemo":
-        return "mistral-7b-text-chat"
-    elif model.startswith("gpt-"):
-        return model  # Already in OpenAI format
-    elif model.startswith("claude-"):
-        return model  # Return as is
-    else:
-        # For other models, return as is but prefixed with 1min-
-        return f"1min-{model}"
-
-def ERROR_HANDLER(code, model=None, key=None, detail=None):
-    # Handle errors in OpenAI-Structured Error
-    error_codes = { # Internal Error Codes
-        1002: {"message": f"The model {model} does not exist.", "type": "invalid_request_error", "param": None, "code": "model_not_found", "http_code": 400},
-        1020: {"message": f"Incorrect API key provided: {key}. You can find your API key at https://app.1min.ai/api.", "type": "authentication_error", "param": None, "code": "invalid_api_key", "http_code": 401},
-        1021: {"message": "Invalid Authentication", "type": "invalid_request_error", "param": None, "code": None, "http_code": 401},
-        1212: {"message": f"Incorrect Endpoint. Please use the /v1/chat/completions endpoint.", "type": "invalid_request_error", "param": None, "code": "model_not_supported", "http_code": 400},
-        1044: {"message": f"This model does not support image inputs.", "type": "invalid_request_error", "param": None, "code": "model_not_supported", "http_code": 400},
-        1045: {"message": f"This model does not support tool use.", "type": "invalid_request_error", "param": None, "code": "model_not_supported", "http_code": 400},
-        1046: {"message": f"This model does not support text-to-speech.", "type": "invalid_request_error", "param": None, "code": "model_not_supported", "http_code": 400},
-        1412: {"message": f"No message provided.", "type": "invalid_request_error", "param": "messages", "code": "invalid_request_error", "http_code": 400},
-        1423: {"message": f"No content in last message.", "type": "invalid_request_error", "param": "messages", "code": "invalid_request_error", "http_code": 400},
-        1500: {"message": f"1minAI API error: {detail}", "type": "api_error", "param": None, "code": "api_error", "http_code": 500},
-        1600: {"message": f"Unsupported feature: {detail}", "type": "invalid_request_error", "param": None, "code": "unsupported_feature", "http_code": 400},
-        1700: {"message": f"Invalid file format: {detail}", "type": "invalid_request_error", "param": None, "code": "invalid_file_format", "http_code": 400},
-    }
-    error_data = {k: v for k, v in error_codes.get(code, {"message": f"Unknown error: {detail}" if detail else "Unknown error", "type": "unknown_error", "param": None, "code": None}).items() if k != "http_code"} # Remove http_code from the error data
-    logger.error(f"An error has occurred while processing the user's request. Error code: {code}")
-    return jsonify({"error": error_data}), error_codes.get(code, {}).get("http_code", 400) # Return the error data without http_code inside the payload and get the http_code to return.
-
-def handle_options_request():
-    response = make_response()
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
-    return response, 204
-
-def extract_api_key():
-    """Extract API key from Authorization header"""
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return None
-    return auth_header.split(" ")[1]
-
-def set_response_headers(response):
-    """Set common response headers"""
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    return response
+# Добавим кэш для отслеживания обработанных изображений
+# Для каждого запроса храним уникальный идентификатор изображения и его путь
+IMAGE_CACHE = {}
+# Ограничим размер кэша
+MAX_CACHE_SIZE = 100
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -274,7 +198,6 @@ def index():
     if request.method == 'GET':
         internal_ip = socket.gethostbyname(socket.gethostname())
         return "Congratulations! Your API is working! You can now make requests to the API.\n\nEndpoint: " + internal_ip + ':5001/v1'
-
 @app.route('/v1/models')
 @limiter.limit("500 per minute")
 def models():
@@ -296,876 +219,1122 @@ def models():
             for model_name in SUBSET_OF_ONE_MIN_PERMITTED_MODELS
         ]
     models_data.extend(one_min_models_data)
-    
-    # Add TTS models
-    # tts_models_data = [
-    #     {"id": model_name, "object": "model", "owned_by": "1minai", "created": 1727389042}
-    #     for model_name in tts_supported_models
-    # ]
-    # models_data.extend(tts_models_data)
-    
     return jsonify({"data": models_data, "object": "list"})
 
-def format_conversation_history(messages, new_input, system_prompt=None):
+def ERROR_HANDLER(code, model=None, key=None):
+    # Handle errors in OpenAI-Structued Error
+    error_codes = { # Internal Error Codes
+        1002: {"message": f"The model {model} does not exist.", "type": "invalid_request_error", "param": None, "code": "model_not_found", "http_code": 400},
+        1020: {"message": f"Incorrect API key provided: {key}. You can find your API key at https://app.1min.ai/api.", "type": "authentication_error", "param": None, "code": "invalid_api_key", "http_code": 401},
+        1021: {"message": "Invalid Authentication", "type": "invalid_request_error", "param": None, "code": None, "http_code": 401},
+        1212: {"message": f"Incorrect Endpoint. Please use the /v1/chat/completions endpoint.", "type": "invalid_request_error", "param": None, "code": "model_not_supported", "http_code": 400},
+        1044: {"message": f"This model does not support image inputs.", "type": "invalid_request_error", "param": None, "code": "model_not_supported", "http_code": 400},
+        1412: {"message": f"No message provided.", "type": "invalid_request_error", "param": "messages", "code": "invalid_request_error", "http_code": 400},
+        1423: {"message": f"No content in last message.", "type": "invalid_request_error", "param": "messages", "code": "invalid_request_error", "http_code": 400},
+    }
+    error_data = {k: v for k, v in error_codes.get(code, {"message": "Unknown error", "type": "unknown_error", "param": None, "code": None}).items() if k != "http_code"} # Remove http_code from the error data
+    logger.error(f"An error has occurred while processing the user's request. Error code: {code}")
+    return jsonify({"error": error_data}), error_codes.get(code, {}).get("http_code", 400) # Return the error data without http_code inside the payload and get the http_code to return.
+
+def format_conversation_history(messages, new_input):
     """
     Formats the conversation history into a structured string.
     
     Args:
         messages (list): List of message dictionaries from the request
         new_input (str): The new user input message
-        system_prompt (str): Optional system prompt to prepend
     
     Returns:
         str: Formatted conversation history
     """
     formatted_history = []
     
-    # Add system prompt if provided
-    if system_prompt:
-        formatted_history.append(f"System: {system_prompt}\n")
-    
-    formatted_history.append("Conversation History:\n")
-    
     for message in messages:
-        role = message.get('role', '').capitalize()
+        role = message.get('role', '')
         content = message.get('content', '')
         
         # Handle potential list content
         if isinstance(content, list):
-            text_parts = []
+            processed_content = []
             for item in content:
                 if 'text' in item:
-                    text_parts.append(item['text'])
-                elif 'type' in item and item['type'] == 'text':
-                    text_parts.append(item.get('text', ''))
-            content = '\n'.join(text_parts)
+                    processed_content.append(item['text'])
+            content = '\n'.join(processed_content)
         
-        formatted_history.append(f"{role}: {content}")
+        if role == 'system':
+            formatted_history.append(f"System: {content}")
+        elif role == 'user':
+            formatted_history.append(f"User: {content}")
+        elif role == 'assistant':
+            formatted_history.append(f"Assistant: {content}")
     
-    # Append additional messages only if there are existing messages
-    if messages: # Save credits if it is the first message.
-        formatted_history.append("Respond like normal. The conversation history will be automatically updated on the next MESSAGE. DO NOT ADD User: or Assistant: to your output. Just respond like normal.")
-        formatted_history.append("User Message:\n")
-    formatted_history.append(new_input) 
+    # Добавляем новый ввод, если он есть
+    if new_input:
+        formatted_history.append(f"User: {new_input}")
     
+    # Возвращаем только историю диалога без дополнительных инструкций
     return '\n'.join(formatted_history)
 
-def extract_images_from_message(messages, api_key, model):
-    """
-    Extracts images from message content and uploads them to 1minAI
-    
-    Returns:
-        tuple: (user_input as text, list of image paths, image flag)
-    """
-    image = False
-    image_paths = []
-    user_input = ""
-    
-    if not messages:
-        return user_input, image_paths, image
-    
-    last_message = messages[-1]
-    content = last_message.get('content', '')
-    
-    # If content is not a list, return as is
-    if not isinstance(content, list):
-        return content, image_paths, image
-    
-    # Process multi-modal content (text + images)
-    text_parts = []
-    
-    for item in content:
-        # Extract text
-        if 'text' in item:
-            text_parts.append(item['text'])
-        elif 'type' in item and item['type'] == 'text':
-            text_parts.append(item.get('text', ''))
-            
-        # Extract and process images
-        try:
-            if 'image_url' in item:
-                if model not in vision_supported_models:
-                    # If the model doesn't support images, just ignore them and log the warning message
-                    logger.warning(f"Model {model} does not support image inputs, ignoring images")
-                    continue
-                
-                # Process base64 images
-                if isinstance(item['image_url'], dict) and 'url' in item['image_url']:
-                    image_url = item['image_url']['url']
-                    if image_url.startswith("data:image/"):
-                        # Handle base64 encoded image
-                        mime_type = re.search(r'data:(image/[^;]+);base64,', image_url)
-                        mime_type = mime_type.group(1) if mime_type else 'image/png'
-                        base64_image = image_url.split(",")[1]
-                        binary_data = base64.b64decode(base64_image)
-                        
-                        # Create a BytesIO object
-                        image_data = BytesIO(binary_data)
-                    else:
-                        # Handle URL images
-                        response = requests.get(image_url)
-                        response.raise_for_status()
-                        image_data = BytesIO(response.content)
-                        mime_type = response.headers.get('content-type', 'image/png')
-                    
-                    # Upload to 1minAI
-                    headers = {"API-KEY": api_key}
-                    files = {
-                        'asset': (f"relay_{uuid.uuid4()}", image_data, mime_type)
-                    }
-                    
-                    asset_response = requests.post(ONE_MIN_ASSET_URL, files=files, headers=headers)
-                    asset_response.raise_for_status()
-                    
-                    # Get image path and add to list
-                    image_path = asset_response.json()['fileContent']['path']
-                    image_paths.append(image_path)
-                    image = True
-        except Exception as e:
-            logger.error(f"Error processing image: {str(e)[:100]}")
-            # Continue to process other content even if one image fails
-    
-    # Combine all text parts
-    user_input = '\n'.join(text_parts)
-    
-    return user_input, image_paths, image
 
-def process_tools(tools, tool_choice, model):
-    """
-    Process tools (function calling) for compatible models
-    
-    Args:
-        tools (list): List of tool definitions
-        tool_choice (str/dict): Tool choice configuration
-        model (str): Model name
-    
-    Returns:
-        dict: 1minAI compatible tools configuration
-    """
-    if not tools:
-        return None
-    
-    if model not in tools_supported_models:
-        # If the model does not support tools, just return None instead of calling an error
-        logger.warning(f"Model {model} does not support tool use, ignoring tools parameter")
-        return None
-    
-    # Convert OpenAI tools format to 1minAI format
-    one_min_tools = []
-    
-    for tool in tools:
-        # Currently only 'function' type is supported
-        if tool.get('type') == 'function':
-            function_def = tool.get('function', {})
-            one_min_tool = {
-                "name": function_def.get('name', ''),
-                "description": function_def.get('description', ''),
-                "parameters": function_def.get('parameters', {})
-            }
-            one_min_tools.append(one_min_tool)
-    
-    # Process tool_choice
-    auto_invoke = True  # Default
-    if tool_choice == "none":
-        auto_invoke = False
-    elif isinstance(tool_choice, dict) and tool_choice.get('type') == 'function':
-        # Specific function is requested
-        # 1minAI doesn't directly support this, but we can add this to the prompt
-        pass
-    
-    return {
-        "tools": one_min_tools,
-        "autoInvoke": auto_invoke
-    }
-
-def process_tts_request(request_data):
-    """
-    Process text-to-speech request
-    
-    Args:
-        request_data (dict): Request data
-    
-    Returns:
-        Response: Flask response with audio data or error
-    """
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return ERROR_HANDLER(1021)
-    
-    api_key = auth_header.split(" ")[1]
-    
-    # Extract parameters
-    input_text = request_data.get('input', '')
-    model = request_data.get('model', 'nova')
-    voice = request_data.get('voice', 'alloy')
-    response_format = request_data.get('response_format', 'mp3')
-    speed = request_data.get('speed', 1.0)
-    
-    if not input_text:
-        return ERROR_HANDLER(1412, detail="No input text provided for TTS")
-    
-    # if model not in tts_supported_models:
-    #     return ERROR_HANDLER(1046, model=model)
-    
-    # Prepare request to 1minAI
-    headers = {"API-KEY": api_key}
-    payload = {
-        "text": input_text,
-        "voice": voice,
-        "model": model,
-        "speed": speed,
-        "format": response_format
-    }
-    
-    try:
-        response = requests.post(ONE_MIN_TEXT_TO_SPEECH_URL, json=payload, headers=headers)
-        response.raise_for_status()
-        
-        # Get the audio data
-        tts_response = response.json()
-        audio_url = tts_response.get('audioUrl')
-        
-        if not audio_url:
-            return ERROR_HANDLER(1500, detail="No audio URL returned from 1minAI TTS API")
-        
-        # Download the audio file
-        audio_response = requests.get(audio_url)
-        audio_response.raise_for_status()
-        
-        # Create response
-        flask_response = make_response(audio_response.content)
-        flask_response.headers['Content-Type'] = f'audio/{response_format}'
-        
-        return flask_response
-    except requests.exceptions.RequestException as e:
-        return ERROR_HANDLER(1500, detail=str(e))
-
-def process_stt_request():
-    """
-    Process speech-to-text request
-    
-    Returns:
-        Response: Flask response with transcription or error
-    """
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return ERROR_HANDLER(1021)
-    
-    api_key = auth_header.split(" ")[1]
-    
-    # Check if file is uploaded
-    if 'file' not in request.files:
-        return ERROR_HANDLER(1700, detail="No audio file provided")
-    
-    audio_file = request.files['file']
-    model = request.form.get('model', 'whisper-1')
-    
-    # Save the file temporarily
-    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-        audio_file.save(temp_file.name)
-        temp_file_path = temp_file.name
-    
-    try:
-        # Upload to 1minAI
-        headers = {"API-KEY": api_key}
-        files = {
-            'asset': (audio_file.filename, open(temp_file_path, 'rb'), audio_file.content_type)
-        }
-        
-        asset_response = requests.post(ONE_MIN_ASSET_URL, files=files, headers=headers)
-        asset_response.raise_for_status()
-        
-        # Get audio path
-        audio_path = asset_response.json()['fileContent']['path']
-        
-        # Transcribe audio
-        payload = {
-            "audioPath": audio_path,
-            "model": model
-        }
-        
-        response = requests.post(ONE_MIN_SPEECH_TO_TEXT_URL, json=payload, headers=headers)
-        response.raise_for_status()
-        
-        # Format response
-        stt_response = response.json()
-        transcription = stt_response.get('text', '')
-        
-        return jsonify({
-            "text": transcription
-        })
-    except requests.exceptions.RequestException as e:
-        return ERROR_HANDLER(1500, detail=str(e))
-    finally:
-        # Clean up the temporary file
-        try:
-            os.unlink(temp_file_path)
-        except:
-            pass
-
-def web_search(query, api_key):
-    """
-    Perform a web search using 1minAI API
-    
-    Args:
-        query (str): Search query
-        api_key (str): API key
-    
-    Returns:
-        dict: Search results
-    """
-    headers = {"API-KEY": api_key}
-    payload = {
-        "query": query
-    }
-    
-    try:
-        response = requests.post(ONE_MIN_SEARCH_URL, json=payload, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Web search error: {str(e)}")
-        return {"results": []}
-
-@app.route('/v1/audio/transcriptions', methods=['POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def audio_transcriptions():
-    if request.method == 'OPTIONS':
-        return handle_options_request()
-    
-    return process_stt_request()
-
-@app.route('/v1/audio/speech', methods=['POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def audio_speech():
-    if request.method == 'OPTIONS':
-        return handle_options_request()
-    
-    # Temporarily return an error that the function is disabled
-    return ERROR_HANDLER(1600, detail="TTS functionality is temporarily disabled")
-    
-    # request_data = request.json
-    # return process_tts_request(request_data)
-
-@app.route('/v1/chat/completions', methods=['POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
+@app.route('/v1/chat/completions', methods=['POST'])
+@limiter.limit("60 per minute")
 def conversation():
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Received request: /v1/chat/completions")
+    
+    if not request.json:
+        return jsonify({"error": "Invalid request format"}), 400
+    
+    # Извлекаем информацию из запроса
+    api_key = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not api_key:
+        logger.error(f"[{request_id}] No API key provided")
+        return jsonify({"error": "API key required"}), 401
+    
+    try:
+        # Строим payload для запроса
+        request_data = request.json.copy()
+        
+        # Получаем и нормализуем модель
+        model = request_data.get('model', '').strip()
+        logger.info(f"[{request_id}] Using model: {model}")
+        
+        # Журналируем начало запроса
+        logger.debug(f"[{request_id}] Processing chat completion request")
+        
+        # Проверяем, содержит ли запрос изображения
+        image = False
+        image_paths = []
+        messages = request_data.get('messages', [])
+        
+        if not messages:
+            logger.error(f"[{request_id}] No messages provided in request")
+            return ERROR_HANDLER(1412)
+        
+        user_input = messages[-1].get('content')
+        if not user_input:
+            logger.error(f"[{request_id}] No content in last message")
+            return ERROR_HANDLER(1423)
+        
+        # Формируем историю диалога
+        all_messages = format_conversation_history(request_data.get('messages', []), request_data.get('new_input', ''))
+        
+        # Проверка на наличие изображений в последнем сообщении
+        if isinstance(user_input, list):
+            logger.debug(f"[{request_id}] Processing message with multiple content items (text/images)")
+            combined_text = ""
+            for i, item in enumerate(user_input):
+                if 'text' in item:
+                    combined_text += item['text'] + "\n"
+                    logger.debug(f"[{request_id}] Added text content from item {i+1}")
+                
+                if 'image_url' in item:
+                    if model not in vision_supported_models + ['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307']:
+                        logger.error(f"[{request_id}] Model {model} does not support images")
+                        return ERROR_HANDLER(1044, model)
+                    
+                    # Создаем хеш URL изображения для кэширования
+                    image_key = None
+                    image_url = None
+                    
+                    # Извлекаем URL изображения
+                    if isinstance(item['image_url'], dict) and 'url' in item['image_url']:
+                        image_url = item['image_url']['url']
+                    else:
+                        image_url = item['image_url']
+                    
+                    # Хешируем URL для кэша
+                    if image_url:
+                        image_key = hashlib.md5(image_url.encode('utf-8')).hexdigest()
+                    
+                    # Проверяем кэш
+                    if image_key and image_key in IMAGE_CACHE:
+                        cached_path = IMAGE_CACHE[image_key]
+                        logger.debug(f"[{request_id}] Using cached image path for item {i+1}: {cached_path}")
+                        image_paths.append(cached_path)
+                        image = True
+                        continue
+                    
+                    # Загружаем изображение, если оно не в кэше
+                    logger.debug(f"[{request_id}] Processing image URL in item {i+1}: {image_url[:30]}...")
+                    
+                    # Загружаем изображение
+                    image_path = retry_image_upload(image_url, api_key, request_id=request_id)
+                    
+                    if image_path:
+                        # Сохраняем в кэш
+                        if image_key:
+                            IMAGE_CACHE[image_key] = image_path
+                            # Очищаем старые записи если нужно
+                            if len(IMAGE_CACHE) > MAX_CACHE_SIZE:
+                                old_key = next(iter(IMAGE_CACHE))
+                                del IMAGE_CACHE[old_key]
+                        
+                        image_paths.append(image_path)
+                        image = True
+                        logger.debug(f"[{request_id}] Image {i+1} successfully processed: {image_path}")
+                    else:
+                        logger.error(f"[{request_id}] Failed to upload image {i+1}")
+            
+            # Заменяем user_input текстовой частью, только если она не пуста
+            if combined_text:
+                user_input = combined_text
+        
+        # Подсчет токенов
+        prompt_token = calculate_token(str(all_messages))
+        
+        # Проверка модели
+        if PERMIT_MODELS_FROM_SUBSET_ONLY and model not in AVAILABLE_MODELS:
+            return ERROR_HANDLER(1002, model)
+        
+        logger.debug(f"[{request_id}] Processing {prompt_token} prompt tokens with model {model}")
+        
+        # Проверка наличия web search
+        web_search = request_data.get('web_search', False)
+        num_of_site = request_data.get('num_of_site', 3)
+        max_word = request_data.get('max_word', 500)
+        
+        # Формирование payload на основе наличия изображений
+        if not image or not image_paths:
+            logger.debug(f"[{request_id}] Creating CHAT_WITH_AI request")
+            payload = {
+                "type": "CHAT_WITH_AI",
+                "model": model,
+                "promptObject": {
+                    "prompt": all_messages,
+                    "isMixed": False,
+                    "webSearch": web_search,
+                    "numOfSite": num_of_site if web_search else None,
+                    "maxWord": max_word if web_search else None
+                }
+            }
+        else:
+            logger.debug(f"[{request_id}] Creating CHAT_WITH_IMAGE request with {len(image_paths)} images: {image_paths}")
+            
+            # Добавляем приватность для распознавания людей, если это последнее сообщение
+            if isinstance(user_input, str) and image:
+                privacy_instructions = """
+                Опиши изображение в общих чертах. Если на изображении есть люди, опиши их в общих чертах 
+                (например, "человек в синем", "группа людей"), но не пытайся определить конкретных людей или их личности.
+                Опиши композицию, объекты, цвета, обстановку и действия без идентификации конкретных лиц.
+                Если на изображении есть текст, прочитай его, если это возможно.
+                """
+                all_messages += f"\n\n{privacy_instructions}\n\n"
+            
+            payload = {
+                "type": "CHAT_WITH_IMAGE",
+                "model": model,
+                "promptObject": {
+                    "prompt": all_messages,
+                    "isMixed": False,
+                    "imageList": image_paths,
+                    "webSearch": web_search,
+                    "numOfSite": num_of_site if web_search else None,
+                    "maxWord": max_word if web_search else None
+                }
+            }
+        
+        headers = {"API-KEY": api_key, 'Content-Type': 'application/json'}
+        
+        # Выполнение запроса в зависимости от stream
+        if not request_data.get('stream', False):
+            # Обычный запрос
+            logger.debug(f"[{request_id}] Sending non-streaming request to {ONE_MIN_API_URL}")
+            
+            try:
+                response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
+                logger.debug(f"[{request_id}] Response status code: {response.status_code}")
+                
+                if response.status_code != 200:
+                    if response.status_code == 401:
+                        return ERROR_HANDLER(1020, key=api_key)
+                    try:
+                        error_content = response.json()
+                        logger.error(f"[{request_id}] Error response: {error_content}")
+                    except:
+                        logger.error(f"[{request_id}] Could not parse error response as JSON")
+                    return ERROR_HANDLER(response.status_code)
+                
+                one_min_response = response.json()
+                transformed_response = transform_response(one_min_response, request_data, prompt_token)
+                
+                response = make_response(jsonify(transformed_response))
+                set_response_headers(response)
+                return response, 200
+            except Exception as e:
+                logger.error(f"[{request_id}] Exception during request: {str(e)}")
+                return jsonify({"error": str(e)}), 500
+        else:
+            # Потоковый запрос
+            logger.debug(f"[{request_id}] Sending streaming request")
+            
+            # URL для потокового режима
+            streaming_url = f"{ONE_MIN_API_URL}?isStreaming=true"
+            
+            logger.debug(f"[{request_id}] Streaming URL: {streaming_url}")
+            logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:200]}...")
+            
+            try:
+                # Используем сессию для управления соединением
+                session = create_session()
+                response_stream = session.post(streaming_url, json=payload, headers=headers, stream=True)
+                
+                logger.debug(f"[{request_id}] Streaming response status code: {response_stream.status_code}")
+                
+                if response_stream.status_code != 200:
+                    if response_stream.status_code == 401:
+                        session.close()
+                        return ERROR_HANDLER(1020, key=api_key)
+                    
+                    logger.error(f"[{request_id}] Error status code: {response_stream.status_code}")
+                    try:
+                        error_content = response_stream.json()
+                        logger.error(f"[{request_id}] Error response: {error_content}")
+                    except:
+                        logger.error(f"[{request_id}] Could not parse error response as JSON")
+                    
+                    session.close()
+                    return ERROR_HANDLER(response_stream.status_code)
+                
+                # Передаем сессию в generator
+                return Response(
+                    stream_response(response_stream, request_data, model, prompt_token, session),
+                    content_type='text/event-stream'
+                )
+            except Exception as e:
+                logger.error(f"[{request_id}] Exception during streaming request: {str(e)}")
+                return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception during conversation processing: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": f"Error during conversation processing: {str(e)}"}), 500
+
+@app.route('/v1/images/generations', methods=['POST', 'OPTIONS'])
+@limiter.limit("500 per minute")
+def generate_image():
     if request.method == 'OPTIONS':
         return handle_options_request()
+
+    # Создаем уникальный ID для запроса
+    request_id = str(uuid.uuid4())
+    logger.debug(f"[{request_id}] Processing image generation request")
+
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.error(f"[{request_id}] Invalid Authentication")
+        return ERROR_HANDLER(1021)
     
+    api_key = auth_header.split(" ")[1]
+    headers = {'API-KEY': api_key, 'Content-Type': 'application/json'}
+    
+    request_data = request.json
+    model = request_data.get('model', 'dall-e-2').strip()
+    logger.debug(f"[{request_id}] Using model: {model}")
+    
+    # Преобразование параметров OpenAI в формат 1min.ai
+    prompt = request_data.get('prompt', '')
+    
+    if model == 'dall-e-3':
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": "dall-e-3",
+            "promptObject": {
+                "prompt": prompt,
+                "n": request_data.get('n', 1),
+                "size": request_data.get('size', '1024x1024'),
+                "quality": request_data.get('quality', 'hd'),
+                "style": request_data.get('style', 'vivid')
+            }
+        }
+    elif model == 'dall-e-2':
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": "dall-e-2",
+            "promptObject": {
+                "prompt": prompt,
+                "n": request_data.get('n', 1),
+                "size": request_data.get('size', '1024x1024')
+            }
+        }
+    elif model == 'stable-diffusion-xl-1024-v1-0':
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": "stable-diffusion-xl-1024-v1-0",
+            "promptObject": {
+                "prompt": prompt,
+                "samples": request_data.get('n', 1),
+                "size": request_data.get('size', '1024x1024'),
+                "cfg_scale": request_data.get('cfg_scale', 7),
+                "clip_guidance_preset": request_data.get('clip_guidance_preset', 'NONE'),
+                "seed": request_data.get('seed', 0),
+                "steps": request_data.get('steps', 30)
+            }
+        }
+    elif model == 'midjourney':
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": "midjourney",
+            "promptObject": {
+                "prompt": prompt,
+                "num_outputs": request_data.get('n', 1),
+                "aspect_ratio": request_data.get('size', '1:1')
+            }
+        }
+    else:
+        logger.error(f"[{request_id}] Invalid model: {model}")
+        return ERROR_HANDLER(1002, model)
+    
+    try:
+        logger.debug(f"[{request_id}] Sending image generation request to {ONE_MIN_API_URL}")
+        logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:200]}...")
+        
+        response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
+        logger.debug(f"[{request_id}] Image generation response status code: {response.status_code}")
+        
+        if response.status_code != 200:
+            if response.status_code == 401:
+                return ERROR_HANDLER(1020, key=api_key)
+            return jsonify({"error": response.json().get('error', 'Unknown error')}), response.status_code
+        
+        one_min_response = response.json()
+        
+        # Преобразование ответа 1min.ai в формат OpenAI
+        try:
+            image_url = one_min_response.get('aiRecord', {}).get('aiRecordDetail', {}).get('resultObject', [""])[0]
+            
+            if not image_url:
+                # Попробуем другие пути извлечения URL
+                if 'resultObject' in one_min_response:
+                    image_url = one_min_response['resultObject'][0] if isinstance(one_min_response['resultObject'], list) else one_min_response['resultObject']
+                    
+            if not image_url:
+                logger.error(f"[{request_id}] Could not extract image URL from API response")
+                return jsonify({"error": "Could not extract image URL from API response"}), 500
+                
+            logger.debug(f"[{request_id}] Successfully generated image: {image_url[:50]}...")
+            
+            openai_response = {
+                "created": int(time.time()),
+                "data": [
+                    {
+                        "url": image_url
+                    }
+                ]
+            }
+            
+            response = make_response(jsonify(openai_response))
+            set_response_headers(response)
+            return response, 200
+        except Exception as e:
+            logger.error(f"[{request_id}] Error processing image generation response: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception during image generation request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/v1/images/variations', methods=['POST', 'OPTIONS'])
+@limiter.limit("500 per minute")
+def image_variations():
+    if request.method == 'OPTIONS':
+        return handle_options_request()
+
+    # Создаем уникальный ID для запроса
+    request_id = str(uuid.uuid4())
+    logger.debug(f"[{request_id}] Processing image variation request")
+
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.error(f"[{request_id}] Invalid Authentication")
+        return ERROR_HANDLER(1021)
+    
+    api_key = auth_header.split(" ")[1]
+    
+    # Получение файла изображения
+    if 'image' not in request.files:
+        logger.error(f"[{request_id}] No image file provided")
+        return jsonify({"error": "No image file provided"}), 400
+    
+    image_file = request.files['image']
+    model = request.form.get('model', 'dall-e-2').strip()
+    n = request.form.get('n', 1)
+    size = request.form.get('size', '1024x1024')
+    
+    logger.debug(f"[{request_id}] Using model: {model} for image variations")
+    
+    try:
+        # Создаем новую сессию для загрузки изображения
+        session = create_session()
+        headers = {'API-KEY': api_key}
+        
+        # Загрузка изображения в 1min.ai
+        files = {
+            'asset': (image_file.filename, image_file, 'image/png')
+        }
+        
+        try:
+            asset_response = session.post(ONE_MIN_ASSET_URL, files=files, headers=headers)
+            logger.debug(f"[{request_id}] Image upload response status code: {asset_response.status_code}")
+            
+            if asset_response.status_code != 200:
+                session.close()
+                return jsonify({"error": asset_response.json().get('error', 'Failed to upload image')}), asset_response.status_code
+            
+            image_path = asset_response.json()['fileContent']['path']
+            logger.debug(f"[{request_id}] Successfully uploaded image: {image_path}")
+        finally:
+            session.close()
+        
+        # Создание вариации в зависимости от модели
+        if model == 'dall-e-2':
+            payload = {
+                "type": "IMAGE_VARIATOR",
+                "model": "dall-e-2",
+                "promptObject": {
+                    "imageUrl": image_path,
+                    "n": int(n),
+                    "size": size
+                }
+            }
+        elif model == 'clipdrop':
+            payload = {
+                "type": "IMAGE_VARIATOR",
+                "model": "clipdrop",
+                "promptObject": {
+                    "imageUrl": image_path
+                }
+            }
+        elif model == 'midjourney':
+            payload = {
+                "type": "IMAGE_VARIATOR",
+                "model": "midjourney",
+                "promptObject": {
+                    "imageUrl": image_path,
+                    "mode": "fast",
+                    "n": int(n),
+                    "isNiji6": False,
+                    "aspect_width": 1,
+                    "aspect_height": 1,
+                    "maintainModeration": True
+                }
+            }
+        else:
+            logger.error(f"[{request_id}] Invalid model for variations: {model}")
+            return ERROR_HANDLER(1002, model)
+        
+        headers['Content-Type'] = 'application/json'
+        logger.debug(f"[{request_id}] Sending image variation request with payload: {json.dumps(payload)[:200]}...")
+        
+        response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
+        logger.debug(f"[{request_id}] Image variation response status code: {response.status_code}")
+        
+        if response.status_code != 200:
+            if response.status_code == 401:
+                return ERROR_HANDLER(1020, key=api_key)
+            logger.error(f"[{request_id}] Error in variation response: {response.text[:200]}")
+            return jsonify({"error": response.json().get('error', 'Unknown error')}), response.status_code
+        
+        one_min_response = response.json()
+        
+        # Преобразование ответа 1min.ai в формат OpenAI
+        try:
+            # Безопасное извлечение URL изображения
+            image_url = one_min_response.get('aiRecord', {}).get('aiRecordDetail', {}).get('resultObject', [""])[0]
+            
+            if not image_url:
+                # Попробуем другие пути извлечения URL
+                if 'resultObject' in one_min_response:
+                    image_url = one_min_response['resultObject'][0] if isinstance(one_min_response['resultObject'], list) else one_min_response['resultObject']
+                    
+            if not image_url:
+                logger.error(f"[{request_id}] Could not extract variation image URL from API response")
+                return jsonify({"error": "Could not extract image URL from API response"}), 500
+                
+            logger.debug(f"[{request_id}] Successfully generated image variation: {image_url[:50]}...")
+            
+            openai_response = {
+                "created": int(time.time()),
+                "data": [
+                    {
+                        "url": image_url
+                    }
+                ]
+            }
+            
+            response = make_response(jsonify(openai_response))
+            set_response_headers(response)
+            return response, 200
+        except Exception as e:
+            logger.error(f"[{request_id}] Error processing image variation response: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception during image variation request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/v1/keyword_research', methods=['POST', 'OPTIONS'])
+@limiter.limit("500 per minute")
+def keyword_research():
+    if request.method == 'OPTIONS':
+        return handle_options_request()
+
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith("Bearer "):
         logger.error("Invalid Authentication")
         return ERROR_HANDLER(1021)
     
     api_key = auth_header.split(" ")[1]
+    headers = {'API-KEY': api_key, 'Content-Type': 'application/json'}
+    
     request_data = request.json
+    prompt = request_data.get('prompt', '')
+    model = request_data.get('model', 'gpt-4o-mini')
     
-    headers = {
-        "API-KEY": api_key, 
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream" if request_data.get('stream', False) else "application/json"
-    }
-    
-    # Get model
-    model = request_data.get('model', 'mistral-nemo')
-    
-    # Check to see if the TTS model is a model
-    # if model in tts_supported_models:
-    #     return ERROR_HANDLER(1600, detail="TTS models can only be used with the /v1/audio/speech endpoint")
-    
-    if PERMIT_MODELS_FROM_SUBSET_ONLY and model not in AVAILABLE_MODELS:
-        return ERROR_HANDLER(1002, model)
-    
-    # Get messages
-    messages = request_data.get('messages', [])
-    if not messages:
-        return ERROR_HANDLER(1412)
-    
-    # Extract system message if present
-    system_prompt = None
-    for msg in messages:
-        if msg.get('role') == 'system':
-            system_prompt = msg.get('content', '')
-            break
-    
-    # Extract user input from the last message
-    try:
-        user_input, image_paths, has_image = extract_images_from_message(messages, api_key, model)
-    except Exception as e:
-        logger.error(f"Error extracting images: {str(e)}")
-        # If an error occurs during image processing, continue without images
-        user_input = messages[-1].get('content', '')
-        if isinstance(user_input, list):
-            # Merge the text parts of the message
-            text_parts = []
-            for item in user_input:
-                if 'text' in item:
-                    text_parts.append(item['text'])
-                elif 'type' in item and item['type'] == 'text':
-                    text_parts.append(item.get('text', ''))
-            user_input = '\n'.join(text_parts)
-        
-        image_paths = []
-        has_image = False
-        
-        if not user_input:
-            return ERROR_HANDLER(1423)
-    
-    # Format conversation history
-    all_messages = format_conversation_history(messages, user_input, system_prompt)
-    prompt_token = calculate_token(str(all_messages))
-    
-    # Process tools (function calling)
-    tools_config = None
-    try:
-        if 'tools' in request_data:
-            tools_config = process_tools(
-                request_data.get('tools', []),
-                request_data.get('tool_choice', 'auto'),
-                model
-            )
-    except Exception as e:
-        # Any errors other than tool incompatibilities are treated as internal errors
-        return ERROR_HANDLER(1500, detail=str(e))
-    
-    # Check for web search
-    use_web_search = request_data.get('web_search', False)
-    if use_web_search and model not in web_search_supported_models:
-        logger.warning(f"Model {model} does not support web search, ignoring web search parameter")
-        use_web_search = False
-    
-    # Prepare base payload
     payload = {
+        "type": "KEYWORD_RESEARCH",
         "model": model,
+        "conversationId": "KEYWORD_RESEARCH",
         "promptObject": {
-            "prompt": all_messages,
-            "isMixed": False,
-            "webSearch": use_web_search
+            "researchType": request_data.get('research_type', 'KEYWORD_STATISTICS'),
+            "numberOfWord": request_data.get('number_of_words', 5),
+            "prompt": prompt
         }
     }
     
-    # Set request type based on content
-    if has_image:
-        payload["type"] = "CHAT_WITH_IMAGE"
-        payload["promptObject"]["imageList"] = image_paths
-    else:
-        payload["type"] = "CHAT_WITH_AI"
+    response = requests.post(ONE_MIN_API_URL, json=payload, headers=headers)
     
-    # Add tools if configured
-    if tools_config:
-        payload["toolsConfig"] = tools_config
+    if response.status_code != 200:
+        if response.status_code == 401:
+            return ERROR_HANDLER(1020, key=api_key)
+        return jsonify({"error": response.json().get('error', 'Unknown error')}), response.status_code
     
-    # Add additional parameters
-    if 'temperature' in request_data:
-        payload["temperature"] = request_data['temperature']
+    one_min_response = response.json()
     
-    if 'top_p' in request_data:
-        payload["topP"] = request_data['top_p']
-    
-    if 'max_tokens' in request_data:
-        payload["maxTokens"] = request_data['max_tokens']
-    
-    # Handle response format
-    response_format = request_data.get('response_format', {})
-    if response_format.get('type') == 'json_object':
-        payload["responseFormat"] = "json"
-    
-    logger.debug(f"Processing {prompt_token} prompt tokens with model {model}")
-    
-    # Check for cases where we need to disable streaming
-    stream_enabled = request_data.get('stream', False)
-    
-    # Disable streaming for claude-instant-1.2 only, since it doesn't work with it for sure
-    if model == "claude-instant-1.2" and stream_enabled:
-        logger.warning(f"Model {model} might have issues with streaming, falling back to non-streaming mode")
-        stream_enabled = False
-    
-    # For all other models we will try streaming if requested
-    
-    if not stream_enabled:
-        # Non-Streaming Response
-        logger.debug("Non-Streaming AI Response")
-        try:
-            response = requests.post(ONE_MIN_API_URL, json=payload, headers=headers)
-            response.raise_for_status()
-            one_min_response = response.json()
-            
-            transformed_response = transform_response(one_min_response, request_data, prompt_token)
-            flask_response = make_response(jsonify(transformed_response))
-            set_response_headers(flask_response)
-            
-            return flask_response, 200
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 401:
-                return ERROR_HANDLER(1020, key="[REDACTED]")
-            return ERROR_HANDLER(1500, detail=str(e))
-    
-    else:
-        # Streaming Response
-        logger.debug("Streaming AI Response")
-        try:
-            response_stream = requests.post(ONE_MIN_CONVERSATION_API_STREAMING_URL, 
-                                           data=json.dumps(payload), 
-                                           headers=headers, 
-                                           stream=True)
-            response_stream.raise_for_status()
-            
-            return Response(stream_response(response_stream, request_data, request_data.get('model', DEFAULT_MODEL), prompt_token), 
-                            mimetype='text/event-stream')
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 401:
-                return ERROR_HANDLER(1020, key="[REDACTED]")
-            
-            # If you get an error while streaming, try without streaming
-            logger.warning(f"Streaming request failed for model {model}, trying non-streaming mode")
-            try:
-                response = requests.post(ONE_MIN_API_URL, json=payload, headers=headers)
-                response.raise_for_status()
-                one_min_response = response.json()
-                
-                transformed_response = transform_response(one_min_response, request_data, prompt_token)
-                flask_response = make_response(jsonify(transformed_response))
-                set_response_headers(flask_response)
-                
-                return flask_response, 200
-            except requests.exceptions.HTTPError as retry_e:
-                if retry_e.response.status_code == 401:
-                    return ERROR_HANDLER(1020, key="[REDACTED]")
-                return ERROR_HANDLER(1500, detail=str(retry_e))
-            
-        except Exception as e:
-            return ERROR_HANDLER(1500, detail=str(e))
-
-def transform_streaming_response(data, request_data, last_output, prompt_tokens):
-    """Transform 1minAI streaming response format to OpenAI streaming format"""
-    current_time = int(time.time())
-    completion_id = f"chatcmpl-{uuid.uuid4()}"
-    model = map_model_to_openai(request_data.get('model', DEFAULT_MODEL))
-    
-    # Initialize the response structure
-    transformed_response = {
-        "id": completion_id,
-        "object": "chat.completion.chunk",
-        "created": current_time,
-        "model": model,
-        "choices": []
-    }
-    
-    # Handle different response formats
-    choices = []
-    
-    # Log the data structure for debugging
-    logger.debug(f"Transform streaming response data keys: {list(data.keys())}")
-    
-    # Check for content field
-    if 'content' in data:
-        content = data.get('content', '')
-        if content:  # Only add if content is not empty
-            choice = {
-                "index": 0,
-                "delta": {"content": content},
-                "finish_reason": None
-            }
-            choices.append(choice)
-    
-    # Check for function_call field
-    elif 'function_call' in data:
-        # Handle function call streaming
-        func_call = data['function_call']
-        if isinstance(func_call, dict):
-            choice = {
-                "index": 0,
-                "delta": {
-                    "function_call": {
-                        "name": func_call.get('name', ''),
-                        "arguments": func_call.get('arguments', '')
-                    }
-                },
-                "finish_reason": None
-            }
-            choices.append(choice)
-    
-    # Check for stop signal
-    elif 'stop' in data and data['stop']:
-        # Handle the stop signal
-        choice = {
-            "index": 0,
-            "delta": {},
-            "finish_reason": "stop"
-        }
-        choices.append(choice)
-    
-    # Handle other formats that may have a text/message field
-    elif 'text' in data:
-        choice = {
-            "index": 0,
-            "delta": {"content": data.get('text', '')},
-            "finish_reason": None
-        }
-        choices.append(choice)
-    
-    elif 'message' in data:
-        choice = {
-            "index": 0,
-            "delta": {"content": data.get('message', '')},
-            "finish_reason": None
-        }
-        choices.append(choice)
-    
-    # Fallback case - try to find any text-like field in the data
-    else:
-        for key, value in data.items():
-            if isinstance(value, str) and value:
-                logger.debug(f"Using fallback field {key} for content")
-                choice = {
-                    "index": 0,
-                    "delta": {"content": value},
-                    "finish_reason": None
-                }
-                choices.append(choice)
-                break
-    
-    # If we still have no choices, create an empty delta to keep the stream alive
-    if not choices:
-        choice = {
-            "index": 0,
-            "delta": {},
-            "finish_reason": None
-        }
-        choices.append(choice)
-    
-    transformed_response["choices"] = choices
-    return transformed_response
-
-# Add a function to transform the response from 1minAI API into OpenAI API format
-def transform_response(one_min_response, request_data, prompt_tokens):
-    """Transform 1minAI response format to OpenAI format"""
-    current_time = int(time.time())
-    completion_id = f"chatcmpl-{uuid.uuid4()}"
-    model = map_model_to_openai(request_data.get('model', DEFAULT_MODEL))
-    
-    # Initialize transformed response
-    transformed_response = {
-        "id": completion_id,
-        "object": "chat.completion",
-        "created": current_time,
-        "model": model,
-        "choices": [],
-        "usage": {}
-    }
-    
-    # Extract content from 1minAI response
-    content = one_min_response.get('content', '')
-    
-    # Handle function calling if present
-    if 'function_call' in one_min_response:
-        function_call = one_min_response['function_call']
-        choice = {
-            "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": None,
-                "function_call": {
-                    "name": function_call.get('name', ''),
-                    "arguments": function_call.get('arguments', '{}')
-                }
-            },
-            "finish_reason": "function_call"
-        }
-    else:
-        # Regular text response
-        choice = {
-            "index": 0,
-            "message": {
-                "role": "assistant",
-                "content": content
-            },
-            "finish_reason": "stop"
-        }
-    
-    transformed_response["choices"].append(choice)
-    
-    # Calculate completion tokens
-    completion_tokens = calculate_token(content, request_data.get('model', 'DEFAULT'))
-    
-    # Add usage information
-    transformed_response["usage"] = {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": prompt_tokens + completion_tokens
-    }
-    
-    return transformed_response
-
-@app.route('/v1/embeddings', methods=['POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def embeddings():
-    """Handle embeddings API requests"""
-    if request.method == 'OPTIONS':
-        return handle_options_request()
-    
-    # В официальной документации 1min.ai тип EMBEDDINGS не подтвержден
-    return ERROR_HANDLER(1500, detail="Embeddings API is not supported by 1min.ai")
-
-@app.route('/v1/images/generations', methods=['POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def images_generations():
-    """Handle image generation requests"""
-    if request.method == 'OPTIONS':
-        return handle_options_request()
-
     try:
-        # Get the request data
-        request_data = request.get_json()
+        result = one_min_response['aiRecord']['aiRecordDetail']['resultObject']
         
-        # Extract API key from Authorization header
-        api_key = extract_api_key()
-        if not api_key:
-            return ERROR_HANDLER(1001)
-        
-        # Validate the input data
-        if not request_data.get('prompt'):
-            return ERROR_HANDLER(1002, detail="Prompt is required")
-        
-        # Prepare the payload for 1minAI API
-        payload = {
-            "prompt": request_data.get('prompt'),
-            "n": request_data.get('n', 1),
-            "size": request_data.get('size', '1024x1024'),
-            "api_key": api_key,
-            "model": request_data.get('model', 'dall-e-3')
-        }
-        
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        # Make the request to 1minAI image generation API
-        response = requests.post(ONE_MIN_IMAGE_API_URL, json=payload, headers=headers)
-        response.raise_for_status()
-        
-        one_min_response = response.json()
-        
-        # Transform the response to OpenAI format
-        transformed_response = {
+        openai_response = {
+            "id": f"keyword-{uuid.uuid4()}",
             "created": int(time.time()),
-            "data": []
+            "model": model,
+            "result": result
         }
         
-        # Process the images from the response
-        if 'images' in one_min_response:
-            for i, img_url in enumerate(one_min_response['images']):
-                transformed_response['data'].append({
-                    "url": img_url,
-                    "revised_prompt": one_min_response.get('revised_prompt', request_data.get('prompt'))
-                })
-        
-        # Return the response
-        flask_response = make_response(jsonify(transformed_response))
-        set_response_headers(flask_response)
-        
-        return flask_response, 200
-    
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 401:
-            return ERROR_HANDLER(1020, key="[REDACTED]")
-        return ERROR_HANDLER(1500, detail=str(e))
+        response = make_response(jsonify(openai_response))
+        set_response_headers(response)
+        return response, 200
     except Exception as e:
-        return ERROR_HANDLER(1500, detail=str(e))
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/v1/moderations', methods=['POST', 'OPTIONS'])
+@app.route('/v1/content/generate', methods=['POST', 'OPTIONS'])
 @limiter.limit("500 per minute")
-def moderations():
-    """Handle moderation API requests"""
+def generate_content():
     if request.method == 'OPTIONS':
         return handle_options_request()
-    
-    # В официальной документации 1min.ai тип MODERATION не подтвержден
-    return ERROR_HANDLER(1500, detail="Moderations API is not supported by 1min.ai")
 
-@app.route('/v1/assistants', methods=['GET', 'POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def assistants():
-    """Handle assistants API requests"""
-    if request.method == 'OPTIONS':
-        return handle_options_request()
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.error("Invalid Authentication")
+        return ERROR_HANDLER(1021)
     
-    # В официальной документации 1min.ai тип ASSISTANT_CREATE не подтвержден
-    return ERROR_HANDLER(1500, detail="Assistants API is not supported by 1min.ai")
-
-
-@app.route('/v1/files', methods=['GET', 'POST', 'OPTIONS'])
-@limiter.limit("500 per minute")
-def files():
-    """Handle file upload and retrieval"""
-    if request.method == 'OPTIONS':
-        return handle_options_request()
+    api_key = auth_header.split(" ")[1]
+    headers = {'API-KEY': api_key, 'Content-Type': 'application/json'}
     
-    # В официальной документации 1min.ai тип FILES_LIST не подтвержден
-    return ERROR_HANDLER(1500, detail="Files API is not supported by 1min.ai")
-
-def stream_response(response, request_data, model, prompt_tokens):
-    """
-    Process streaming response from 1minAI API and convert it to OpenAI format
-    """
-    all_chunks = ""
-    for chunk in response.iter_content(chunk_size=1024):
-        if chunk:
-            chunk_text = chunk.decode('utf-8')
-            all_chunks += chunk_text
-            
-            return_chunk = {
-                "id": f"chatcmpl-{uuid.uuid4()}",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": map_model_to_openai(request_data.get('model', DEFAULT_MODEL)),
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {
-                            "content": chunk_text
-                        },
-                        "finish_reason": None
-                    }
-                ]
-            }
-            yield f"data: {json.dumps(return_chunk)}\n\n"
+    request_data = request.json
+    prompt = request_data.get('prompt', '')
+    model = request_data.get('model', 'gpt-4o-mini')
     
-    # Calculate tokens from all chunks
-    completion_tokens = calculate_token(all_chunks, request_data.get('model', 'DEFAULT'))
-    logger.debug(f"Finished processing streaming response. Completion tokens: {str(completion_tokens)}")
-    logger.debug(f"Total tokens: {str(completion_tokens + prompt_tokens)}")
-    
-    # Final chunk when iteration stops
-    final_chunk = {
-        "id": f"chatcmpl-{uuid.uuid4()}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": map_model_to_openai(request_data.get('model', DEFAULT_MODEL)),
-        "choices": [
-            {
-                "index": 0,
-                "delta": {},
-                "finish_reason": "stop"
-            }
-        ],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens
+    payload = {
+        "type": "CONTENT_GENERATOR_BLOG_ARTICLE",
+        "model": model,
+        "conversationId": "CONTENT_GENERATOR_BLOG_ARTICLE",
+        "promptObject": {
+            "language": request_data.get('language', 'English'),
+            "tone": request_data.get('tone', 'informative'),
+            "numberOfWord": request_data.get('number_of_words', 500),
+            "numberOfSection": request_data.get('number_of_sections', 3),
+            "keywords": request_data.get('keywords', ''),
+            "prompt": prompt
         }
     }
-    yield f"data: {json.dumps(final_chunk)}\n\n"
-    yield "data: [DONE]\n\n"
-
-# The main function to start the server
-if __name__ == "__main__":
-    # Set the logging level
-    if os.environ.get('DEBUG') == 'True':
-        logging.getLogger().setLevel(logging.DEBUG)
-    else:
-        logging.getLogger().setLevel(logging.INFO)
     
-    # Start the server
-    app.run(host="0.0.0.0", port=PORT, debug=DEBUG_MODE)
+    response = requests.post(ONE_MIN_API_URL, json=payload, headers=headers)
+    
+    if response.status_code != 200:
+        if response.status_code == 401:
+            return ERROR_HANDLER(1020, key=api_key)
+        return jsonify({"error": response.json().get('error', 'Unknown error')}), response.status_code
+    
+    one_min_response = response.json()
+    
+    try:
+        content = one_min_response['aiRecord']['aiRecordDetail']['resultObject']
+        
+        openai_response = {
+            "id": f"content-{uuid.uuid4()}",
+            "created": int(time.time()),
+            "model": model,
+            "content": content
+        }
+        
+        response = make_response(jsonify(openai_response))
+        set_response_headers(response)
+        return response, 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/v1/assistants', methods=['POST', 'OPTIONS'])
+@limiter.limit("500 per minute")
+def create_assistant():
+    if request.method == 'OPTIONS':
+        return handle_options_request()
+
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.error("Invalid Authentication")
+        return ERROR_HANDLER(1021)
+    
+    api_key = auth_header.split(" ")[1]
+    headers = {'API-KEY': api_key, 'Content-Type': 'application/json'}
+    
+    request_data = request.json
+    name = request_data.get('name', 'PDF Assistant')
+    instructions = request_data.get('instructions', '')
+    model = request_data.get('model', 'gpt-4o-mini')
+    file_ids = request_data.get('file_ids', [])
+    
+    # Создание беседы с PDF в 1min.ai
+    payload = {
+        "title": name,
+        "type": "CHAT_WITH_PDF",
+        "model": model,
+        "fileList": file_ids
+    }
+    
+    response = requests.post(ONE_MIN_CONVERSATION_API_URL, json=payload, headers=headers)
+    
+    if response.status_code != 200:
+        if response.status_code == 401:
+            return ERROR_HANDLER(1020, key=api_key)
+        return jsonify({"error": response.json().get('error', 'Unknown error')}), response.status_code
+    
+    one_min_response = response.json()
+    
+    try:
+        conversation_id = one_min_response.get('id')
+        
+        openai_response = {
+            "id": f"asst_{conversation_id}",
+            "object": "assistant",
+            "created_at": int(time.time()),
+            "name": name,
+            "description": None,
+            "model": model,
+            "instructions": instructions,
+            "tools": [],
+            "file_ids": file_ids,
+            "metadata": {}
+        }
+        
+        response = make_response(jsonify(openai_response))
+        set_response_headers(response)
+        return response, 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+def handle_options_request():
+    response = make_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    return response, 204
+
+def transform_response(one_min_response, request_data, prompt_token):
+    try:
+        # Вывод структуры ответа для отладки
+        logger.debug(f"Response structure: {json.dumps(one_min_response)[:200]}...")
+        
+        # Получаем ответ из соответствующего места в JSON
+        result_text = one_min_response.get('aiRecord', {}).get("aiRecordDetail", {}).get("resultObject", [""])[0]
+        
+        if not result_text:
+            # Альтернативные пути извлечения ответа
+            if 'resultObject' in one_min_response:
+                result_text = one_min_response['resultObject'][0] if isinstance(one_min_response['resultObject'], list) else one_min_response['resultObject']
+            elif 'result' in one_min_response:
+                result_text = one_min_response['result']
+            else:
+                # Если не нашли ответ по известным путям, возвращаем ошибку
+                logger.error(f"Cannot extract response text from API result")
+                result_text = "Error: Could not extract response from API"
+        
+        completion_token = calculate_token(result_text)
+        logger.debug(f"Finished processing Non-Streaming response. Completion tokens: {str(completion_token)}")
+        logger.debug(f"Total tokens: {str(completion_token + prompt_token)}")
+        
+        return {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": request_data.get('model', 'mistral-nemo').strip(),
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": result_text,
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": prompt_token,
+                "completion_tokens": completion_token,
+                "total_tokens": prompt_token + completion_token
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error in transform_response: {str(e)}")
+        # Возвращаем ошибку в формате, совместимом с OpenAI
+        return {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": request_data.get('model', 'mistral-nemo').strip(),
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": f"Error processing response: {str(e)}",
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": prompt_token,
+                "completion_tokens": 0,
+                "total_tokens": prompt_token
+            }
+        }
+    
+def set_response_headers(response):
+    response.headers['Content-Type'] = 'application/json'
+    response.headers['Access -Control-Allow-Origin'] = '*'
+    response.headers['X-Request-ID'] = str (uuid.uuid4())
+
+def stream_response(response, request_data, model, prompt_tokens, session=None):
+    all_chunks = ""
+    
+    try:
+        for line in response.iter_lines():
+            if not line:
+                continue
+            
+            # Трассировка для отладки
+            logger.debug(f"Received line from stream: {line[:100]}")
+            
+            try:
+                if line.startswith(b'data: '):
+                    data_str = line[6:].decode('utf-8')
+                    if data_str == '[DONE]':
+                        break
+                    
+                    # Проверяем, является ли это JSON-объектом
+                    try:
+                        json_data = json.loads(data_str)
+                        # Если это полный ответ 1min.ai
+                        if 'aiRecord' in json_data:
+                            result_text = json_data.get('aiRecord', {}).get('aiRecordDetail', {}).get('resultObject', [""])[0]
+                            chunk_text = result_text
+                        else:
+                            # Если это просто фрагмент текста в JSON
+                            chunk_text = json_data.get('text', data_str)
+                    except json.JSONDecodeError:
+                        # Если это не JSON, используем как есть
+                        chunk_text = data_str
+                else:
+                    # Для обычного текста
+                    try:
+                        # Проверяем, не является ли это JSON-объектом
+                        raw_text = line.decode('utf-8')
+                        try:
+                            json_data = json.loads(raw_text)
+                            # Если это полный ответ 1min.ai
+                            if 'aiRecord' in json_data:
+                                result_text = json_data.get('aiRecord', {}).get('aiRecordDetail', {}).get('resultObject', [""])[0]
+                                chunk_text = result_text
+                            else:
+                                # Если это просто фрагмент текста в JSON
+                                chunk_text = json_data.get('text', raw_text)
+                        except json.JSONDecodeError:
+                            # Если это не JSON, используем как есть
+                            chunk_text = raw_text
+                    except Exception as e:
+                        logger.error(f"Error decoding raw stream chunk: {str(e)}")
+                        continue
+                
+                # Добавляем текущий фрагмент к общему тексту
+                all_chunks += chunk_text
+                
+                # Создаем чанк для OpenAI API
+                return_chunk = {
+                    "id": f"chatcmpl-{uuid.uuid4()}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "content": chunk_text
+                            },
+                            "finish_reason": None
+                        }
+                    ]
+                }
+                
+                yield f"data: {json.dumps(return_chunk)}\n\n"
+                
+            except Exception as e:
+                logger.error(f"Error processing stream chunk: {str(e)}")
+                continue
+        
+        # Подсчитываем токены после завершения
+        tokens = calculate_token(all_chunks)
+        logger.debug(f"Finished processing streaming response. Completion tokens: {str(tokens)}")
+        logger.debug(f"Total tokens: {str(tokens + prompt_tokens)}")
+        
+        # Финальный чанк, обозначающий конец потока
+        final_chunk = {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "content": ""    
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": tokens,
+                "total_tokens": tokens + prompt_tokens
+            }
+        }
+        
+        yield f"data: {json.dumps(final_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+    
+    finally:
+        # Закрываем сессию, если она была передана
+        if session:
+            try:
+                session.close()
+                logger.debug("Streaming session closed properly")
+            except Exception as e:
+                logger.error(f"Error closing streaming session: {str(e)}")
+
+def retry_image_upload(image_url, api_key, request_id=None):
+    """Загружает изображение с повторными попытками, возвращает прямую ссылку на него"""
+    request_id = request_id or str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Uploading image: {image_url}")
+    
+    # Создаем новую сессию для этого запроса
+    session = create_session()
+    
+    try:
+        # Загружаем изображение
+        if image_url.startswith(('http://', 'https://')):
+            # Загрузка по URL
+            logger.debug(f"[{request_id}] Fetching image from URL: {image_url}")
+            response = session.get(image_url, stream=True)
+            response.raise_for_status()
+            image_data = response.content
+        else:
+            # Декодирование base64
+            logger.debug(f"[{request_id}] Decoding base64 image")
+            image_data = base64.b64decode(image_url.split(',')[1])
+        
+        # Проверяем и конвертируем формат WebP при необходимости
+        try:
+            with BytesIO(image_data) as img_io:
+                img = Image.open(img_io)
+                
+                # Логируем информацию о формате изображения
+                logger.info(f"[{request_id}] Image format: {img.format}, Size: {img.size}, Mode: {img.mode}")
+                
+                # Конвертируем WebP и другие проблемные форматы в JPG
+                if img.format in ['WEBP', 'GIF', 'ICO']:
+                    logger.info(f"[{request_id}] Converting {img.format} to JPG")
+                    if img.mode in ['RGBA', 'LA'] or (img.mode == 'P' and 'transparency' in img.info):
+                        # Если есть прозрачность, сохраняем её, используя белый фон
+                        background = Image.new('RGBA', img.size, (255, 255, 255))
+                        background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
+                        img = background.convert('RGB')
+                    else:
+                        img = img.convert('RGB')
+                    
+                    # Сохраняем преобразованное изображение
+                    output = BytesIO()
+                    img.save(output, format='JPEG', quality=95)
+                    image_data = output.getvalue()
+        except Exception as e:
+            logger.error(f"[{request_id}] Error converting image: {str(e)}")
+            # Продолжаем с оригинальными данными если конвертация не удалась
+        
+        # Проверяем размер файла
+        if len(image_data) == 0:
+            logger.error(f"[{request_id}] Empty image data")
+            return None
+        
+        if len(image_data) > 5 * 1024 * 1024:  # 5MB
+            logger.warning(f"[{request_id}] Image too large: {len(image_data) / (1024 * 1024):.2f}MB")
+            
+            # Пытаемся сжать изображение
+            try:
+                img = Image.open(BytesIO(image_data))
+                img_io = BytesIO()
+                img = img.convert('RGB')
+                
+                # Расчет нового размера с сохранением соотношения сторон
+                ratio = min(1500 / img.width, 1500 / img.height)
+                new_size = (int(img.width * ratio), int(img.height * ratio))
+                img = img.resize(new_size, Image.LANCZOS)
+                
+                img.save(img_io, format='JPEG', quality=85)
+                image_data = img_io.getvalue()
+                logger.info(f"[{request_id}] Compressed image to {len(image_data) / (1024 * 1024):.2f}MB")
+            except Exception as e:
+                logger.error(f"[{request_id}] Error compressing image: {str(e)}")
+                # Если сжатие не удалось, продолжаем с оригинальным
+        
+        # Создаем временный файл для загрузки
+        random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+        filename = f"temp_image_{random_string}.jpg"
+        
+        with open(filename, 'wb') as f:
+            f.write(image_data)
+        
+        # Проверяем, что файл не пуст
+        if os.path.getsize(filename) == 0:
+            logger.error(f"[{request_id}] Empty image file created: {filename}")
+            os.remove(filename)
+            return None
+        
+        # Загружаем на сервер
+        try:
+            with open(filename, 'rb') as f:
+                upload_response = session.post(
+                    ONE_MIN_ASSET_URL,
+                    headers={'API-KEY': api_key},
+                    files={'asset': (filename, f, 'image/jpeg')}
+                )
+                
+                if upload_response.status_code != 200:
+                    logger.error(f"[{request_id}] Upload failed with status {upload_response.status_code}: {upload_response.text}")
+                    return None
+                
+                # Получаем URL изображения
+                upload_data = upload_response.json()
+                if isinstance(upload_data, str):
+                    try:
+                        upload_data = json.loads(upload_data)
+                    except:
+                        logger.error(f"[{request_id}] Failed to parse upload response: {upload_data}")
+                        return None
+                
+                logger.debug(f"[{request_id}] Upload response: {upload_data}")
+                
+                # Ищем URL в разных местах ответа
+                url = None
+                if isinstance(upload_data, dict):
+                    # Специфичный формат для ONE_MIN_ASSET_URL
+                    if 'fileContent' in upload_data and 'path' in upload_data['fileContent']:
+                        url = upload_data['fileContent']['path']
+                    else:
+                        url = (upload_data.get('url') or 
+                               upload_data.get('file_url') or 
+                               (upload_data.get('data', {}) or {}).get('url') or
+                               (upload_data.get('data', {}) or {}).get('file_url'))
+                
+                if url:
+                    logger.info(f"[{request_id}] Image uploaded: {url}")
+                    return url
+                else:
+                    logger.error(f"[{request_id}] No URL found in upload response")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"[{request_id}] Exception during image upload: {str(e)}")
+            return None
+        finally:
+            # Удаляем временный файл
+            try:
+                if os.path.exists(filename):
+                    os.remove(filename)
+            except Exception as e:
+                logger.warning(f"[{request_id}] Failed to remove temp file: {str(e)}")
+            
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception during image processing: {str(e)}")
+        traceback.print_exc()
+        return None
+    finally:
+        # Закрываем сессию
+        session.close()
+
+# Создаем пул сессий для HTTP-запросов
+def create_session():
+    """Создает новую сессию с оптимальными настройками для API-запросов"""
+    session = requests.Session()
+    
+    # Настройка повторных попыток для всех запросов
+    retry_strategy = requests.packages.urllib3.util.retry.Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"]
+    )
+    adapter = requests.adapters.HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    return session
+
+# Функция для выполнения запроса к API с новой сессией
+def api_request(method, url, **kwargs):
+    """
+    Выполняет HTTP-запрос с новой сессией и автоматическим закрытием соединения
+    
+    Args:
+        method: HTTP-метод (GET, POST и т.д.)
+        url: URL для запроса
+        **kwargs: Дополнительные параметры для requests
+        
+    Returns:
+        requests.Response: Ответ от сервера
+    """
+    session = create_session()
+    try:
+        response = session.request(method, url, **kwargs)
+        return response
+    finally:
+        session.close()
+
+if __name__ == '__main__':
+    internal_ip = socket.gethostbyname(socket.gethostname())
+    response = requests.get('https://api.ipify.org')
+    public_ip = response.text
+    logger.info(f"""{printedcolors.Color.fg.lightcyan}  
+Server is ready to serve at:
+Internal IP: {internal_ip}:5001
+Public IP: {public_ip} (only if you've setup port forwarding on your router.)
+Enter this url to OpenAI clients supporting custom endpoint:
+{internal_ip}:5001/v1
+If does not work, try:
+{internal_ip}:5001/v1/chat/completions
+{printedcolors.Color.reset}""")
+    serve(app, host='0.0.0.0', port=5001, threads=6) # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
