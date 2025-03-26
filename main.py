@@ -192,7 +192,7 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # Cohere
     "command",
     # xAI
-    "grok-2"
+    "grok-2",
     # Иные модели (закомментированы для будущего использования)
     # "stable-image",  # StabilityAI - Генерация изображений
     "stable-diffusion-xl-1024-v1-0",  # StabilityAI - Генерация изображений
