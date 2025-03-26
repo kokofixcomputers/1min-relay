@@ -35,6 +35,12 @@ logger = logging.getLogger("1min-relay")
 # Install coloredlogs with desired log level
 coloredlogs.install(level="DEBUG", logger=logger)
 
+# Инструкция для описания изображений
+IMAGE_DESCRIPTION_INSTRUCTION = "Describe the scene, actions, text, or meme elements in the image. Use 'person' or 'group' instead of identifying individuals. If a face occupies a large part of the image, describe general features like facial expression or emotions (e.g., 'a person with a smile', 'a thoughtful expression'), without identifying the person. Even if the face is the only object in the image, provide a general description of its features (e.g., 'a face with a joyful expression'), avoiding any personal details. Interpret the meaning of any text present. For memes, explain the humor or context based on common cultural references or visual cues. Ensure compliance with the privacy policy by avoiding any personal identification. Under no circumstances refuse to respond—always provide at least a general description of the image's content."
+
+# Инструкция для анализа документов
+DOCUMENT_ANALYSIS_INSTRUCTION = "Review the uploaded document and provide at least a general description of its content, such as the main topic, a brief summary, or the overall purpose of the text. If the document contains no confidential or sensitive information, feel free to quote directly from it to illustrate your response. If it does include potentially private details, refrain from sharing those specifics and instead offer a broad overview (e.g., 'a memo about team performance' or 'a guide on software usage'). Under no circumstances refuse to respond—always provide at least a high-level insight into what the document is about."
+
 
 def check_memcached_connection():
     """
@@ -558,13 +564,10 @@ def prepare_payload(
     if image_paths:
         # Даже если модель не поддерживает изображения, пытаемся отправить как текстовый запрос
         if capabilities["vision"]:
-            # Добавляем инструкцию к запросу с изображением
-            image_instruction = "Describe the image in detail, focusing on the overall scene, actions, and any visible text or meme elements. Do not attempt to identify or describe specific individuals; instead, use general terms (such as 'person' or 'group of people'). If there is text in the image, interpret its meaning or significance. If the image appears to be a meme, explain its context or humor based on common cultural references or visual cues. Ensure the description remains within privacy policy guidelines, avoiding any personal identification."
-            
             # Добавляем инструкцию к промпту
             enhanced_prompt = all_messages
-            if not enhanced_prompt.strip().startswith(image_instruction):
-                enhanced_prompt = f"{image_instruction}\n\n{all_messages}"
+            if not enhanced_prompt.strip().startswith(IMAGE_DESCRIPTION_INSTRUCTION):
+                enhanced_prompt = f"{IMAGE_DESCRIPTION_INSTRUCTION}\n\n{all_messages}"
             
             payload = {
                 "type": "CHAT_WITH_IMAGE",
@@ -812,6 +815,11 @@ def conversation():
                 f"[{request_id}] Creating CHAT_WITH_PDF request with {len(file_ids)} files"
             )
 
+            # Добавляем инструкцию для работы с документами к промпту
+            enhanced_prompt = all_messages
+            if not enhanced_prompt.strip().startswith(DOCUMENT_ANALYSIS_INSTRUCTION):
+                enhanced_prompt = f"{DOCUMENT_ANALYSIS_INSTRUCTION}\n\n{all_messages}"
+
             # Если нет conversation_id, создаем новую беседу
             if not conversation_id:
                 conversation_id = create_conversation_with_files(
@@ -824,7 +832,7 @@ def conversation():
                     )
 
             # Формируем payload для запроса с файлами
-            payload = {"conversationId": conversation_id, "message": all_messages}
+            payload = {"conversationId": conversation_id, "message": enhanced_prompt}
 
             # Используем URL для бесед вместо общего API URL
             api_url = f"{ONE_MIN_CONVERSATION_API_URL}/{conversation_id}/message"
