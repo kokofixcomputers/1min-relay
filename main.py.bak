@@ -35,6 +35,12 @@ logger = logging.getLogger("1min-relay")
 # Install coloredlogs with desired log level
 coloredlogs.install(level="DEBUG", logger=logger)
 
+# Инструкция для описания изображений
+IMAGE_DESCRIPTION_INSTRUCTION = "Describe the scene, actions, text, or meme elements in the image. Use 'person' or 'group' instead of identifying individuals. If a face occupies a large part of the image, describe general features like facial expression or emotions (e.g., 'a person with a smile', 'a thoughtful expression'), without identifying the person. Even if the face is the only object in the image, provide a general description of its features (e.g., 'a face with a joyful expression'), avoiding any personal details. Interpret the meaning of any text present. For memes, explain the humor or context based on common cultural references or visual cues. Ensure compliance with the privacy policy by avoiding any personal identification. Under no circumstances refuse to respond—always provide at least a general description of the image's content."
+
+# Инструкция для анализа документов
+DOCUMENT_ANALYSIS_INSTRUCTION = "Review the uploaded document and provide at least a general description of its content, such as the main topic, a brief summary, or the overall purpose of the text. If the document contains no confidential or sensitive information, feel free to quote directly from it to illustrate your response. If it does include potentially private details, refrain from sharing those specifics and instead offer a broad overview (e.g., 'a memo about team performance' or 'a guide on software usage'). Under no circumstances refuse to respond—always provide at least a high-level insight into what the document is about."
+
 
 def check_memcached_connection():
     """
@@ -558,11 +564,16 @@ def prepare_payload(
     if image_paths:
         # Даже если модель не поддерживает изображения, пытаемся отправить как текстовый запрос
         if capabilities["vision"]:
+            # Добавляем инструкцию к промпту
+            enhanced_prompt = all_messages
+            if not enhanced_prompt.strip().startswith(IMAGE_DESCRIPTION_INSTRUCTION):
+                enhanced_prompt = f"{IMAGE_DESCRIPTION_INSTRUCTION}\n\n{all_messages}"
+            
             payload = {
                 "type": "CHAT_WITH_IMAGE",
                 "model": model,
                 "promptObject": {
-                    "prompt": all_messages,
+                    "prompt": enhanced_prompt,
                     "isMixed": False,
                     "imageList": image_paths,
                     "webSearch": web_search,
@@ -804,6 +815,11 @@ def conversation():
                 f"[{request_id}] Creating CHAT_WITH_PDF request with {len(file_ids)} files"
             )
 
+            # Добавляем инструкцию для работы с документами к промпту
+            enhanced_prompt = all_messages
+            if not enhanced_prompt.strip().startswith(DOCUMENT_ANALYSIS_INSTRUCTION):
+                enhanced_prompt = f"{DOCUMENT_ANALYSIS_INSTRUCTION}\n\n{all_messages}"
+
             # Если нет conversation_id, создаем новую беседу
             if not conversation_id:
                 conversation_id = create_conversation_with_files(
@@ -816,7 +832,7 @@ def conversation():
                     )
 
             # Формируем payload для запроса с файлами
-            payload = {"conversationId": conversation_id, "message": all_messages}
+            payload = {"conversationId": conversation_id, "message": enhanced_prompt}
 
             # Используем URL для бесед вместо общего API URL
             api_url = f"{ONE_MIN_CONVERSATION_API_URL}/{conversation_id}/message"
@@ -1863,122 +1879,77 @@ def set_response_headers(response):
 
 
 def stream_response(response, request_data, model, prompt_tokens, session=None):
+    """
+    Stream полученный от 1min.ai ответ в формате, совместимом с OpenAI API.
+    """
     all_chunks = ""
+    
+    # Отправляем первый фрагмент: роль сообщения
+    first_chunk = {
+        "id": f"chatcmpl-{uuid.uuid4()}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant"},
+                "finish_reason": None,
+            }
+        ],
+    }
+    
+    yield f"data: {json.dumps(first_chunk)}\n\n"
+    
+    # Более простая реализация из main (6).py для обработки контента
+    for chunk in response.iter_content(chunk_size=1024):
+        finish_reason = None
 
-    try:
-        for line in response.iter_lines():
-            if not line:
-                continue
-
-            # Трассировка для отладки
-            logger.debug(f"Received line from stream: {line[:100]}")
-
-            try:
-                if line.startswith(b"data: "):
-                    data_str = line[6:].decode("utf-8")
-                    if data_str == "[DONE]":
-                        break
-
-                    # Проверяем, является ли это JSON-объектом
-                    try:
-                        json_data = json.loads(data_str)
-                        # Если это полный ответ 1min.ai
-                        if "aiRecord" in json_data:
-                            result_text = (
-                                json_data.get("aiRecord", {})
-                                .get("aiRecordDetail", {})
-                                .get("resultObject", [""])[0]
-                            )
-                            chunk_text = result_text
-                        else:
-                            # Если это просто фрагмент текста в JSON
-                            chunk_text = json_data.get("text", data_str)
-                    except json.JSONDecodeError:
-                        # Если это не JSON, используем как есть
-                        chunk_text = data_str
-                else:
-                    # Для обычного текста
-                    try:
-                        # Проверяем, не является ли это JSON-объектом
-                        raw_text = line.decode("utf-8")
-                        try:
-                            json_data = json.loads(raw_text)
-                            # Если это полный ответ 1min.ai
-                            if "aiRecord" in json_data:
-                                result_text = (
-                                    json_data.get("aiRecord", {})
-                                    .get("aiRecordDetail", {})
-                                    .get("resultObject", [""])[0]
-                                )
-                                chunk_text = result_text
-                            else:
-                                # Если это просто фрагмент текста в JSON
-                                chunk_text = json_data.get("text", raw_text)
-                        except json.JSONDecodeError:
-                            # Если это не JSON, используем как есть
-                            chunk_text = raw_text
-                    except Exception as e:
-                        logger.error(f"Error decoding raw stream chunk: {str(e)}")
-                        continue
-
-                # Добавляем текущий фрагмент к общему тексту
-                all_chunks += chunk_text
-
-                # Создаем чанк для OpenAI API
-                return_chunk = {
-                    "id": f"chatcmpl-{uuid.uuid4()}",
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": chunk_text},
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-
-                yield f"data: {json.dumps(return_chunk)}\n\n"
-
-            except Exception as e:
-                logger.error(f"Error processing stream chunk: {str(e)}")
-                continue
-
-        # Подсчитываем токены после завершения
-        tokens = calculate_token(all_chunks)
-        logger.debug(
-            f"Finished processing streaming response. Completion tokens: {str(tokens)}"
-        )
-        logger.debug(f"Total tokens: {str(tokens + prompt_tokens)}")
-
-        # Финальный чанк, обозначающий конец потока
-        final_chunk = {
+        return_chunk = {
             "id": f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": model,
             "choices": [
-                {"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}
-            ],
-            "usage": {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": tokens,
-                "total_tokens": tokens + prompt_tokens,
-            },
+                {
+                    "index": 0,
+                    "delta": {
+                        "content": chunk.decode('utf-8')
+                    },
+                    "finish_reason": finish_reason
+                }
+            ]
         }
-
-        yield f"data: {json.dumps(final_chunk)}\n\n"
-        yield "data: [DONE]\n\n"
-
-    finally:
-        # Закрываем сессию, если она была передана
-        if session:
-            try:
-                session.close()
-                logger.debug("Streaming session closed properly")
-            except Exception as e:
-                logger.error(f"Error closing streaming session: {str(e)}")
+        all_chunks += chunk.decode('utf-8')
+        yield f"data: {json.dumps(return_chunk)}\n\n"
+    
+    tokens = calculate_token(all_chunks)
+    logger.debug(f"Finished processing streaming response. Completion tokens: {str(tokens)}")
+    logger.debug(f"Total tokens: {str(tokens + prompt_tokens)}")
+    
+    # Финальный чанк, обозначающий конец потока
+    final_chunk = {
+        "id": f"chatcmpl-{uuid.uuid4()}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": ""    
+                },
+                "finish_reason": "stop"
+            }
+        ],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": tokens,
+            "total_tokens": tokens + prompt_tokens
+        }
+    }
+    yield f"data: {json.dumps(final_chunk)}\n\n"
+    yield "data: [DONE]\n\n"
 
 
 def safe_temp_file(prefix, request_id=None):
@@ -2755,4 +2726,3 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=5001, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
-
