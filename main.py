@@ -2544,6 +2544,20 @@ def audio_transcriptions():
                     else one_min_response["resultObject"]
                 )
 
+            # Проверяем, не является ли result_text JSON строкой
+            try:
+                # Если result_text - это JSON строка, распарсим ее
+                if result_text and result_text.strip().startswith("{"):
+                    parsed_json = json.loads(result_text)
+                    # Если в parsed_json есть поле "text", используем его значение
+                    if "text" in parsed_json:
+                        result_text = parsed_json["text"]
+                        logger.debug(f"[{request_id}] Extracted inner text from JSON: {result_text}")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                # Если не удалось распарсить как JSON, используем как есть
+                logger.debug(f"[{request_id}] Using result_text as is: {result_text}")
+                pass
+
             if not result_text:
                 logger.error(
                     f"[{request_id}] Could not extract transcription text from API response"
@@ -2577,7 +2591,7 @@ def audio_transcriptions():
             flask_response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
             flask_response.headers["X-Request-ID"] = request_id
             
-            logger.info(f"[{request_id}] Successfully processed audio transcription")
+            logger.info(f"[{request_id}] Successfully processed audio transcription: {result_text}")
             return flask_response
 
         except Exception as e:
