@@ -490,7 +490,6 @@ def get_model_capabilities(model):
     capabilities["code_interpreter"] = model in code_interpreter_supported_models
     capabilities["retrieval"] = model in retrieval_supported_models
     capabilities["function_calling"] = model in function_calling_supported_models
-    )
 
     return capabilities
 
