@@ -10,8 +10,6 @@ import time
 import traceback
 import uuid
 import warnings
-import re
-from io import BytesIO
 
 import coloredlogs
 import printedcolors
@@ -631,7 +629,7 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
 
     try:
         payload = {
-            "title": name,
+            "title": title,
             "type": "CHAT_WITH_PDF",
             "model": model,
             "fileList": file_ids,
@@ -1775,42 +1773,9 @@ def handle_options_request():
 
 
 def transform_response(one_min_response, request_data, prompt_token):
-    """
-    Преобразовать ответ от 1min.ai в совместимый с OpenAI формат.
-    """
     try:
         # Вывод структуры ответа для отладки
         logger.debug(f"Response structure: {json.dumps(one_min_response)[:200]}...")
-        
-        # Фильтры для обработки кода в формате markdown
-        def fix_markdown_code_blocks(text):
-            """
-            Исправляет блоки кода в markdown, добавляя перенос строки после указания языка.
-            ```language
-            code
-            ```
-            превращается в
-            ```language
-            
-            code
-            ```
-            """
-            # Регулярное выражение для поиска блоков кода
-            pattern = r'```(\w+)(.*?)```'
-            
-            def add_newline_after_language(match):
-                language = match.group(1)
-                code = match.group(2)
-                
-                # Если код не начинается с новой строки, добавляем её
-                if not code.startswith('\n'):
-                    return f'```{language}\n{code}```'
-                return f'```{language}{code}```'
-            
-            # Заменяем блоки кода с учетом переноса строки после языка
-            result = re.sub(pattern, add_newline_after_language, text, flags=re.DOTALL)
-            
-            return result
 
         # Получаем ответ из соответствующего места в JSON
         result_text = (
@@ -1834,16 +1799,12 @@ def transform_response(one_min_response, request_data, prompt_token):
                 logger.error(f"Cannot extract response text from API result")
                 result_text = "Error: Could not extract response from API"
 
-        # Применяем фильтр для исправления блоков кода
-        result_text = fix_markdown_code_blocks(result_text)
-        
         completion_token = calculate_token(result_text)
         logger.debug(
             f"Finished processing Non-Streaming response. Completion tokens: {str(completion_token)}"
         )
         logger.debug(f"Total tokens: {str(completion_token + prompt_token)}")
 
-        # Формируем ответ в формате OpenAI
         return {
             "id": f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion",
@@ -1862,7 +1823,7 @@ def transform_response(one_min_response, request_data, prompt_token):
             "usage": {
                 "prompt_tokens": prompt_token,
                 "completion_tokens": completion_token,
-                "total_tokens": completion_token + prompt_token,
+                "total_tokens": prompt_token + completion_token,
             },
         }
     except Exception as e:
@@ -1905,50 +1866,30 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     """
     Stream полученный от 1min.ai ответ в формате, совместимом с OpenAI API.
     """
-    should_close_session = False
     all_chunks = ""
     
-    # Функция для исправления блоков кода в markdown
-    def fix_markdown_code_block(text):
-        """
-        Проверяет, содержит ли строка начало или конец блока кода Markdown,
-        и добавляет переносы строки до и после, а также после языка.
-        """
-        # Регулярное выражение для поиска начала блока кода
-        code_block_start_pattern = r'^```(\w+)(.*)$'
-        # Регулярное выражение для поиска конца блока кода
-        code_block_end_pattern = r'(.*)```\s*$'
-        
-        # Проверяем начало блока кода
-        match_start = re.match(code_block_start_pattern, text.strip())
-        if match_start:
-            language = match_start.group(1)
-            code_content = match_start.group(2)
-            
-            # Добавляем переносы строк до и после языка
-            if not code_content.startswith('\n'):
-                return f'\n```{language}\n{code_content}'
-            return f'\n```{language}{code_content}'
-        
-        # Проверяем конец блока кода
-        match_end = re.search(code_block_end_pattern, text.strip())
-        if match_end and not match_start:  # Убедимся, что это не начало блока
-            content_before = match_end.group(1)
-            return f'{content_before}```\n'
-        
-        # Проверяем отдельно стоящие ```
-        if text.strip() == '```':
-            return f'```\n'
-        
-        return text
+    # Отправляем первый фрагмент: роль сообщения
+    first_chunk = {
+        "id": f"chatcmpl-{uuid.uuid4()}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant"},
+                "finish_reason": None,
+            }
+        ],
+    }
     
-    if session is None:
-        should_close_session = True
-        session = create_session()
+    yield f"data: {json.dumps(first_chunk)}\n\n"
     
-    try:
-        # Отправляем первый фрагмент: роль сообщения
-        first_chunk = {
+    # Более простая реализация из main (6).py для обработки контента
+    for chunk in response.iter_content(chunk_size=1024):
+        finish_reason = None
+
+        return_chunk = {
             "id": f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion.chunk",
             "created": int(time.time()),
@@ -1956,105 +1897,43 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
             "choices": [
                 {
                     "index": 0,
-                    "delta": {"role": "assistant"},
-                    "finish_reason": None,
+                    "delta": {
+                        "content": chunk.decode('utf-8')
+                    },
+                    "finish_reason": finish_reason
                 }
-            ],
+            ]
         }
-        
-        yield f"data: {json.dumps(first_chunk)}\n\n"
-        
-        # Итерируемся по ответу построчно
-        for line in response.iter_lines():
-            if not line:
-                continue
-                
-            # Трассировка для отладки
-            logger.debug(f"Received line from stream: {line}")
-            
-            try:
-                # Декодируем строку
-                if line.startswith(b"data: "):
-                    data_str = line[6:].decode("utf-8")
-                    if data_str == "[DONE]":
-                        break
-                        
-                    try:
-                        json_data = json.loads(data_str)
-                        if "aiRecord" in json_data:
-                            chunk_text = (
-                                json_data.get("aiRecord", {})
-                                .get("aiRecordDetail", {})
-                                .get("resultObject", [""])[0]
-                            )
-                        else:
-                            chunk_text = json_data.get("text", data_str)
-                    except json.JSONDecodeError:
-                        chunk_text = data_str
-                else:
-                    try:
-                        chunk_text = line.decode("utf-8")
-                    except Exception as e:
-                        logger.error(f"Error decoding line: {str(e)}")
-                        continue
-                
-                # Применяем исправление форматирования кода
-                fixed_chunk_text = fix_markdown_code_block(chunk_text)
-                
-                # Формируем чанк в более простом формате
-                return_chunk = {
-                    "id": f"chatcmpl-{uuid.uuid4()}",
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": fixed_chunk_text},
-                            "finish_reason": None,
-                        }
-                    ],
-                }
-                
-                all_chunks += fixed_chunk_text
-                yield f"data: {json.dumps(return_chunk)}\n\n"
-                
-            except Exception as e:
-                logger.error(f"Error processing stream chunk: {str(e)}")
-                continue
-                
-        # Подсчитываем токены после завершения
-        tokens = calculate_token(all_chunks)
-        logger.debug(f"Finished processing streaming response. Completion tokens: {str(tokens)}")
-        logger.debug(f"Total tokens: {str(tokens + prompt_tokens)}")
-        
-        # Финальный чанк, обозначающий конец потока
-        final_chunk = {
-            "id": f"chatcmpl-{uuid.uuid4()}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}
-            ],
-            "usage": {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": tokens,
-                "total_tokens": tokens + prompt_tokens,
-            },
-        }
-        
-        yield f"data: {json.dumps(final_chunk)}\n\n"
-        yield "data: [DONE]\n\n"
+        all_chunks += chunk.decode('utf-8')
+        yield f"data: {json.dumps(return_chunk)}\n\n"
     
-    finally:
-        # Закрываем сессию, если она была создана в этой функции
-        if should_close_session and session:
-            try:
-                session.close()
-                logger.debug("Streaming session closed properly")
-            except Exception as e:
-                logger.error(f"Error closing streaming session: {str(e)}")
+    tokens = calculate_token(all_chunks)
+    logger.debug(f"Finished processing streaming response. Completion tokens: {str(tokens)}")
+    logger.debug(f"Total tokens: {str(tokens + prompt_tokens)}")
+    
+    # Финальный чанк, обозначающий конец потока
+    final_chunk = {
+        "id": f"chatcmpl-{uuid.uuid4()}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": ""    
+                },
+                "finish_reason": "stop"
+            }
+        ],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": tokens,
+            "total_tokens": tokens + prompt_tokens
+        }
+    }
+    yield f"data: {json.dumps(final_chunk)}\n\n"
+    yield "data: [DONE]\n\n"
 
 
 def safe_temp_file(prefix, request_id=None):
@@ -2831,4 +2710,3 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=5001, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
-
