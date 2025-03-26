@@ -26,7 +26,7 @@ Oh and by the way, join our discord server for support and updates!
 
 Clone the git repo into your machine with:
 ```bash
-git clone https://github.com/kokofixcomputers/1min-relay.git
+git clone https://github.com/chelaxian/1min-relay.git
 ```
 
 ### Bare-metal
@@ -47,7 +47,7 @@ Running 1min-relay in docker is the easiet method. Please note that the connecti
 
 1. Pull the Docker Image:
 ```bash
-docker pull kokofixcomputers/1min-relay:latest
+docker pull chelaxian/1min-relay:latest
 ```
 
 2. To encrease security, 1min-relay will require it's own network to be able to communicate with memcached.
