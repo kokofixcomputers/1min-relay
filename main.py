@@ -188,6 +188,7 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "meta/meta-llama-3.1-405b-instruct",
     # DeepSeek
     "deepseek-chat",
+    "deepseek-reasoner",
     # Cohere
     "command",
     # xAI
@@ -230,35 +231,49 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
 vision_supported_models = [
     "gpt-4o",
     "gpt-4o-mini",
-    "gpt-4-turbo" #,
-    # "claude-3-opus-20240229",
-    # "claude-3-sonnet-20240229",
-    # "claude-3-haiku-20240307",
-    # "claude-3-5-sonnet-20240620",
-    # "claude-3-5-haiku-20241022",
-    # "gemini-1.5-pro",
-    # "gemini-1.5-flash",
-    # "pixtral-12b"
+    "gpt-4-turbo"
 ]
 
 # Define the models that support code interpreter
 code_interpreter_supported_models = [
     "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4-turbo",
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "gemini-1.5-pro",
+    "claude-3-5-sonnet-20240620",
+    "claude-3-5-haiku-20241022",
+    "deepseek-chat",
+    "deepseek-reasoner"
 ]
 
 # Define the models that support web search (retrieval)
 retrieval_supported_models = [
-    "gpt-4o",
+    "gemini-1.0-pro",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+    "o3-mini",
+    "o1-preview",
+    "o1-mini",
     "gpt-4o-mini",
+    "gpt-4o",
     "gpt-4-turbo",
+    "gpt-3.5-turbo",    
+    "claude-3-5-sonnet-20240620",
     "claude-3-opus-20240229",
     "claude-3-sonnet-20240229",
-    "gemini-1.5-pro",
+    "claude-3-haiku-20240307",
+    "claude-3-5-haiku-20241022",
+    "mistral-large-latest",
+    "mistral-small-latest",
+    "mistral-nemo",
+    "pixtral-12b",
+    "open-mixtral-8x22b",
+    "open-mixtral-8x7b",
+    "open-mistral-7b",
+    "meta/llama-2-70b-chat",
+    "meta/meta-llama-3-70b-instruct",
+    "meta/meta-llama-3.1-405b-instruct",
+    "command",
+    "grok-2",
+    "deepseek-chat",
+    "deepseek-reasoner"
 ]
 
 # Define the models that support function calling
