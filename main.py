@@ -558,11 +558,19 @@ def prepare_payload(
     if image_paths:
         # Даже если модель не поддерживает изображения, пытаемся отправить как текстовый запрос
         if capabilities["vision"]:
+            # Добавляем инструкцию к запросу с изображением
+            image_instruction = "Describe the image in detail, focusing on the overall scene, actions, and any visible text or meme elements. Do not attempt to identify or describe specific individuals; instead, use general terms (such as 'person' or 'group of people'). If there is text in the image, interpret its meaning or significance. If the image appears to be a meme, explain its context or humor based on common cultural references or visual cues. Ensure the description remains within privacy policy guidelines, avoiding any personal identification."
+            
+            # Добавляем инструкцию к промпту
+            enhanced_prompt = all_messages
+            if not enhanced_prompt.strip().startswith(image_instruction):
+                enhanced_prompt = f"{image_instruction}\n\n{all_messages}"
+            
             payload = {
                 "type": "CHAT_WITH_IMAGE",
                 "model": model,
                 "promptObject": {
-                    "prompt": all_messages,
+                    "prompt": enhanced_prompt,
                     "isMixed": False,
                     "imageList": image_paths,
                     "webSearch": web_search,
