@@ -2564,25 +2564,17 @@ def audio_transcriptions():
                 )
                 return jsonify({"error": "Could not extract transcription text"}), 500
 
-            # Формируем ответ в формате OpenAI API
-            openai_response = {"text": result_text}
-
-            # Для JSON формата добавляем дополнительные поля
+            # Формируем ответ в нужном формате
             if response_format == "json":
-                openai_response = {
-                    "text": result_text
-                }
-
-            # Новый метод формирования ответа
-            if response_format == "json":
-                # Для JSON формата используем jsonify
-                flask_response = jsonify(openai_response)
+                # Для формата json возвращаем объект с полем text
+                response_data = {"text": result_text}
+                flask_response = jsonify(response_data)
             else:
-                # Для текстового формата создаем простой текстовый ответ
+                # Для текстового формата просто возвращаем текст
                 flask_response = make_response(result_text)
                 flask_response.headers["Content-Type"] = "text/plain"
-
-            # Добавляем CORS и другие заголовки
+                
+            # Добавляем заголовки
             flask_response.headers["Access-Control-Allow-Origin"] = "*"
             flask_response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
             flask_response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
@@ -2725,20 +2717,25 @@ def audio_translations():
                 )
                 return jsonify({"error": "Could not extract translation text"}), 500
 
-            # Формируем ответ в формате OpenAI API
-            openai_response = {"text": result_text}
-
-            # Для JSON формата добавляем дополнительные поля
+            # Формируем ответ в нужном формате
             if response_format == "json":
-                openai_response = {
-                    "text": result_text
-                }
+                # Для формата json возвращаем объект с полем text
+                response_data = {"text": result_text}
+                flask_response = jsonify(response_data)
+            else:
+                # Для текстового формата просто возвращаем текст
+                flask_response = make_response(result_text)
+                flask_response.headers["Content-Type"] = "text/plain"
+                
+            # Добавляем заголовки
+            flask_response.headers["Access-Control-Allow-Origin"] = "*"
+            flask_response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            flask_response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
+            flask_response.headers["X-Request-ID"] = request_id
+            
+            logger.info(f"[{request_id}] Successfully processed audio translation: {result_text}")
+            return flask_response
 
-            response = make_response(
-                jsonify(openai_response) if response_format == "json" else result_text
-            )
-            set_response_headers(response)
-            return response, 200
         except Exception as e:
             logger.error(
                 f"[{request_id}] Error processing translation response: {str(e)}"
