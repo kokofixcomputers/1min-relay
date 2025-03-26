@@ -2564,24 +2564,19 @@ def audio_transcriptions():
                 )
                 return jsonify({"error": "Could not extract transcription text"}), 500
 
-            # Формируем ответ в нужном формате
-            if response_format == "json":
-                # Для формата json возвращаем объект с полем text
-                response_data = {"text": result_text}
-                flask_response = jsonify(response_data)
-            else:
-                # Для текстового формата просто возвращаем текст
-                flask_response = make_response(result_text)
-                flask_response.headers["Content-Type"] = "text/plain"
-                
-            # Добавляем заголовки
-            flask_response.headers["Access-Control-Allow-Origin"] = "*"
-            flask_response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            flask_response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
-            flask_response.headers["X-Request-ID"] = request_id
-            
+            # Максимально простой и надежный формат ответа
             logger.info(f"[{request_id}] Successfully processed audio transcription: {result_text}")
-            return flask_response
+            
+            # Создаем JSON ответ строго в формате OpenAI API
+            response_data = {"text": result_text}
+            
+            # Добавляем CORS заголовки
+            response = jsonify(response_data)
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
+            
+            return response
 
         except Exception as e:
             logger.error(
@@ -2717,24 +2712,19 @@ def audio_translations():
                 )
                 return jsonify({"error": "Could not extract translation text"}), 500
 
-            # Формируем ответ в нужном формате
-            if response_format == "json":
-                # Для формата json возвращаем объект с полем text
-                response_data = {"text": result_text}
-                flask_response = jsonify(response_data)
-            else:
-                # Для текстового формата просто возвращаем текст
-                flask_response = make_response(result_text)
-                flask_response.headers["Content-Type"] = "text/plain"
-                
-            # Добавляем заголовки
-            flask_response.headers["Access-Control-Allow-Origin"] = "*"
-            flask_response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            flask_response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
-            flask_response.headers["X-Request-ID"] = request_id
-            
+            # Максимально простой и надежный формат ответа
             logger.info(f"[{request_id}] Successfully processed audio translation: {result_text}")
-            return flask_response
+            
+            # Создаем JSON ответ строго в формате OpenAI API
+            response_data = {"text": result_text}
+            
+            # Добавляем CORS заголовки
+            response = jsonify(response_data)
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
+            
+            return response
 
         except Exception as e:
             logger.error(
@@ -2765,3 +2755,4 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=5001, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
+
