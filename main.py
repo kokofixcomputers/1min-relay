@@ -2731,10 +2731,7 @@ def audio_translations():
             # Для JSON формата добавляем дополнительные поля
             if response_format == "json":
                 openai_response = {
-                    "task": "translate",
-                    "language": "en",  # Whisper обычно переводит на английский
-                    "duration": 0,  # Не имеем информации о длительности
-                    "text": result_text,
+                    "text": result_text
                 }
 
             response = make_response(
