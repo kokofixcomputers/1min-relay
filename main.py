@@ -201,13 +201,6 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # "clipdrop",  # Clipdrop.co - Обработка изображений
     "midjourney",  # Midjourney - Генерация изображений
     "midjourney_6_1",  # Midjourney - Генерация изображений
-    # "6b645e3a-d64f-4341-a6d8-7a3690fbf042",  # Leonardo.ai - Phoenix
-    # "b24e16ff-06e3-43eb-8d33-4416c2d75876",  # Leonardo.ai - Lightning XL
-    # "e71a1c2f-4f80-4800-934f-2c68979d8cc8",  # Leonardo.ai - Anime XL
-    # "1e60896f-3c26-4296-8ecc-53e2afecc132",  # Leonardo.ai - Diffusion XL
-    # "aa77f04e-3eec-4034-9c07-d0f619684628",  # Leonardo.ai - Kino XL
-    # "5c232a9e-9061-4777-980a-ddc8e65647c6",  # Leonardo.ai - Vision XL
-    # "2067ae52-33fd-4a82-bb92-c2c55e7d2786",  # Leonardo.ai - Albedo Base XL
     "phoenix",  # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
     "lightning-xl",  # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
     "anime-xl",  # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
@@ -219,14 +212,10 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # "cjwbw/damo-text-to-video:1e205ea73084bd17a0a3b43396e49ba0d6bc2e754e9283b2df49fad2dcf95755",  # Replicate - Text to Video
     # "lucataco/animate-diff:beecf59c4aee8d81bf04f0381033dfa10dc16e845b4ae00d281e2fa377e48a9f",  # Replicate - Animation
     # "lucataco/hotshot-xl:78b3a6257e16e4b241245d65c8b2b81ea2e1ff7ed4c55306b511509ddbfd327a",  # Replicate - Video
-    # "black-forest-labs/flux-schnell",  # Replicate - Flux
-    # "black-forest-labs/flux-dev",  # Replicate - Flux Dev
-    # "black-forest-labs/flux-pro",  # Replicate - Flux Pro
-    # "black-forest-labs/flux-1.1-pro",  # Replicate - Flux Pro 1.1
-    "flux-schnell",  # Replicate - Flux
-    "flux-dev",  # Replicate - Flux Dev
-    "flux-pro",  # Replicate - Flux Pro
-    "flux-1.1-pro",  # Replicate - Flux Pro 1.1
+    "flux-schnell",  # Replicate - Flux "black-forest-labs/flux-schnell"
+    "flux-dev",  # Replicate - Flux Dev "black-forest-labs/flux-dev"
+    "flux-pro",  # Replicate - Flux Pro "black-forest-labs/flux-pro"
+    "flux-1.1-pro",  # Replicate - Flux Pro 1.1 "black-forest-labs/flux-1.1-pro"
     # "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",  # Replicate - Music Generation
     # "luma",  # TTAPI - Luma
     # "Qubico/image-toolkit",  # TTAPI - Image Toolkit
@@ -241,7 +230,7 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
 vision_supported_models = [
     "gpt-4o",
     "gpt-4o-mini",
-    "gpt-4-turbo",  # ,
+    "gpt-4-turbo" #,
     # "claude-3-opus-20240229",
     # "claude-3-sonnet-20240229",
     # "claude-3-haiku-20240307",
