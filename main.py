@@ -2490,7 +2490,7 @@ def audio_transcriptions():
                 "model": "whisper-1",
                 "promptObject": {
                     "audioUrl": audio_path,
-                    "response_format": response_format,
+                    "response_format": "text",  # Всегда запрашиваем текстовый формат
                 },
             }
 
@@ -2564,26 +2564,10 @@ def audio_transcriptions():
                 )
                 return jsonify({"error": "Could not extract transcription text"}), 500
 
-            # Формируем ответ в формате OpenAI API
-            openai_response = {"text": result_text}
-
-            # Для JSON формата добавляем дополнительные поля
-            if response_format == "json":
-                openai_response = {
-                    "task": "transcribe",
-                    "language": language or "en",
-                    "duration": 0,  # Не имеем информации о длительности
-                    "text": result_text,
-                }
-
-            # Новый метод формирования ответа
-            if response_format == "json":
-                # Для JSON формата используем jsonify
-                flask_response = jsonify(openai_response)
-            else:
-                # Для текстового формата создаем простой текстовый ответ
-                flask_response = make_response(result_text)
-                flask_response.headers["Content-Type"] = "text/plain"
+            # ВАЖНОЕ ИЗМЕНЕНИЕ: Всегда возвращаем простой текст, независимо от запрошенного формата
+            # Это нужно для совместимости с ботом, который ожидает простой текст
+            flask_response = make_response(result_text)
+            flask_response.headers["Content-Type"] = "text/plain; charset=utf-8"
 
             # Добавляем CORS и другие заголовки
             flask_response.headers["Access-Control-Allow-Origin"] = "*"
