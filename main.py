@@ -1854,8 +1854,12 @@ def transform_response(one_min_response, request_data, prompt_token):
 
 def set_response_headers(response):
     response.headers["Content-Type"] = "application/json"
-    response.headers["Access -Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Origin"] = "*"  # Исправил дефис в имени заголовка
     response.headers["X-Request-ID"] = str(uuid.uuid4())
+    # Добавляем больше CORS заголовков
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
+    return response  # Возвращаем ответ для цепочки
 
 
 def stream_response(response, request_data, model, prompt_tokens, session=None):
@@ -2558,11 +2562,24 @@ def audio_transcriptions():
                     "text": result_text,
                 }
 
-            response = make_response(
-                jsonify(openai_response) if response_format == "json" else result_text
-            )
-            set_response_headers(response)
-            return response, 200
+            # Новый метод формирования ответа
+            if response_format == "json":
+                # Для JSON формата используем jsonify
+                flask_response = jsonify(openai_response)
+            else:
+                # Для текстового формата создаем простой текстовый ответ
+                flask_response = make_response(result_text)
+                flask_response.headers["Content-Type"] = "text/plain"
+
+            # Добавляем CORS и другие заголовки
+            flask_response.headers["Access-Control-Allow-Origin"] = "*"
+            flask_response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            flask_response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
+            flask_response.headers["X-Request-ID"] = request_id
+            
+            logger.info(f"[{request_id}] Successfully processed audio transcription")
+            return flask_response
+
         except Exception as e:
             logger.error(
                 f"[{request_id}] Error processing transcription response: {str(e)}"
