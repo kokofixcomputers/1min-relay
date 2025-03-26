@@ -1911,27 +1911,42 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     # Функция для исправления блоков кода в markdown
     def fix_markdown_code_block(text):
         """
-        Проверяет, содержит ли строка начало блока кода Markdown (```язык),
-        и если да, то добавляет перенос строки после языка.
+        Проверяет, содержит ли строка начало или конец блока кода Markdown,
+        и добавляет переносы строки до и после, а также после языка.
         """
-        code_block_pattern = r'^```(\w+)(.*)$'
-        match = re.match(code_block_pattern, text.strip())
+        # Регулярное выражение для поиска начала блока кода
+        code_block_start_pattern = r'^```(\w+)(.*)$'
+        # Регулярное выражение для поиска конца блока кода
+        code_block_end_pattern = r'(.*)```\s*$'
         
-        if match and not match.group(2).startswith('\n'):
-            # Если нашли начало блока кода без переноса строки после языка
-            language = match.group(1)
-            code_content = match.group(2)
-            return f'```{language}\n{code_content}'
+        # Проверяем начало блока кода
+        match_start = re.match(code_block_start_pattern, text.strip())
+        if match_start:
+            language = match_start.group(1)
+            code_content = match_start.group(2)
+            
+            # Добавляем переносы строк до и после языка
+            if not code_content.startswith('\n'):
+                return f'\n```{language}\n{code_content}'
+            return f'\n```{language}{code_content}'
+        
+        # Проверяем конец блока кода
+        match_end = re.search(code_block_end_pattern, text.strip())
+        if match_end and not match_start:  # Убедимся, что это не начало блока
+            content_before = match_end.group(1)
+            return f'{content_before}```\n'
+        
+        # Проверяем отдельно стоящие ```
+        if text.strip() == '```':
+            return f'```\n'
         
         return text
     
     if session is None:
         should_close_session = True
         session = create_session()
-        
+    
     try:
-        start_time = time.time()
-        
         # Отправляем первый фрагмент: роль сообщения
         first_chunk = {
             "id": f"chatcmpl-{uuid.uuid4()}",
@@ -1948,73 +1963,45 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
         }
         
         yield f"data: {json.dumps(first_chunk)}\n\n"
-
+        
         # Итерируемся по ответу построчно
         for line in response.iter_lines():
             if not line:
                 continue
-
+                
             # Трассировка для отладки
             logger.debug(f"Received line from stream: {line}")
-
+            
             try:
-                chunk_text = ""
-                
-                # Обработка различных форматов ответа
+                # Декодируем строку
                 if line.startswith(b"data: "):
                     data_str = line[6:].decode("utf-8")
                     if data_str == "[DONE]":
                         break
-
-                    # Проверяем, является ли это JSON-объектом
+                        
                     try:
                         json_data = json.loads(data_str)
-                        # Если это полный ответ 1min.ai
                         if "aiRecord" in json_data:
-                            result_text = (
+                            chunk_text = (
                                 json_data.get("aiRecord", {})
                                 .get("aiRecordDetail", {})
                                 .get("resultObject", [""])[0]
                             )
-                            chunk_text = result_text
                         else:
-                            # Если это просто фрагмент текста в JSON
                             chunk_text = json_data.get("text", data_str)
                     except json.JSONDecodeError:
-                        # Если это не JSON, используем как есть
                         chunk_text = data_str
                 else:
-                    # Для обычного текста
                     try:
-                        # Проверяем, не является ли это JSON-объектом
-                        raw_text = line.decode("utf-8")
-                        try:
-                            json_data = json.loads(raw_text)
-                            # Если это полный ответ 1min.ai
-                            if "aiRecord" in json_data:
-                                result_text = (
-                                    json_data.get("aiRecord", {})
-                                    .get("aiRecordDetail", {})
-                                    .get("resultObject", [""])[0]
-                                )
-                                chunk_text = result_text
-                            else:
-                                # Если это просто фрагмент текста в JSON
-                                chunk_text = json_data.get("text", raw_text)
-                        except json.JSONDecodeError:
-                            # Если это не JSON, используем как есть
-                            chunk_text = raw_text
+                        chunk_text = line.decode("utf-8")
                     except Exception as e:
-                        logger.error(f"Error decoding raw stream chunk: {str(e)}")
+                        logger.error(f"Error decoding line: {str(e)}")
                         continue
                 
                 # Применяем исправление форматирования кода
                 fixed_chunk_text = fix_markdown_code_block(chunk_text)
                 
-                # Добавляем текущий фрагмент к общему тексту
-                all_chunks += fixed_chunk_text
-
-                # Формируем чанк в правильном формате
+                # Формируем чанк в более простом формате
                 return_chunk = {
                     "id": f"chatcmpl-{uuid.uuid4()}",
                     "object": "chat.completion.chunk",
@@ -2028,20 +2015,19 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                         }
                     ],
                 }
-
+                
+                all_chunks += fixed_chunk_text
                 yield f"data: {json.dumps(return_chunk)}\n\n"
-
+                
             except Exception as e:
                 logger.error(f"Error processing stream chunk: {str(e)}")
                 continue
-
+                
         # Подсчитываем токены после завершения
         tokens = calculate_token(all_chunks)
-        logger.debug(
-            f"Finished processing streaming response. Completion tokens: {str(tokens)}"
-        )
+        logger.debug(f"Finished processing streaming response. Completion tokens: {str(tokens)}")
         logger.debug(f"Total tokens: {str(tokens + prompt_tokens)}")
-
+        
         # Финальный чанк, обозначающий конец потока
         final_chunk = {
             "id": f"chatcmpl-{uuid.uuid4()}",
@@ -2057,10 +2043,10 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                 "total_tokens": tokens + prompt_tokens,
             },
         }
-
+        
         yield f"data: {json.dumps(final_chunk)}\n\n"
         yield "data: [DONE]\n\n"
-
+    
     finally:
         # Закрываем сессию, если она была создана в этой функции
         if should_close_session and session:
