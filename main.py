@@ -28,6 +28,9 @@ from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
 from pymemcache.client.base import Client
 from waitress import serve
 import memcache
+# Импортируем правильную библиотеку memcached
+import memcache as pymemcache
+import python_memcached
 
 # Suppress warnings from flask_limiter
 warnings.filterwarnings(
@@ -134,8 +137,27 @@ if memcached_available:
         storage_uri=memcached_uri,
     )
     # Инициализация клиента memcached
-    MEMCACHED_CLIENT = memcache.Client([memcached_uri.split('@')[1]], debug=0)
-    logger.info(f"Memcached client initialized: {memcached_uri}")
+    try:
+        # Сначала пробуем pymemcache
+        from pymemcache.client.base import Client
+        host_port = memcached_uri.split('@')[1]
+        # Разделяем хост и порт для pymemcache
+        if ':' in host_port:
+            host, port = host_port.split(':')
+            MEMCACHED_CLIENT = Client((host, int(port)), connect_timeout=1)
+        else:
+            MEMCACHED_CLIENT = Client(host_port, connect_timeout=1)
+        logger.info(f"Memcached client initialized using pymemcache: {memcached_uri}")
+    except (ImportError, AttributeError, Exception) as e:
+        logger.error(f"Error initializing pymemcache client: {str(e)}")
+        try:
+            # Если не получилось, пробуем python-memcached
+            MEMCACHED_CLIENT = memcache.Client([memcached_uri.split('@')[1]], debug=0)
+            logger.info(f"Memcached client initialized using python-memcached: {memcached_uri}")
+        except (ImportError, AttributeError, Exception) as e:
+            logger.error(f"Error initializing memcache client: {str(e)}")
+            logger.warning(f"Failed to initialize memcached client. Session storage disabled.")
+            MEMCACHED_CLIENT = None
 else:
     # Used for ratelimiting without memcached
     limiter = Limiter(
@@ -843,10 +865,16 @@ def conversation():
         if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
             try:
                 user_key = f"user:{api_key}"
-                user_files_json = MEMCACHED_CLIENT.get(user_key)
+                user_files_json = safe_memcached_operation('get', user_key)
                 if user_files_json:
                     try:
-                        user_files = json.loads(user_files_json)
+                        if isinstance(user_files_json, str):
+                            user_files = json.loads(user_files_json)
+                        elif isinstance(user_files_json, bytes):
+                            user_files = json.loads(user_files_json.decode('utf-8'))
+                        else:
+                            user_files = user_files_json
+                        
                         if user_files and isinstance(user_files, list):
                             # Извлекаем ID файлов
                             user_file_ids = [file_info.get("id") for file_info in user_files if file_info.get("id")]
@@ -2634,11 +2662,17 @@ def upload_file():
             try:
                 user_key = f"user:{api_key}"
                 # Получаем текущие файлы пользователя или создаем новый список
-                user_files = MEMCACHED_CLIENT.get(user_key) or []
-                if isinstance(user_files, str):
+                user_files_json = safe_memcached_operation('get', user_key)
+                user_files = []
+                
+                if user_files_json:
                     try:
-                        user_files = json.loads(user_files)
-                    except:
+                        if isinstance(user_files_json, str):
+                            user_files = json.loads(user_files_json)
+                        elif isinstance(user_files_json, bytes):
+                            user_files = json.loads(user_files_json.decode('utf-8'))
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
                         user_files = []
                         
                 # Добавляем новый файл
@@ -2650,7 +2684,7 @@ def upload_file():
                 user_files.append(file_info)
                 
                 # Сохраняем обновленный список файлов
-                MEMCACHED_CLIENT.set(user_key, json.dumps(user_files))
+                safe_memcached_operation('set', user_key, json.dumps(user_files))
                 logger.info(f"[{request_id}] Saved file ID {file_id} for user in memcached")
             except Exception as e:
                 logger.error(f"[{request_id}] Error saving file ID to memcached: {str(e)}")
@@ -3351,6 +3385,33 @@ def handle_file_content(file_id):
     except Exception as e:
         logger.error(f"[{request_id}] Exception during file content request: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
+# Функция-обертка для безопасного доступа к memcached
+def safe_memcached_operation(operation, *args, **kwargs):
+    """
+    Безопасно выполняет операцию с memcached, обрабатывая возможные ошибки.
+    
+    Args:
+        operation: Имя метода memcached для выполнения
+        *args, **kwargs: Аргументы для метода
+        
+    Returns:
+        Результат операции или None в случае ошибки
+    """
+    if 'MEMCACHED_CLIENT' not in globals() or MEMCACHED_CLIENT is None:
+        return None
+        
+    try:
+        method = getattr(MEMCACHED_CLIENT, operation, None)
+        if method is None:
+            logger.error(f"Memcached operation '{operation}' not found")
+            return None
+            
+        return method(*args, **kwargs)
+    except Exception as e:
+        logger.error(f"Error in memcached operation '{operation}': {str(e)}")
+        return None
 
 
 if __name__ == "__main__":
