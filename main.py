@@ -18,7 +18,7 @@ import coloredlogs
 import printedcolors
 import requests
 import tiktoken
-from flask import Flask, request, jsonify, make_response, Response, stream_with_context
+from flask import Flask, request, jsonify, make_response, Response, stream_with_context, redirect, url_for
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_cors import CORS
@@ -290,6 +290,47 @@ retrieval_supported_models = [
 function_calling_supported_models = [
     "gpt-4",
     "gpt-3.5-turbo"
+]
+
+# Определение моделей для генерации изображений
+IMAGE_GENERATION_MODELS = [
+    "dall-e-3",
+    "dall-e-2",
+    "stable-diffusion-xl-1024-v1-0",
+    "stable-diffusion-v1-6",
+    "midjourney",
+    "midjourney_6_1",
+    "phoenix",
+    "lightning-xl",
+    "anime-xl",
+    "diffusion-xl",
+    "kino-xl",
+    "vision-xl",
+    "albedo-base-xl",
+    "flux-schnell",
+    "flux-dev",
+    "flux-pro",
+    "flux-1.1-pro"
+]
+
+# Определение моделей для синтеза речи (TTS)
+TEXT_TO_SPEECH_MODELS = [
+    "tts-1"#,
+    #"tts-1-hd",
+    #"google-tts",
+    #"elevenlabs-tts"
+]
+
+# Определение моделей для распознавания речи (STT)
+SPEECH_TO_TEXT_MODELS = [
+    "whisper-1"#,
+    #"latest_long",
+    #"latest_short",
+    #"phone_call",
+    #"telephony",
+    #"telephony_short",
+    #"medical_dictation",
+    #"medical_conversation"
 ]
 
 # Default values
@@ -710,6 +751,22 @@ def conversation():
         # Получаем и нормализуем модель
         model = request_data.get("model", "").strip()
         logger.info(f"[{request_id}] Using model: {model}")
+        
+        # Проверяем, относится ли модель к одному из специальных типов
+        # Для моделей генерации изображений
+        if model in IMAGE_GENERATION_MODELS:
+            logger.info(f"[{request_id}] Redirecting image generation model to /v1/images/generations")
+            return redirect(url_for('generate_image'), code=307)  # 307 сохраняет метод и тело запроса
+            
+        # Для моделей генерации речи (TTS)
+        if model in TEXT_TO_SPEECH_MODELS:
+            logger.info(f"[{request_id}] Redirecting text-to-speech model to /v1/audio/speech")
+            return redirect(url_for('text_to_speech'), code=307)
+            
+        # Для моделей транскрипции аудио (STT)
+        if model in SPEECH_TO_TEXT_MODELS:
+            logger.info(f"[{request_id}] Redirecting speech-to-text model to /v1/audio/transcriptions")
+            return redirect(url_for('audio_transcriptions'), code=307)
 
         # Журналируем начало запроса
         logger.debug(f"[{request_id}] Processing chat completion request")
