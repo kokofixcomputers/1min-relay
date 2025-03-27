@@ -11,14 +11,17 @@ import traceback
 import uuid
 import warnings
 import re
+import asyncio
+import math
 
 import coloredlogs
 import printedcolors
 import requests
 import tiktoken
-from flask import Flask, request, jsonify, make_response, Response
+from flask import Flask, request, jsonify, make_response, Response, stream_with_context
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_cors import CORS
 from mistral_common.protocol.instruct.messages import UserMessage
 from mistral_common.protocol.instruct.request import ChatCompletionRequest
 from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
@@ -641,7 +644,7 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
 
     try:
         payload = {
-            "title": title,
+            "title": name,
             "type": "CHAT_WITH_PDF",
             "model": model,
             "fileList": file_ids,
@@ -1053,10 +1056,11 @@ def generate_image():
 
     request_data = request.json
     model = request_data.get("model", "dall-e-2").strip()
-    logger.debug(f"[{request_id}] Using model: {model}")
+    logger.info(f"[{request_id}] Using model: {model}")
 
     # Преобразование параметров OpenAI в формат 1min.ai
     prompt = request_data.get("prompt", "")
+    logger.debug(f"[{request_id}] Image prompt: {prompt[:100]}...")
 
     if model == "dall-e-3":
         payload = {
@@ -1102,8 +1106,11 @@ def generate_image():
             "model": "midjourney",
             "promptObject": {
                 "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
+                "mode": request_data.get("mode", "relax"),
+                "n": request_data.get("n", 4),
                 "aspect_ratio": request_data.get("size", "1:1"),
+                "isNiji6": request_data.get("isNiji6", False),
+                "maintainModeration": request_data.get("maintainModeration", True),
             },
         }
     elif model == "midjourney_6_1" or model == "midjourney-6.1":
@@ -1351,29 +1358,58 @@ def generate_image():
         )
         logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:200]}...")
 
-        response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
-        logger.debug(
-            f"[{request_id}] Image generation response status code: {response.status_code}"
-        )
+        # Внедряем повторные попытки с экспоненциальной задержкой
+        max_retries = 5
+        retry_count = 0
+        retry_delay = 1
 
-        if response.status_code != 200:
-            if response.status_code == 401:
-                return ERROR_HANDLER(1020, key=api_key)
-            return (
-                jsonify({"error": response.json().get("error", "Unknown error")}),
-                response.status_code,
-            )
+        while retry_count < max_retries:
+            try:
+                response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
+                logger.debug(
+                    f"[{request_id}] Image generation response status code: {response.status_code}"
+                )
+
+                # Если получен успешный ответ, обрабатываем его
+                if response.status_code == 200:
+                    break
+                
+                # Если ошибка 429 (Rate Limit) или 500 (Server Error), повторяем запрос
+                elif response.status_code in [429, 500]:
+                    retry_count += 1
+                    logger.warning(
+                        f"[{request_id}] Received {response.status_code} error, retry {retry_count}/{max_retries}"
+                    )
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Увеличиваем время ожидания экспоненциально
+                    continue
+                    
+                # Для других ошибок возвращаем ответ сразу
+                elif response.status_code == 401:
+                    return ERROR_HANDLER(1020, key=api_key)
+                else:
+                    return (
+                        jsonify({"error": response.json().get("error", "Unknown error")}),
+                        response.status_code,
+                    )
+            except Exception as e:
+                retry_count += 1
+                logger.warning(
+                    f"[{request_id}] Exception during API request: {str(e)}, retry {retry_count}/{max_retries}"
+                )
+                time.sleep(retry_delay)
+                retry_delay *= 2
+                continue
+                
+        # Если после всех попыток по-прежнему получаем ошибки
+        if retry_count >= max_retries and (not 'response' in locals() or response.status_code != 200):
+            logger.error(f"[{request_id}] Max retries exceeded for image generation request")
+            return jsonify({"error": "Failed to generate image after multiple attempts"}), 500
 
         one_min_response = response.json()
 
         # Преобразование ответа 1min.ai в формат OpenAI
         try:
-            image_url = (
-                one_min_response.get("aiRecord", {})
-                .get("aiRecordDetail", {})
-                .get("resultObject", [""])[0]
-            )
-            
             # Получаем все URL изображений, если они доступны
             image_urls = []
             
@@ -1393,13 +1429,9 @@ def generate_image():
                     else:
                         image_urls = [one_min_response["resultObject"]]
             
-            # Если все равно нет URLs, используем найденный ранее единичный URL
-            if not image_urls and image_url:
-                image_urls = [image_url]
-            
             if not image_urls:
                 logger.error(
-                    f"[{request_id}] Could not extract image URLs from API response"
+                    f"[{request_id}] Could not extract image URLs from API response: {json.dumps(one_min_response)[:500]}"
                 )
                 return (
                     jsonify({"error": "Could not extract image URLs from API response"}),
@@ -1440,6 +1472,7 @@ def generate_image():
                 "data": openai_data,
             }
 
+            logger.info(f"[{request_id}] Returning {len(openai_data)} image URLs to client")
             response = make_response(jsonify(openai_response))
             set_response_headers(response)
             return response, 200
@@ -2772,6 +2805,294 @@ def audio_translations():
 
     except Exception as e:
         logger.error(f"[{request_id}] Exception during translation request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/v1/audio/speech", methods=["POST", "OPTIONS"])
+@limiter.limit("60 per minute")
+def text_to_speech():
+    """
+    Маршрут для преобразования текста в речь (аналог OpenAI TTS API)
+    """
+    if request.method == "OPTIONS":
+        return handle_options_request()
+
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Received request: /v1/audio/speech")
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.error(f"[{request_id}] Invalid Authentication")
+        return ERROR_HANDLER(1021)
+
+    api_key = auth_header.split(" ")[1]
+
+    # Получаем данные запроса
+    request_data = request.json
+    model = request_data.get("model", "tts-1")
+    input_text = request_data.get("input", "")
+    voice = request_data.get("voice", "alloy")
+    response_format = request_data.get("response_format", "mp3")
+    speed = request_data.get("speed", 1.0)
+
+    logger.info(f"[{request_id}] Processing TTS request with model {model}")
+    logger.debug(f"[{request_id}] Text input: {input_text[:100]}...")
+
+    if not input_text:
+        logger.error(f"[{request_id}] No input text provided")
+        return jsonify({"error": "No input text provided"}), 400
+        
+    try:
+        # Формируем payload для запроса TEXT_TO_SPEECH
+        payload = {
+            "type": "TEXT_TO_SPEECH",
+            "model": model,
+            "promptObject": {
+                "text": input_text,
+                "voice": voice,
+                "response_format": response_format,
+                "speed": speed
+            }
+        }
+
+        headers = {"API-KEY": api_key, "Content-Type": "application/json"}
+
+        # Отправляем запрос
+        logger.debug(f"[{request_id}] Sending TTS request to {ONE_MIN_API_URL}")
+        response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
+        logger.debug(f"[{request_id}] TTS response status code: {response.status_code}")
+
+        if response.status_code != 200:
+            if response.status_code == 401:
+                return ERROR_HANDLER(1020, key=api_key)
+            logger.error(f"[{request_id}] Error in TTS response: {response.text[:200]}")
+            return (
+                jsonify({"error": response.json().get("error", "Unknown error")}),
+                response.status_code,
+            )
+
+        # Обрабатываем ответ
+        one_min_response = response.json()
+        
+        try:
+            # Получаем URL аудио из ответа
+            audio_url = ""
+            
+            if "aiRecord" in one_min_response and "aiRecordDetail" in one_min_response["aiRecord"]:
+                result_object = one_min_response["aiRecord"]["aiRecordDetail"].get("resultObject", "")
+                if isinstance(result_object, list) and result_object:
+                    audio_url = result_object[0]
+                else:
+                    audio_url = result_object
+            elif "resultObject" in one_min_response:
+                result_object = one_min_response["resultObject"]
+                if isinstance(result_object, list) and result_object:
+                    audio_url = result_object[0]
+                else:
+                    audio_url = result_object
+            
+            if not audio_url:
+                logger.error(f"[{request_id}] Could not extract audio URL from API response")
+                return jsonify({"error": "Could not extract audio URL"}), 500
+            
+            # Получаем аудио-данные по URL
+            audio_response = api_request("GET", f"https://asset.1min.ai/{audio_url}")
+            
+            if audio_response.status_code != 200:
+                logger.error(f"[{request_id}] Failed to download audio: {audio_response.status_code}")
+                return jsonify({"error": "Failed to download audio"}), 500
+            
+            # Возвращаем аудио клиенту
+            logger.info(f"[{request_id}] Successfully generated speech audio")
+            
+            # Создаем ответ с аудио и правильными MIME-типами
+            content_type = "audio/mpeg" if response_format == "mp3" else f"audio/{response_format}"
+            response = make_response(audio_response.content)
+            response.headers["Content-Type"] = content_type
+            set_response_headers(response)
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"[{request_id}] Error processing TTS response: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+            
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception during TTS request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+# Функции для работы с файлами в API
+@app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
+@limiter.limit("60 per minute")
+def handle_files():
+    """
+    Маршрут для работы с файлами: получение списка и загрузка новых файлов
+    """
+    if request.method == "OPTIONS":
+        return handle_options_request()
+
+    request_id = str(uuid.uuid4())[:8]
+    
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.error(f"[{request_id}] Invalid Authentication")
+        return ERROR_HANDLER(1021)
+
+    api_key = auth_header.split(" ")[1]
+    
+    # GET - получение списка файлов
+    if request.method == "GET":
+        logger.info(f"[{request_id}] Received request: GET /v1/files")
+        try:
+            # В 1min.ai нет API для получения списка файлов, поэтому вернем пустой список
+            # Это эмуляция поведения OpenAI API
+            response_data = {
+                "data": [],
+                "object": "list"
+            }
+            response = make_response(jsonify(response_data))
+            set_response_headers(response)
+            return response
+        except Exception as e:
+            logger.error(f"[{request_id}] Exception during files list request: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+    
+    # POST - загрузка нового файла
+    elif request.method == "POST":
+        logger.info(f"[{request_id}] Received request: POST /v1/files")
+        
+        # Проверка наличия файла
+        if "file" not in request.files:
+            logger.error(f"[{request_id}] No file provided")
+            return jsonify({"error": "No file provided"}), 400
+            
+        file = request.files["file"]
+        purpose = request.form.get("purpose", "assistants")
+        
+        try:
+            # Получаем содержимое файла
+            file_data = file.read()
+            file_name = file.filename
+            
+            # Получаем ID загруженного файла
+            file_id = upload_document(file_data, file_name, api_key, request_id)
+            
+            if not file_id:
+                logger.error(f"[{request_id}] Failed to upload file")
+                return jsonify({"error": "Failed to upload file"}), 500
+                
+            # Формируем ответ в формате OpenAI API
+            response_data = {
+                "id": file_id,
+                "object": "file",
+                "bytes": len(file_data),
+                "created_at": int(time.time()),
+                "filename": file_name,
+                "purpose": purpose,
+                "status": "processed"
+            }
+            
+            logger.info(f"[{request_id}] File uploaded successfully: {file_id}")
+            response = make_response(jsonify(response_data))
+            set_response_headers(response)
+            return response
+            
+        except Exception as e:
+            logger.error(f"[{request_id}] Exception during file upload: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+
+
+@app.route("/v1/files/<file_id>", methods=["GET", "DELETE", "OPTIONS"])
+@limiter.limit("60 per minute")
+def handle_file(file_id):
+    """
+    Маршрут для работы с конкретным файлом: получение информации и удаление
+    """
+    if request.method == "OPTIONS":
+        return handle_options_request()
+
+    request_id = str(uuid.uuid4())[:8]
+    
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.error(f"[{request_id}] Invalid Authentication")
+        return ERROR_HANDLER(1021)
+
+    api_key = auth_header.split(" ")[1]
+    
+    # GET - получение информации о файле
+    if request.method == "GET":
+        logger.info(f"[{request_id}] Received request: GET /v1/files/{file_id}")
+        try:
+            # В 1min.ai нет API для получения информации о файле по ID
+            # Возвращаем эмуляцию ответа OpenAI API
+            response_data = {
+                "id": file_id,
+                "object": "file",
+                "bytes": 0,
+                "created_at": int(time.time()),
+                "filename": f"file_{file_id}",
+                "purpose": "assistants",
+                "status": "processed"
+            }
+            
+            response = make_response(jsonify(response_data))
+            set_response_headers(response)
+            return response
+            
+        except Exception as e:
+            logger.error(f"[{request_id}] Exception during file info request: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+    
+    # DELETE - удаление файла
+    elif request.method == "DELETE":
+        logger.info(f"[{request_id}] Received request: DELETE /v1/files/{file_id}")
+        try:
+            # В 1min.ai нет API для удаления файла по ID
+            # Возвращаем эмуляцию ответа OpenAI API об успешном удалении
+            response_data = {
+                "id": file_id,
+                "object": "file",
+                "deleted": True
+            }
+            
+            response = make_response(jsonify(response_data))
+            set_response_headers(response)
+            return response
+            
+        except Exception as e:
+            logger.error(f"[{request_id}] Exception during file deletion: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+
+
+@app.route("/v1/files/<file_id>/content", methods=["GET", "OPTIONS"])
+@limiter.limit("60 per minute")
+def handle_file_content(file_id):
+    """
+    Маршрут для получения содержимого файла
+    """
+    if request.method == "OPTIONS":
+        return handle_options_request()
+
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Received request: GET /v1/files/{file_id}/content")
+    
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.error(f"[{request_id}] Invalid Authentication")
+        return ERROR_HANDLER(1021)
+
+    api_key = auth_header.split(" ")[1]
+    
+    try:
+        # В 1min.ai нет API для получения содержимого файла по ID
+        # Возвращаем ошибку
+        logger.error(f"[{request_id}] File content retrieval not supported")
+        return jsonify({"error": "File content retrieval not supported"}), 501
+        
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception during file content request: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
