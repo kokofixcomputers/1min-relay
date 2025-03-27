@@ -27,6 +27,7 @@ from mistral_common.protocol.instruct.request import ChatCompletionRequest
 from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
 from pymemcache.client.base import Client
 from waitress import serve
+import memcache
 
 # Suppress warnings from flask_limiter
 warnings.filterwarnings(
@@ -132,12 +133,17 @@ if memcached_available:
         app=app,
         storage_uri=memcached_uri,
     )
+    # Инициализация клиента memcached
+    MEMCACHED_CLIENT = memcache.Client([memcached_uri.split('@')[1]], debug=0)
+    logger.info(f"Memcached client initialized: {memcached_uri}")
 else:
     # Used for ratelimiting without memcached
     limiter = Limiter(
         get_remote_address,
         app=app,
     )
+    MEMCACHED_CLIENT = None
+    logger.info("Memcached not available, session storage disabled")
 
 
 ONE_MIN_API_URL = "https://api.1min.ai/api/features"
@@ -775,12 +781,38 @@ def conversation():
         # Для моделей генерации изображений
         if model in IMAGE_GENERATION_MODELS:
             logger.info(f"[{request_id}] Redirecting image generation model to /v1/images/generations")
-            # Добавляем промпт к запросу для генерации изображения
-            if prompt_text:
-                request_data["prompt"] = prompt_text
-                logger.debug(f"[{request_id}] Setting image prompt: {prompt_text[:100]}..." if len(prompt_text) > 100 else f"[{request_id}] Setting image prompt: {prompt_text}")
+            
+            # Создаем новый запрос только с необходимыми полями для генерации изображения
+            image_request = {
+                "model": model,
+                "prompt": prompt_text,
+                "n": request_data.get("n", 1),
+                "size": request_data.get("size", "1024x1024")
+            }
+            
+            # Добавляем дополнительные параметры для определенных моделей
+            if model == "dall-e-3":
+                image_request["quality"] = request_data.get("quality", "standard")
+                image_request["style"] = request_data.get("style", "vivid")
+            
+            # Проверяем наличие специальных параметров в промпте для моделей типа midjourney
+            if model.startswith("midjourney"):
+                # Добавляем проверки и параметры для midjourney моделей
+                if "--ar" in prompt_text:
+                    logger.debug(f"[{request_id}] Found aspect ratio parameter in prompt")
+                elif request_data.get("aspect_ratio"):
+                    image_request["aspect_ratio"] = request_data.get("aspect_ratio")
+                    
+                if "--no" in prompt_text:
+                    logger.debug(f"[{request_id}] Found negative prompt parameter in prompt")
+                elif request_data.get("negative_prompt"):
+                    # Добавляем негативный промпт прямо в промпт
+                    image_request["prompt"] = f"{prompt_text} --no {request_data.get('negative_prompt')}"
+                    
+            logger.debug(f"[{request_id}] Final image request: {json.dumps(image_request)[:200]}...")
+            
             # Сохраняем модифицированный запрос
-            request.environ["body_copy"] = json.dumps(request_data)
+            request.environ["body_copy"] = json.dumps(image_request)
             return redirect(url_for('generate_image'), code=307)  # 307 сохраняет метод и тело запроса
             
         # Для моделей генерации речи (TTS)
@@ -808,18 +840,23 @@ def conversation():
         
         # Проверяем наличие файлов пользователя для работы с PDF
         user_file_ids = []
-        if MEMCACHED_CLIENT:
-            user_key = f"user:{api_key}"
-            user_files_json = MEMCACHED_CLIENT.get(user_key)
-            if user_files_json:
-                try:
-                    user_files = json.loads(user_files_json)
-                    if user_files and isinstance(user_files, list):
-                        # Извлекаем ID файлов
-                        user_file_ids = [file_info.get("id") for file_info in user_files if file_info.get("id")]
-                        logger.debug(f"[{request_id}] Found user files: {user_file_ids}")
-                except Exception as e:
-                    logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
+        if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+            try:
+                user_key = f"user:{api_key}"
+                user_files_json = MEMCACHED_CLIENT.get(user_key)
+                if user_files_json:
+                    try:
+                        user_files = json.loads(user_files_json)
+                        if user_files and isinstance(user_files, list):
+                            # Извлекаем ID файлов
+                            user_file_ids = [file_info.get("id") for file_info in user_files if file_info.get("id")]
+                            logger.debug(f"[{request_id}] Found user files: {user_file_ids}")
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
+            except Exception as e:
+                logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
+        else:
+            logger.debug(f"[{request_id}] Memcached not available, no user files loaded")
                     
         # Если в запросе не указаны file_ids, но у пользователя есть загруженные файлы, 
         # добавляем их к запросу
@@ -1505,6 +1542,7 @@ def generate_image():
         max_retries = 5
         retry_count = 0
         retry_delay = 1
+        error_response = None
 
         while retry_count < max_retries:
             try:
@@ -1518,25 +1556,48 @@ def generate_image():
                     break
                 
                 # Если ошибка 429 (Rate Limit) или 500 (Server Error), повторяем запрос
-                elif response.status_code in [429, 500]:
+                elif response.status_code in [429, 500, 502, 503, 504]:
                     retry_count += 1
+                    error_response = response
                     logger.warning(
                         f"[{request_id}] Received {response.status_code} error, retry {retry_count}/{max_retries}"
                     )
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Увеличиваем время ожидания экспоненциально
+                    
+                    # Если это midjourney модель, попробуем изменить запрос
+                    if model.startswith("midjourney") and retry_count > 2:
+                        logger.warning(f"[{request_id}] Modifying midjourney request to simplify")
+                        # Упрощаем промпт для midjourney, убирая спец-символы
+                        prompt = re.sub(r'--\w+\s+[\w:]+', '', prompt).strip()
+                        if "midjourney_6_1" in model or "midjourney-6.1" in model:
+                            payload["promptObject"]["prompt"] = prompt
+                            # Удаляем лишние поля, которые могут вызывать ошибки
+                            for field in ["aspect_height", "aspect_width", "negativePrompt", "no", "weird"]:
+                                if field in payload["promptObject"]:
+                                    del payload["promptObject"][field]
+                        logger.debug(f"[{request_id}] Modified payload: {json.dumps(payload)[:200]}...")
+                    
                     continue
                     
                 # Для других ошибок возвращаем ответ сразу
                 elif response.status_code == 401:
                     return ERROR_HANDLER(1020, key=api_key)
                 else:
+                    error_msg = "Unknown error"
+                    try:
+                        error_data = response.json()
+                        if "error" in error_data:
+                            error_msg = error_data["error"]
+                    except:
+                        pass
                     return (
-                        jsonify({"error": response.json().get("error", "Unknown error")}),
+                        jsonify({"error": error_msg}),
                         response.status_code,
                     )
             except Exception as e:
                 retry_count += 1
+                error_response = f"Exception: {str(e)}"
                 logger.warning(
                     f"[{request_id}] Exception during API request: {str(e)}, retry {retry_count}/{max_retries}"
                 )
@@ -2568,28 +2629,33 @@ def upload_file():
         if not file_id:
             return jsonify({"error": "Failed to upload file"}), 500
 
-        # Сохраняем ID файла в сессии пользователя через memcached
-        if MEMCACHED_CLIENT:
-            user_key = f"user:{api_key}"
-            # Получаем текущие файлы пользователя или создаем новый список
-            user_files = MEMCACHED_CLIENT.get(user_key) or []
-            if isinstance(user_files, str):
-                try:
-                    user_files = json.loads(user_files)
-                except:
-                    user_files = []
-                    
-            # Добавляем новый файл
-            file_info = {
-                "id": file_id,
-                "filename": file_name,
-                "created_at": int(time.time())
-            }
-            user_files.append(file_info)
-            
-            # Сохраняем обновленный список файлов
-            MEMCACHED_CLIENT.set(user_key, json.dumps(user_files))
-            logger.info(f"[{request_id}] Saved file ID {file_id} for user in memcached")
+        # Сохраняем ID файла в сессии пользователя через memcached, если он доступен
+        if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+            try:
+                user_key = f"user:{api_key}"
+                # Получаем текущие файлы пользователя или создаем новый список
+                user_files = MEMCACHED_CLIENT.get(user_key) or []
+                if isinstance(user_files, str):
+                    try:
+                        user_files = json.loads(user_files)
+                    except:
+                        user_files = []
+                        
+                # Добавляем новый файл
+                file_info = {
+                    "id": file_id,
+                    "filename": file_name,
+                    "created_at": int(time.time())
+                }
+                user_files.append(file_info)
+                
+                # Сохраняем обновленный список файлов
+                MEMCACHED_CLIENT.set(user_key, json.dumps(user_files))
+                logger.info(f"[{request_id}] Saved file ID {file_id} for user in memcached")
+            except Exception as e:
+                logger.error(f"[{request_id}] Error saving file ID to memcached: {str(e)}")
+        else:
+            logger.warning(f"[{request_id}] Memcached not available, file ID not saved to user session")
 
         # Формируем ответ в формате OpenAI API
         response_data = {
