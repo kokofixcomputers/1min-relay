@@ -91,6 +91,7 @@ logger.info(
                                  |__/ """
 )
 
+
 def calculate_token(sentence, model="DEFAULT"):
     """Calculate the number of tokens in a sentence based on the specified model."""
 
@@ -131,36 +132,12 @@ if memcached_available:
         app=app,
         storage_uri=memcached_uri,
     )
-    # Инициализация клиента memcached
-    try:
-        # Сначала пробуем pymemcache
-        from pymemcache.client.base import Client
-        host_port = memcached_uri.split('@')[1]
-        # Разделяем хост и порт для pymemcache
-        if ':' in host_port:
-            host, port = host_port.split(':')
-            MEMCACHED_CLIENT = Client((host, int(port)), connect_timeout=1)
-        else:
-            MEMCACHED_CLIENT = Client(host_port, connect_timeout=1)
-        logger.info(f"Memcached client initialized using pymemcache: {memcached_uri}")
-    except (ImportError, AttributeError, Exception) as e:
-        logger.error(f"Error initializing pymemcache client: {str(e)}")
-        try:
-            # Если не получилось, пробуем python-memcached
-            MEMCACHED_CLIENT = memcache.Client([memcached_uri.split('@')[1]], debug=0)
-            logger.info(f"Memcached client initialized using python-memcached: {memcached_uri}")
-        except (ImportError, AttributeError, Exception) as e:
-            logger.error(f"Error initializing memcache client: {str(e)}")
-            logger.warning(f"Failed to initialize memcached client. Session storage disabled.")
-            MEMCACHED_CLIENT = None
 else:
     # Used for ratelimiting without memcached
     limiter = Limiter(
         get_remote_address,
         app=app,
     )
-    MEMCACHED_CLIENT = None
-    logger.info("Memcached not available, session storage disabled")
 
 
 ONE_MIN_API_URL = "https://api.1min.ai/api/features"
