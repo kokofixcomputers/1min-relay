@@ -27,10 +27,6 @@ from mistral_common.protocol.instruct.request import ChatCompletionRequest
 from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
 from pymemcache.client.base import Client
 from waitress import serve
-import memcache
-# Импортируем правильную библиотеку memcached
-import memcache as pymemcache
-import python_memcached
 
 # Suppress warnings from flask_limiter
 warnings.filterwarnings(
@@ -94,7 +90,6 @@ logger.info(
  |_|_|  |_|_|_||_|_|_\___|_\__,_|\_, |
                                  |__/ """
 )
-
 
 def calculate_token(sentence, model="DEFAULT"):
     """Calculate the number of tokens in a sentence based on the specified model."""
