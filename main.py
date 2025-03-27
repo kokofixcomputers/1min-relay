@@ -137,7 +137,12 @@ if memcached_available:
     try:
         # Сначала пробуем pymemcache
         from pymemcache.client.base import Client
-        host_port = memcached_uri.split('@')[1]
+        # Извлекаем хост и порт из URI без использования .split('@')
+        if memcached_uri.startswith('memcached://'):
+            host_port = memcached_uri.replace('memcached://', '')
+        else:
+            host_port = memcached_uri
+            
         # Разделяем хост и порт для pymemcache
         if ':' in host_port:
             host, port = host_port.split(':')
@@ -149,7 +154,13 @@ if memcached_available:
         logger.error(f"Error initializing pymemcache client: {str(e)}")
         try:
             # Если не получилось, пробуем python-memcached
-            MEMCACHED_CLIENT = memcache.Client([memcached_uri.split('@')[1]], debug=0)
+            # Извлекаем хост и порт из URI без использования .split('@')
+            if memcached_uri.startswith('memcached://'):
+                host_port = memcached_uri.replace('memcached://', '')
+            else:
+                host_port = memcached_uri
+                
+            MEMCACHED_CLIENT = memcache.Client([host_port], debug=0)
             logger.info(f"Memcached client initialized using python-memcached: {memcached_uri}")
         except (ImportError, AttributeError, Exception) as e:
             logger.error(f"Error initializing memcache client: {str(e)}")
