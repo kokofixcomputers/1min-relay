@@ -295,7 +295,7 @@ function_calling_supported_models = [
 # Определение моделей для генерации изображений
 IMAGE_GENERATION_MODELS = [
     "dall-e-3",
-    #"dall-e-2",
+    "dall-e-2",
     "stable-diffusion-xl-1024-v1-0",
     "stable-diffusion-v1-6",
     "midjourney",
@@ -752,15 +752,42 @@ def conversation():
         model = request_data.get("model", "").strip()
         logger.info(f"[{request_id}] Using model: {model}")
         
+        # Извлекаем содержимое последнего сообщения для возможной генерации изображений
+        messages = request_data.get("messages", [])
+        prompt_text = ""
+        if messages and len(messages) > 0:
+            last_message = messages[-1]
+            if last_message.get("role") == "user":
+                content = last_message.get("content", "")
+                if isinstance(content, str):
+                    prompt_text = content
+                elif isinstance(content, list):
+                    # Собираем все текстовые части содержимого
+                    for item in content:
+                        if isinstance(item, dict) and "text" in item:
+                            prompt_text += item["text"] + " "
+                    prompt_text = prompt_text.strip()
+        
         # Проверяем, относится ли модель к одному из специальных типов
         # Для моделей генерации изображений
         if model in IMAGE_GENERATION_MODELS:
             logger.info(f"[{request_id}] Redirecting image generation model to /v1/images/generations")
+            # Добавляем промпт к запросу для генерации изображения
+            if prompt_text:
+                if not "prompt" in request_data:
+                    request_data["prompt"] = prompt_text
+            # Сохраняем модифицированный запрос
+            request.environ["body_copy"] = json.dumps(request_data)
             return redirect(url_for('generate_image'), code=307)  # 307 сохраняет метод и тело запроса
             
         # Для моделей генерации речи (TTS)
         if model in TEXT_TO_SPEECH_MODELS:
             logger.info(f"[{request_id}] Redirecting text-to-speech model to /v1/audio/speech")
+            # Добавляем текст к запросу для синтеза речи
+            if prompt_text and not "input" in request_data:
+                request_data["input"] = prompt_text
+            # Сохраняем модифицированный запрос
+            request.environ["body_copy"] = json.dumps(request_data)
             return redirect(url_for('text_to_speech'), code=307)
             
         # Для моделей транскрипции аудио (STT)
@@ -1111,7 +1138,15 @@ def generate_image():
     api_key = auth_header.split(" ")[1]
     headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-    request_data = request.json
+    # Проверяем наличие сохраненного тела запроса из перенаправления
+    if hasattr(request, 'environ') and 'body_copy' in request.environ:
+        try:
+            request_data = json.loads(request.environ['body_copy'])
+        except:
+            request_data = request.json
+    else:
+        request_data = request.json
+
     model = request_data.get("model", "dall-e-2").strip()
     logger.info(f"[{request_id}] Using model: {model}")
 
@@ -1528,6 +1563,25 @@ def generate_image():
                 "created": int(time.time()),
                 "data": openai_data,
             }
+
+            # Для совместимости с форматом текстовых ответов, добавляем structure_output
+            structured_output = {"type": "image", "image_urls": full_image_urls}
+            if len(full_image_urls) == 1:
+                text_response = f"![Image]({full_image_urls[0]})"
+            else:
+                text_response = "\n".join([f"![Image {i+1}]({url})" for i, url in enumerate(full_image_urls)])
+                
+            openai_response["choices"] = [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": text_response,
+                        "structured_output": structured_output
+                    },
+                    "index": 0,
+                    "finish_reason": "stop"
+                }
+            ]
 
             logger.info(f"[{request_id}] Returning {len(openai_data)} image URLs to client")
             response = make_response(jsonify(openai_response))
