@@ -295,7 +295,7 @@ function_calling_supported_models = [
 # Определение моделей для генерации изображений
 IMAGE_GENERATION_MODELS = [
     "dall-e-3",
-    "dall-e-2",
+    #"dall-e-2",
     "stable-diffusion-xl-1024-v1-0",
     "stable-diffusion-v1-6",
     "midjourney",
