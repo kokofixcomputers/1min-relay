@@ -10,6 +10,7 @@ import time
 import traceback
 import uuid
 import warnings
+import re
 
 import coloredlogs
 import printedcolors
@@ -1106,25 +1107,52 @@ def generate_image():
             },
         }
     elif model == "midjourney_6_1" or model == "midjourney-6.1":
+        # Значения по умолчанию
+        aspect_width = 1
+        aspect_height = 1
+        negative_prompt = ""
+        no_param = ""
+        
+        # Обработка параметра --no для негативного промпта
+        if "--no" in prompt:
+            parts = prompt.split("--no")
+            prompt = parts[0].strip()
+            if len(parts) > 1:
+                negative_prompt = parts[1].strip()
+                no_param = negative_prompt.split(" ")[0] if negative_prompt else ""
+                
+        # Обработка параметра --ar для соотношения сторон
+        if "--ar" in prompt:
+            ar_pattern = r"--ar\s+(\d+):(\d+)"
+            ar_matches = re.search(ar_pattern, prompt)
+            if ar_matches:
+                aspect_width = int(ar_matches.group(1))
+                aspect_height = int(ar_matches.group(2))
+                # Удаляем параметр --ar из промпта
+                prompt = re.sub(ar_pattern, "", prompt).strip()
+        
         payload = {
             "type": "IMAGE_GENERATOR",
             "model": "midjourney_6_1",
             "promptObject": {
                 "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "aspect_ratio": request_data.get("size", "1:1"),
-                "style": request_data.get("style", None),
-                "quality": request_data.get("quality", None),
-                "stylize": request_data.get("stylize", None),
-                "weird": request_data.get("weird", None),
-                "chaos": request_data.get("chaos", None),
+                "mode": request_data.get("mode", "relax"),
+                "n": request_data.get("n", 4),
                 "isNiji6": request_data.get("isNiji6", False),
+                "maintainModeration": request_data.get("maintainModeration", True),
+                "negativePrompt": request_data.get("negativePrompt", negative_prompt),
+                "aspect_height": request_data.get("aspect_height", aspect_height),
+                "aspect_width": request_data.get("aspect_width", aspect_width),
+                "no": request_data.get("no", no_param),
+                "image_weight": request_data.get("image_weight", 1),
+                "weird": request_data.get("weird", 0),
             },
         }
-        # Удаляем None параметры
-        payload["promptObject"] = {
-            k: v for k, v in payload["promptObject"].items() if v is not None
-        }
+        # Если не задан negativePrompt или no, удаляем эти поля
+        if not payload["promptObject"]["negativePrompt"]:
+            del payload["promptObject"]["negativePrompt"]
+        if not payload["promptObject"]["no"]:
+            del payload["promptObject"]["no"]
     elif model == "stable-diffusion-v1-6":
         payload = {
             "type": "IMAGE_GENERATOR",
@@ -1345,32 +1373,71 @@ def generate_image():
                 .get("aiRecordDetail", {})
                 .get("resultObject", [""])[0]
             )
-
-            if not image_url:
-                # Попробуем другие пути извлечения URL
+            
+            # Получаем все URL изображений, если они доступны
+            image_urls = []
+            
+            # Проверяем, содержит ли ответ массив URL изображений
+            result_object = one_min_response.get("aiRecord", {}).get("aiRecordDetail", {}).get("resultObject", [])
+            
+            if isinstance(result_object, list) and result_object:
+                image_urls = result_object
+            elif result_object and isinstance(result_object, str):
+                image_urls = [result_object]
+            
+            # Если URL не найдены, попробуем другие пути извлечения
+            if not image_urls:
                 if "resultObject" in one_min_response:
-                    image_url = (
-                        one_min_response["resultObject"][0]
-                        if isinstance(one_min_response["resultObject"], list)
-                        else one_min_response["resultObject"]
-                    )
-
-            if not image_url:
+                    if isinstance(one_min_response["resultObject"], list):
+                        image_urls = one_min_response["resultObject"]
+                    else:
+                        image_urls = [one_min_response["resultObject"]]
+            
+            # Если все равно нет URLs, используем найденный ранее единичный URL
+            if not image_urls and image_url:
+                image_urls = [image_url]
+            
+            if not image_urls:
                 logger.error(
-                    f"[{request_id}] Could not extract image URL from API response"
+                    f"[{request_id}] Could not extract image URLs from API response"
                 )
                 return (
-                    jsonify({"error": "Could not extract image URL from API response"}),
+                    jsonify({"error": "Could not extract image URLs from API response"}),
                     500,
                 )
-
+            
             logger.debug(
-                f"[{request_id}] Successfully generated image: {image_url[:50]}..."
+                f"[{request_id}] Successfully generated {len(image_urls)} images"
             )
-
+            
+            # Формируем полные URL для всех изображений
+            full_image_urls = []
+            asset_host = "https://asset.1min.ai"
+            
+            for url in image_urls:
+                if not url:
+                    continue
+                    
+                # Проверяем, содержит ли url полный URL
+                if not url.startswith("http"):
+                    # Если изображение начинается с /, не добавляем еще один /
+                    if url.startswith("/"):
+                        full_url = f"{asset_host}{url}"
+                    else:
+                        full_url = f"{asset_host}/{url}"
+                else:
+                    full_url = url
+                    
+                full_image_urls.append(full_url)
+            
+            # Формируем ответ в формате OpenAI
+            openai_data = []
+            for url in full_image_urls:
+                openai_data.append({"url": url})
+                
             openai_response = {
                 "created": int(time.time()),
-                "data": [{"url": image_url}],
+                "data": openai_data,
             }
 
             response = make_response(jsonify(openai_response))
