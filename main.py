@@ -768,14 +768,17 @@ def conversation():
                             prompt_text += item["text"] + " "
                     prompt_text = prompt_text.strip()
         
+        # Логируем извлеченный промпт для отладки
+        logger.debug(f"[{request_id}] Extracted prompt text: {prompt_text[:100]}..." if len(prompt_text) > 100 else f"[{request_id}] Extracted prompt text: {prompt_text}")
+        
         # Проверяем, относится ли модель к одному из специальных типов
         # Для моделей генерации изображений
         if model in IMAGE_GENERATION_MODELS:
             logger.info(f"[{request_id}] Redirecting image generation model to /v1/images/generations")
             # Добавляем промпт к запросу для генерации изображения
             if prompt_text:
-                if not "prompt" in request_data:
-                    request_data["prompt"] = prompt_text
+                request_data["prompt"] = prompt_text
+                logger.debug(f"[{request_id}] Setting image prompt: {prompt_text[:100]}..." if len(prompt_text) > 100 else f"[{request_id}] Setting image prompt: {prompt_text}")
             # Сохраняем модифицированный запрос
             request.environ["body_copy"] = json.dumps(request_data)
             return redirect(url_for('generate_image'), code=307)  # 307 сохраняет метод и тело запроса
@@ -784,8 +787,9 @@ def conversation():
         if model in TEXT_TO_SPEECH_MODELS:
             logger.info(f"[{request_id}] Redirecting text-to-speech model to /v1/audio/speech")
             # Добавляем текст к запросу для синтеза речи
-            if prompt_text and not "input" in request_data:
+            if prompt_text:
                 request_data["input"] = prompt_text
+                logger.debug(f"[{request_id}] Setting TTS input: {prompt_text[:100]}..." if len(prompt_text) > 100 else f"[{request_id}] Setting TTS input: {prompt_text}")
             # Сохраняем модифицированный запрос
             request.environ["body_copy"] = json.dumps(request_data)
             return redirect(url_for('text_to_speech'), code=307)
@@ -801,7 +805,27 @@ def conversation():
         # Проверяем, содержит ли запрос изображения
         image = False
         image_paths = []
-        messages = request_data.get("messages", [])
+        
+        # Проверяем наличие файлов пользователя для работы с PDF
+        user_file_ids = []
+        if MEMCACHED_CLIENT:
+            user_key = f"user:{api_key}"
+            user_files_json = MEMCACHED_CLIENT.get(user_key)
+            if user_files_json:
+                try:
+                    user_files = json.loads(user_files_json)
+                    if user_files and isinstance(user_files, list):
+                        # Извлекаем ID файлов
+                        user_file_ids = [file_info.get("id") for file_info in user_files if file_info.get("id")]
+                        logger.debug(f"[{request_id}] Found user files: {user_file_ids}")
+                except Exception as e:
+                    logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
+                    
+        # Если в запросе не указаны file_ids, но у пользователя есть загруженные файлы, 
+        # добавляем их к запросу
+        if not request_data.get("file_ids") and user_file_ids:
+            logger.info(f"[{request_id}] Adding user files to request: {user_file_ids}")
+            request_data["file_ids"] = user_file_ids
 
         if not messages:
             logger.error(f"[{request_id}] No messages provided in request")
@@ -1142,7 +1166,9 @@ def generate_image():
     if hasattr(request, 'environ') and 'body_copy' in request.environ:
         try:
             request_data = json.loads(request.environ['body_copy'])
-        except:
+            logger.debug(f"[{request_id}] Using body from redirect: {json.dumps(request_data)[:200]}...")
+        except Exception as e:
+            logger.error(f"[{request_id}] Error parsing body_copy: {str(e)}")
             request_data = request.json
     else:
         request_data = request.json
@@ -1152,7 +1178,32 @@ def generate_image():
 
     # Преобразование параметров OpenAI в формат 1min.ai
     prompt = request_data.get("prompt", "")
-    logger.debug(f"[{request_id}] Image prompt: {prompt[:100]}...")
+    logger.debug(f"[{request_id}] Image prompt: {prompt[:100]}..." if len(prompt) > 100 else f"[{request_id}] Image prompt: {prompt}")
+    
+    if not prompt:
+        # Проверяем, есть ли промпт в сообщениях
+        messages = request_data.get("messages", [])
+        if messages and len(messages) > 0:
+            last_message = messages[-1]
+            if last_message.get("role") == "user":
+                content = last_message.get("content", "")
+                if isinstance(content, str):
+                    prompt = content
+                elif isinstance(content, list):
+                    # Собираем все текстовые части содержимого
+                    text_parts = []
+                    for item in content:
+                        if isinstance(item, dict) and "text" in item:
+                            text_parts.append(item["text"])
+                    prompt = " ".join(text_parts)
+        
+        if prompt:
+            logger.debug(f"[{request_id}] Found prompt in messages: {prompt[:100]}..." if len(prompt) > 100 else f"[{request_id}] Found prompt in messages: {prompt}")
+        else:
+            logger.warning(f"[{request_id}] No prompt found for image generation")
+            # Устанавливаем дефолтный промпт, чтобы не отправлять пустые запросы
+            prompt = "a beautiful image"
+            logger.debug(f"[{request_id}] Using default prompt: {prompt}")
 
     if model == "dall-e-3":
         payload = {
@@ -2337,36 +2388,32 @@ def create_session():
 
 def upload_document(file_data, file_name, api_key, request_id=None):
     """
-    Загружает документ на сервер 1min.ai
+    Загружает файл/документ на сервер и возвращает его ID.
 
     Args:
-        file_data: Данные файла (bytes)
-        file_name: Имя файла
-        api_key: API ключ
+        file_data: бинарное содержимое файла
+        file_name: имя файла
+        api_key: API-ключ пользователя
         request_id: ID запроса для логирования
 
     Returns:
-        str: ID файла или None в случае ошибки
+        str: ID загруженного файла или None в случае ошибки
     """
-    request_id = request_id or str(uuid.uuid4())[:8]
-    logger.info(f"[{request_id}] Uploading document: {file_name}")
-
-    # Создаем новую сессию для этого запроса
     session = create_session()
-
     try:
-        # Определяем MIME-тип файла на основе расширения
+        # Определяем тип файла по расширению
         extension = os.path.splitext(file_name)[1].lower()
+        logger.info(f"[{request_id}] Uploading document: {file_name}")
 
-        # Словарь MIME-типов для разных расширений файлов
+        # Словарь с MIME-типами для разных расширений файлов
         mime_types = {
             ".pdf": "application/pdf",
             ".txt": "text/plain",
-            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             ".doc": "application/msword",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             ".csv": "text/csv",
-            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             ".xls": "application/vnd.ms-excel",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             ".json": "application/json",
             ".md": "text/markdown",
             ".html": "text/html",
@@ -2429,6 +2476,11 @@ def upload_document(file_data, file_name, api_key, request_id=None):
             ):
                 file_id = response_data["fileContent"]["id"]
                 logger.debug(f"[{request_id}] Found file ID in fileContent: {file_id}")
+            elif (
+                "fileContent" in response_data and "uuid" in response_data["fileContent"]
+            ):
+                file_id = response_data["fileContent"]["uuid"]
+                logger.debug(f"[{request_id}] Found file ID (uuid) in fileContent: {file_id}")
             else:
                 # Пытаемся найти ID в других местах структуры ответа
                 if isinstance(response_data, dict):
@@ -2440,6 +2492,11 @@ def upload_document(file_data, file_name, api_key, request_id=None):
                                     f"[{request_id}] Found ID at path '{path}': {obj['id']}"
                                 )
                                 return obj["id"]
+                            if "uuid" in obj:
+                                logger.debug(
+                                    f"[{request_id}] Found UUID at path '{path}': {obj['uuid']}"
+                                )
+                                return obj["uuid"]
                             for k, v in obj.items():
                                 result = find_id(v, f"{path}.{k}")
                                 if result:
@@ -2510,6 +2567,29 @@ def upload_file():
 
         if not file_id:
             return jsonify({"error": "Failed to upload file"}), 500
+
+        # Сохраняем ID файла в сессии пользователя через memcached
+        if MEMCACHED_CLIENT:
+            user_key = f"user:{api_key}"
+            # Получаем текущие файлы пользователя или создаем новый список
+            user_files = MEMCACHED_CLIENT.get(user_key) or []
+            if isinstance(user_files, str):
+                try:
+                    user_files = json.loads(user_files)
+                except:
+                    user_files = []
+                    
+            # Добавляем новый файл
+            file_info = {
+                "id": file_id,
+                "filename": file_name,
+                "created_at": int(time.time())
+            }
+            user_files.append(file_info)
+            
+            # Сохраняем обновленный список файлов
+            MEMCACHED_CLIENT.set(user_key, json.dumps(user_files))
+            logger.info(f"[{request_id}] Saved file ID {file_id} for user in memcached")
 
         # Формируем ответ в формате OpenAI API
         response_data = {
