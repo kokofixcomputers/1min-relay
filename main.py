@@ -153,12 +153,12 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gpt-4",
     "gpt-3.5-turbo",
     #
-    "whisper-1",  # Распознавание речи
+    # "whisper-1", # Распознавание речи
     # "tts-1",     # Синтез речи
     # "tts-1-hd",  # Синтез речи HD
     #
-    "dall-e-2",  # Генерация изображений
-    "dall-e-3",  # Генерация изображений
+    # "dall-e-2",  # Генерация изображений
+    "dall-e-3",    # Генерация изображений
     # Claude
     "claude-instant-1.2",
     "claude-2.1",
@@ -171,15 +171,15 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gemini-1.0-pro",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
-    # "google-tts",  # Синтез речи
-    # "latest_long",  # Распознавание речи
-    # "latest_short",  # Распознавание речи
-    # "phone_call",  # Распознавание речи
-    # "telephony",  # Распознавание речи
-    # "telephony_short",  # Распознавание речи
-    # "medical_dictation",  # Распознавание речи
+    # "google-tts",            # Синтез речи
+    # "latest_long",           # Распознавание речи
+    # "latest_short",          # Распознавание речи
+    # "phone_call",            # Распознавание речи
+    # "telephony",             # Распознавание речи
+    # "telephony_short",       # Распознавание речи
+    # "medical_dictation",     # Распознавание речи
     # "medical_conversation",  # Распознавание речи
-    "chat-bison@002",
+    # "chat-bison@002",
     # MistralAI
     "mistral-large-latest",
     "mistral-small-latest",
@@ -200,37 +200,37 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # xAI
     "grok-2",
     # Иные модели (закомментированы для будущего использования)
-    # "stable-image",  # StabilityAI - Генерация изображений
+    # "stable-image",                 # StabilityAI - Генерация изображений
     "stable-diffusion-xl-1024-v1-0",  # StabilityAI - Генерация изображений
-    "stable-diffusion-v1-6",  # StabilityAI - Генерация изображений
-    # "esrgan-v1-x2plus",  # StabilityAI - Улучшение изображений
-    # "stable-video-diffusion",  # StabilityAI - Генерация видео
-    "phoenix",  # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
-    "lightning-xl",  # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
-    "anime-xl",  # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
-    "diffusion-xl",  # Leonardo.ai - 1e60896f-3c26-4296-8ecc-53e2afecc132
-    "kino-xl",  # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
-    "vision-xl",  # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
+    "stable-diffusion-v1-6",          # StabilityAI - Генерация изображений
+    # "esrgan-v1-x2plus",             # StabilityAI - Улучшение изображений
+    # "stable-video-diffusion",       # StabilityAI - Генерация видео
+    "phoenix",         # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
+    "lightning-xl",    # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
+    "anime-xl",        # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
+    "diffusion-xl",    # Leonardo.ai - 1e60896f-3c26-4296-8ecc-53e2afecc132
+    "kino-xl",         # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
+    "vision-xl",       # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
     "albedo-base-xl",  # Leonardo.ai - 2067ae52-33fd-4a82-bb92-c2c55e7d2786
-    # "clipdrop",  # Clipdrop.co - Обработка изображений
-    "midjourney",  # Midjourney - Генерация изображений
+    # "clipdrop",      # Clipdrop.co - Обработка изображений
+    "midjourney",      # Midjourney - Генерация изображений
     "midjourney_6_1",  # Midjourney - Генерация изображений
-    # "methexis-inc/img2prompt:50adaf2d3ad20a6f911a8a9e3ccf777b263b8596fbd2c8fc26e8888f8a0edbb5",  # Replicate - Image to Prompt
+    # "methexis-inc/img2prompt:50adaf2d3ad20a6f911a8a9e3ccf777b263b8596fbd2c8fc26e8888f8a0edbb5",   # Replicate - Image to Prompt
     # "cjwbw/damo-text-to-video:1e205ea73084bd17a0a3b43396e49ba0d6bc2e754e9283b2df49fad2dcf95755",  # Replicate - Text to Video
-    # "lucataco/animate-diff:beecf59c4aee8d81bf04f0381033dfa10dc16e845b4ae00d281e2fa377e48a9f",  # Replicate - Animation
-    # "lucataco/hotshot-xl:78b3a6257e16e4b241245d65c8b2b81ea2e1ff7ed4c55306b511509ddbfd327a",  # Replicate - Video
+    # "lucataco/animate-diff:beecf59c4aee8d81bf04f0381033dfa10dc16e845b4ae00d281e2fa377e48a9f",     # Replicate - Animation
+    # "lucataco/hotshot-xl:78b3a6257e16e4b241245d65c8b2b81ea2e1ff7ed4c55306b511509ddbfd327a",       # Replicate - Video
     "flux-schnell",  # Replicate - Flux "black-forest-labs/flux-schnell"
-    "flux-dev",  # Replicate - Flux Dev "black-forest-labs/flux-dev"
-    "flux-pro",  # Replicate - Flux Pro "black-forest-labs/flux-pro"
+    "flux-dev",      # Replicate - Flux Dev "black-forest-labs/flux-dev"
+    "flux-pro",      # Replicate - Flux Pro "black-forest-labs/flux-pro"
     "flux-1.1-pro",  # Replicate - Flux Pro 1.1 "black-forest-labs/flux-1.1-pro"
     # "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",  # Replicate - Music Generation
-    # "luma",  # TTAPI - Luma
+    # "luma",                  # TTAPI - Luma
     # "Qubico/image-toolkit",  # TTAPI - Image Toolkit
-    # "suno",  # TTAPI - Suno Music
-    # "kling",  # TTAPI - Kling
-    # "music-u",  # TTAPI - Music U
-    # "music-s",  # TTAPI - Music S
-    # "elevenlabs-tts"  # ElevenLabs - TTS
+    # "suno",                  # TTAPI - Suno Music
+    # "kling",                 # TTAPI - Kling
+    # "music-u",               # TTAPI - Music U
+    # "music-s",               # TTAPI - Music S
+    # "elevenlabs-tts"         # ElevenLabs - TTS
 ]
 
 # Define the models that support vision inputs
