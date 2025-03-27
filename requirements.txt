@@ -9,5 +9,3 @@ coloredlogs==15.0.1
 printedcolors==1.0.0
 pymemcache==4.0.0
 tiktoken>=0.7.0
-memcache
-python-memcached
