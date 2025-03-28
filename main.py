@@ -712,105 +712,117 @@ def prepare_payload(
 
 def create_conversation_with_files(file_ids, title, model, api_key, request_id=None):
     """
-    Создает новую беседу с файлами в 1min.ai API.
-    
+    Создает новую беседу с файлами
+
     Args:
-        file_ids (list): Список ID файлов для добавления в беседу
-        title (str): Название беседы
-        model (str): Модель для беседы
-        api_key (str): API-ключ пользователя
-        request_id (str): ID запроса для логирования
-        
+        file_ids: Список ID файлов
+        title: Название беседы
+        model: Модель ИИ
+        api_key: API ключ
+        request_id: ID запроса для логирования
+
     Returns:
-        str: ID созданной беседы или None в случае ошибки
+        str: ID беседы или None в случае ошибки
     """
     request_id = request_id or str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Creating conversation with {len(file_ids)} files")
-    
-    # Получаем team_id пользователя
-    team_id = None
+
     try:
-        teams_url = "https://api.1min.ai/api/teams"
-        teams_headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-        
-        logger.debug(f"[{request_id}] Fetching team ID from: {teams_url}")
-        teams_response = requests.get(teams_url, headers=teams_headers)
-        
-        if teams_response.status_code == 200:
-            teams_data = teams_response.json()
-            if "data" in teams_data and teams_data["data"]:
-                team_id = teams_data["data"][0].get("id")
-                logger.debug(f"[{request_id}] Got team ID: {team_id}")
+        # Получаем team_id пользователя
+        team_id = None
+        try:
+            # Пробуем получить team_id из API
+            teams_url = "https://api.1min.ai/teams"
+            headers = {"API-KEY": api_key, "Content-Type": "application/json"}
+            teams_response = requests.get(teams_url, headers=headers)
+            if teams_response.status_code == 200:
+                teams_data = teams_response.json()
+                if "data" in teams_data and teams_data["data"]:
+                    team_id = teams_data["data"][0].get("id")
+                    logger.debug(f"[{request_id}] Got team ID: {team_id}")
+            else:
+                logger.warning(f"[{request_id}] Failed to get team ID: {teams_response.status_code} - {teams_response.text}")
+        except Exception as e:
+            logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
+            
+        # Формируем payload для запроса с правильными именами полей
+        payload = {
+            "title": title,
+            "type": "CHAT_WITH_PDF",
+            "model": model,
+            "fileIds": file_ids,  # Использование правильного имени поля 'fileIds' вместо 'fileList'
+        }
+
+        logger.debug(f"[{request_id}] Conversation payload: {json.dumps(payload)}")
+
+        # Выбираем правильный URL в зависимости от наличия team_id
+        if team_id:
+            conversation_url = f"https://api.1min.ai/teams/{team_id}/features/conversations?type=CHAT_WITH_PDF"
         else:
-            logger.warning(f"[{request_id}] Failed to get team ID: {teams_response.status_code} - {teams_response.text}")
-    except Exception as e:
-        logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
-    
-    # Подготавливаем payload для создания беседы
-    payload = {
-        "type": "CHAT_WITH_PDF",
-        "title": title,
-        "model": model,
-        "fileIds": file_ids
-    }
-    
-    # Формируем URL для создания беседы
-    if team_id:
-        conversation_url = f"https://api.1min.ai/api/teams/{team_id}/features/conversations"
-    else:
-        conversation_url = "https://api.1min.ai/api/features/conversations"
-    
-    headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-    
-    logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
-    logger.debug(f"[{request_id}] Conversation payload: {json.dumps(payload)}")
-    
-    try:
-        # Отправляем запрос на создание беседы
+            # Если не удалось получить team_id, используем URL без него
+            conversation_url = "https://api.1min.ai/features/conversations?type=CHAT_WITH_PDF"
+            
+        logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
+        
+        headers = {"API-KEY": api_key, "Content-Type": "application/json"}
         response = requests.post(conversation_url, json=payload, headers=headers)
         
         logger.debug(f"[{request_id}] Create conversation response status: {response.status_code}")
-        
+
         if response.status_code != 200:
-            logger.error(f"[{request_id}] Failed to create conversation: {response.status_code} - {response.text}")
+            logger.error(
+                f"[{request_id}] Failed to create conversation: {response.status_code} - {response.text}"
+            )
             return None
-        
-        # Извлекаем ID созданной беседы
+
         response_data = response.json()
-        logger.debug(f"[{request_id}] Create conversation response: {json.dumps(response_data)[:500]}...")
+        logger.debug(f"[{request_id}] Conversation response data: {json.dumps(response_data)}")
+
+        # Ищем ID беседы в разных местах ответа
+        conversation_id = None
+        if "conversation" in response_data and "uuid" in response_data["conversation"]:
+            conversation_id = response_data["conversation"]["uuid"]
+        elif "id" in response_data:
+            conversation_id = response_data["id"]
+        elif "uuid" in response_data:
+            conversation_id = response_data["uuid"]
         
-        # Функция для рекурсивного поиска conversation_id в ответе
-        def find_conversation_id(obj, path=""):
-            if isinstance(obj, dict):
-                if "conversationId" in obj:
-                    logger.debug(f"[{request_id}] Found conversationId at path '{path}.conversationId'")
-                    return obj["conversationId"]
-                elif "id" in obj and "type" in obj and obj.get("type") == "CHAT_WITH_PDF":
-                    logger.debug(f"[{request_id}] Found conversation id at path '{path}.id'")
-                    return obj["id"]
-                
-                for key, value in obj.items():
-                    result = find_conversation_id(value, f"{path}.{key}")
-                    if result:
-                        return result
-            elif isinstance(obj, list):
-                for i, item in enumerate(obj):
-                    result = find_conversation_id(item, f"{path}[{i}]")
-                    if result:
-                        return result
-            return None
-        
-        conversation_id = find_conversation_id(response_data)
-        
+        # Рекурсивный поиск ID беседы в структуре ответа
         if not conversation_id:
-            logger.error(f"[{request_id}] Could not extract conversation ID from response")
+            def find_conversation_id(obj, path=""):
+                if isinstance(obj, dict):
+                    if "id" in obj:
+                        logger.debug(f"[{request_id}] Found ID at path '{path}.id': {obj['id']}")
+                        return obj["id"]
+                    if "uuid" in obj:
+                        logger.debug(f"[{request_id}] Found UUID at path '{path}.uuid': {obj['uuid']}")
+                        return obj["uuid"]
+                    
+                    for key, value in obj.items():
+                        result = find_conversation_id(value, f"{path}.{key}")
+                        if result:
+                            return result
+                elif isinstance(obj, list):
+                    for i, item in enumerate(obj):
+                        result = find_conversation_id(item, f"{path}[{i}]")
+                        if result:
+                            return result
+                return None
+            
+            conversation_id = find_conversation_id(response_data)
+
+        if not conversation_id:
+            logger.error(
+                f"[{request_id}] Could not find conversation ID in response: {response_data}"
+            )
             return None
-        
-        logger.info(f"[{request_id}] Successfully created conversation with ID: {conversation_id}")
+
+        logger.info(
+            f"[{request_id}] Conversation created successfully: {conversation_id}"
+        )
         return conversation_id
-    
     except Exception as e:
-        logger.error(f"[{request_id}] Exception during conversation creation: {str(e)}")
+        logger.error(f"[{request_id}] Error creating conversation: {str(e)}")
         traceback.print_exc()
         return None
 
@@ -2862,32 +2874,51 @@ def upload_file():
                 file_info = {
                     "id": file_id,
                     "filename": file_name,
-                    "created_at": int(time.time()),
-                    "bytes": len(file_data)
+                    "uploaded_at": int(time.time())
                 }
-                user_files.append(file_info)
+                
+                # Проверяем, что файла с таким ID еще нет в списке
+                if not any(f.get("id") == file_id for f in user_files):
+                    user_files.append(file_info)
                 
                 # Сохраняем обновленный список файлов
                 safe_memcached_operation('set', user_key, json.dumps(user_files))
                 logger.info(f"[{request_id}] Saved file ID {file_id} for user in memcached")
+                
+                # Добавляем пользователя в список известных пользователей для функции очистки
+                known_users_list_json = safe_memcached_operation('get', 'known_users_list')
+                known_users_list = []
+                
+                if known_users_list_json:
+                    try:
+                        if isinstance(known_users_list_json, str):
+                            known_users_list = json.loads(known_users_list_json)
+                        elif isinstance(known_users_list_json, bytes):
+                            known_users_list = json.loads(known_users_list_json.decode('utf-8'))
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Error parsing known users list: {str(e)}")
+                
+                # Добавляем API-ключ в список известных пользователей, если его еще нет
+                if api_key not in known_users_list:
+                    known_users_list.append(api_key)
+                    safe_memcached_operation('set', 'known_users_list', json.dumps(known_users_list))
+                    logger.debug(f"[{request_id}] Added user to known_users_list for cleanup")
             except Exception as e:
-                logger.error(f"[{request_id}] Error saving file ID to memcached: {str(e)}")
-        else:
-            logger.warning(f"[{request_id}] Memcached not available, file ID not saved to user session")
+                logger.error(f"[{request_id}] Error saving file info to memcached: {str(e)}")
 
-        # Формируем ответ в формате OpenAI API
+        # Создаем ответ в формате OpenAI API
         response_data = {
             "id": file_id,
             "object": "file",
             "bytes": len(file_data),
             "created_at": int(time.time()),
             "filename": file_name,
-            "purpose": "assistants",
+            "purpose": request.form.get("purpose", "assistants")
         }
-
-        return jsonify(response_data), 200
+        
+        return jsonify(response_data)
     except Exception as e:
-        logger.error(f"[{request_id}] Error processing file upload: {str(e)}")
+        logger.error(f"[{request_id}] Exception during file upload: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -3764,15 +3795,25 @@ def delete_all_files_task():
             # Получаем все ключи, которые начинаются с "user:"
             try:
                 keys = []
-                # Получаем все ключи через сканирование (т.к. memcached не поддерживает выборку по шаблону)
-                for key in MEMCACHED_CLIENT.stats('items').keys():
-                    if key.startswith(b'items:') and b':number' in key:
-                        slab = key.decode().split(':')[1]
-                        # Удалена проблемная строка с cachedump
-                        if dump_keys:
-                            for cache_key in dump_keys:
-                                if cache_key.startswith(b'user:'):
-                                    keys.append(cache_key.decode())
+                
+                # Вместо сканирования slabs используем список известных пользователей
+                # который должен сохраняться при загрузке файлов
+                known_users = safe_memcached_operation('get', 'known_users_list')
+                if known_users:
+                    try:
+                        if isinstance(known_users, str):
+                            user_list = json.loads(known_users)
+                        elif isinstance(known_users, bytes):
+                            user_list = json.loads(known_users.decode('utf-8'))
+                        else:
+                            user_list = known_users
+                            
+                        for user in user_list:
+                            user_key = f"user:{user}" if not user.startswith("user:") else user
+                            if user_key not in keys:
+                                keys.append(user_key)
+                    except Exception as e:
+                        logger.warning(f"[{request_id}] Failed to parse known users list: {str(e)}")
                 
                 logger.info(f"[{request_id}] Found {len(keys)} user keys for cleanup")
                 
