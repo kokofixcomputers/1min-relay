@@ -3768,7 +3768,7 @@ def delete_all_files_task():
                 for key in MEMCACHED_CLIENT.stats('items').keys():
                     if key.startswith(b'items:') and b':number' in key:
                         slab = key.decode().split(':')[1]
-                        dump_keys = MEMCACHED_CLIENT.stats(f'cachedump {slab} 0')
+                        # Удалена проблемная строка с cachedump
                         if dump_keys:
                             for cache_key in dump_keys:
                                 if cache_key.startswith(b'user:'):
