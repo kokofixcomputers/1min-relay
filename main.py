@@ -955,6 +955,17 @@ def conversation():
                 logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
         else:
             logger.debug(f"[{request_id}] Memcached not available, no user files loaded")
+        
+        # Проверяем наличие сообщений до начала обработки
+        if not messages:
+            logger.error(f"[{request_id}] No messages provided in request")
+            return ERROR_HANDLER(1412)
+            
+        # Извлекаем текст запроса для анализа
+        extracted_prompt = messages[-1].get("content", "")
+        if isinstance(extracted_prompt, list):
+            extracted_prompt = " ".join([item.get("text", "") for item in extracted_prompt if "text" in item])
+        extracted_prompt_lower = extracted_prompt.lower() if extracted_prompt else ""
                     
         # Если в запросе не указаны file_ids, но у пользователя есть загруженные файлы, 
         # добавляем их к запросу только если в сообщении упоминается что-то о файлах или документах
@@ -962,9 +973,8 @@ def conversation():
         prompt_has_file_keywords = False
         
         # Проверяем наличие ключевых слов о файлах в запросе
-        if user_input and isinstance(user_input, str):
-            prompt_lower = user_input.lower()
-            prompt_has_file_keywords = any(keyword in prompt_lower for keyword in file_keywords)
+        if extracted_prompt_lower:
+            prompt_has_file_keywords = any(keyword in extracted_prompt_lower for keyword in file_keywords)
             
         # Добавляем файлы только если пользователь запросил работу с файлами или явно указал file_ids
         if (not request_data.get("file_ids") and user_file_ids and prompt_has_file_keywords):
@@ -973,10 +983,7 @@ def conversation():
         elif not request_data.get("file_ids") and user_file_ids:
             logger.debug(f"[{request_id}] User has files but didn't request to use them in this message")
 
-        if not messages:
-            logger.error(f"[{request_id}] No messages provided in request")
-            return ERROR_HANDLER(1412)
-
+        # Получаем содержимое последнего сообщения для дальнейшей обработки
         user_input = messages[-1].get("content")
         if not user_input:
             logger.error(f"[{request_id}] No content in last message")
