@@ -2687,7 +2687,8 @@ def upload_file():
                 file_info = {
                     "id": file_id,
                     "filename": file_name,
-                    "created_at": int(time.time())
+                    "created_at": int(time.time()),
+                    "bytes": len(file_data)
                 }
                 user_files.append(file_info)
                 
@@ -3244,10 +3245,43 @@ def handle_files():
     if request.method == "GET":
         logger.info(f"[{request_id}] Received request: GET /v1/files")
         try:
-            # В 1min.ai нет API для получения списка файлов, поэтому вернем пустой список
-            # Это эмуляция поведения OpenAI API
+            # Получаем список файлов пользователя из memcached
+            files = []
+            if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+                try:
+                    user_key = f"user:{api_key}"
+                    user_files_json = safe_memcached_operation('get', user_key)
+                    
+                    if user_files_json:
+                        try:
+                            if isinstance(user_files_json, str):
+                                user_files = json.loads(user_files_json)
+                            elif isinstance(user_files_json, bytes):
+                                user_files = json.loads(user_files_json.decode('utf-8'))
+                            else:
+                                user_files = user_files_json
+                                
+                            # Преобразуем данные о файлах в формат ответа API
+                            for file_info in user_files:
+                                if isinstance(file_info, dict) and "id" in file_info:
+                                    files.append({
+                                        "id": file_info.get("id"),
+                                        "object": "file",
+                                        "bytes": file_info.get("bytes", 0),
+                                        "created_at": file_info.get("created_at", int(time.time())),
+                                        "filename": file_info.get("filename", f"file_{file_info.get('id')}"),
+                                        "purpose": "assistants",
+                                        "status": "processed"
+                                    })
+                            logger.debug(f"[{request_id}] Found {len(files)} files for user in memcached")
+                        except Exception as e:
+                            logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
+                except Exception as e:
+                    logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
+            
+            # Формируем ответ в формате OpenAI API
             response_data = {
-                "data": [],
+                "data": files,
                 "object": "list"
             }
             response = make_response(jsonify(response_data))
@@ -3324,14 +3358,50 @@ def handle_file(file_id):
     if request.method == "GET":
         logger.info(f"[{request_id}] Received request: GET /v1/files/{file_id}")
         try:
-            # В 1min.ai нет API для получения информации о файле по ID
-            # Возвращаем эмуляцию ответа OpenAI API
+            # Ищем файл в сохраненных файлах пользователя в memcached
+            file_info = None
+            if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+                try:
+                    user_key = f"user:{api_key}"
+                    user_files_json = safe_memcached_operation('get', user_key)
+                    
+                    if user_files_json:
+                        try:
+                            if isinstance(user_files_json, str):
+                                user_files = json.loads(user_files_json)
+                            elif isinstance(user_files_json, bytes):
+                                user_files = json.loads(user_files_json.decode('utf-8'))
+                            else:
+                                user_files = user_files_json
+                                
+                            # Ищем файл с указанным ID
+                            for file_item in user_files:
+                                if file_item.get("id") == file_id:
+                                    file_info = file_item
+                                    logger.debug(f"[{request_id}] Found file info in memcached: {file_id}")
+                                    break
+                        except Exception as e:
+                            logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
+                except Exception as e:
+                    logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
+            
+            # Если файл не найден, возвращаем заполнитель
+            if not file_info:
+                logger.debug(f"[{request_id}] File not found in memcached, using placeholder: {file_id}")
+                file_info = {
+                    "id": file_id,
+                    "bytes": 0,
+                    "created_at": int(time.time()),
+                    "filename": f"file_{file_id}"
+                }
+            
+            # Формируем ответ в формате OpenAI API
             response_data = {
-                "id": file_id,
+                "id": file_info.get("id"),
                 "object": "file",
-                "bytes": 0,
-                "created_at": int(time.time()),
-                "filename": f"file_{file_id}",
+                "bytes": file_info.get("bytes", 0),
+                "created_at": file_info.get("created_at", int(time.time())),
+                "filename": file_info.get("filename", f"file_{file_id}"),
                 "purpose": "assistants",
                 "status": "processed"
             }
@@ -3348,8 +3418,36 @@ def handle_file(file_id):
     elif request.method == "DELETE":
         logger.info(f"[{request_id}] Received request: DELETE /v1/files/{file_id}")
         try:
-            # В 1min.ai нет API для удаления файла по ID
-            # Возвращаем эмуляцию ответа OpenAI API об успешном удалении
+            # Если файлы хранятся в memcached, удаляем файл из списка
+            deleted = False
+            if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+                try:
+                    user_key = f"user:{api_key}"
+                    user_files_json = safe_memcached_operation('get', user_key)
+                    
+                    if user_files_json:
+                        try:
+                            if isinstance(user_files_json, str):
+                                user_files = json.loads(user_files_json)
+                            elif isinstance(user_files_json, bytes):
+                                user_files = json.loads(user_files_json.decode('utf-8'))
+                            else:
+                                user_files = user_files_json
+                                
+                            # Фильтруем список, исключая файл с указанным ID
+                            new_user_files = [f for f in user_files if f.get("id") != file_id]
+                            
+                            # Если список изменился, сохраняем обновленный список
+                            if len(new_user_files) < len(user_files):
+                                safe_memcached_operation('set', user_key, json.dumps(new_user_files))
+                                logger.info(f"[{request_id}] Deleted file {file_id} from user's files in memcached")
+                                deleted = True
+                        except Exception as e:
+                            logger.error(f"[{request_id}] Error updating user files in memcached: {str(e)}")
+                except Exception as e:
+                    logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
+            
+            # Возвращаем ответ об успешном удалении (даже если файл не был найден)
             response_data = {
                 "id": file_id,
                 "object": "file",
