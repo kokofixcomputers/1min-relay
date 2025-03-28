@@ -732,7 +732,7 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
         team_id = None
         try:
             # Пробуем получить team_id из API
-            teams_url = "https://api.1min.ai/teams"
+            teams_url = "https://api.1min.ai/teams"  # Исправлен URL (без /api)
             headers = {"API-KEY": api_key, "Content-Type": "application/json"}
             teams_response = requests.get(teams_url, headers=headers)
             if teams_response.status_code == 200:
@@ -957,10 +957,21 @@ def conversation():
             logger.debug(f"[{request_id}] Memcached not available, no user files loaded")
                     
         # Если в запросе не указаны file_ids, но у пользователя есть загруженные файлы, 
-        # добавляем их к запросу
-        if not request_data.get("file_ids") and user_file_ids:
+        # добавляем их к запросу только если в сообщении упоминается что-то о файлах или документах
+        file_keywords = ["файл", "файлы", "file", "files", "документ", "документы", "document", "documents"]
+        prompt_has_file_keywords = False
+        
+        # Проверяем наличие ключевых слов о файлах в запросе
+        if user_input and isinstance(user_input, str):
+            prompt_lower = user_input.lower()
+            prompt_has_file_keywords = any(keyword in prompt_lower for keyword in file_keywords)
+            
+        # Добавляем файлы только если пользователь запросил работу с файлами или явно указал file_ids
+        if (not request_data.get("file_ids") and user_file_ids and prompt_has_file_keywords):
             logger.info(f"[{request_id}] Adding user files to request: {user_file_ids}")
             request_data["file_ids"] = user_file_ids
+        elif not request_data.get("file_ids") and user_file_ids:
+            logger.debug(f"[{request_id}] User has files but didn't request to use them in this message")
 
         if not messages:
             logger.error(f"[{request_id}] No messages provided in request")
@@ -1166,7 +1177,7 @@ def conversation():
             # Получаем team_id пользователя
             team_id = None
             try:
-                teams_url = "https://api.1min.ai/api/teams"
+                teams_url = "https://api.1min.ai/teams"  # Исправлен URL (убрано /api/)
                 teams_headers = {"API-KEY": api_key, "Content-Type": "application/json"}
                 
                 logger.debug(f"[{request_id}] Fetching team ID from: {teams_url}")
@@ -1200,11 +1211,11 @@ def conversation():
 
             # Используем URL для бесед
             if team_id:
-                api_url = f"https://api.1min.ai/api/teams/{team_id}/features/conversations/messages"
+                api_url = f"https://api.1min.ai/teams/{team_id}/features/conversations/messages"  # Исправлен URL
                 # Добавляем conversationId как параметр запроса
                 api_params = {"conversationId": conversation_id}
             else:
-                api_url = "https://api.1min.ai/api/features/conversations/messages"
+                api_url = "https://api.1min.ai/features/conversations/messages"  # Исправлен URL
                 # Добавляем conversationId как параметр запроса
                 api_params = {"conversationId": conversation_id}
             
