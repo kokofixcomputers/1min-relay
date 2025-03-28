@@ -741,8 +741,8 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
 
         logger.debug(f"[{request_id}] Conversation payload: {json.dumps(payload)}")
 
-        # Используем прямой URL без /teams/{team_id}, согласно документации API
-        conversation_url = "https://api.1min.ai/features/conversations?type=CHAT_WITH_PDF"
+        # Используем правильный URL API с /api/
+        conversation_url = "https://api.1min.ai/api/features/conversations?type=CHAT_WITH_PDF"
             
         logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
         
@@ -1166,7 +1166,7 @@ def conversation():
             # Получаем team_id пользователя
             team_id = None
             try:
-                teams_url = "https://api.1min.ai/api/teams"  # Исправлен URL (добавлен /api/)
+                teams_url = "https://api.1min.ai/api/teams"  # Правильный URL с /api/
                 teams_headers = {"API-KEY": api_key, "Content-Type": "application/json"}
                 
                 logger.debug(f"[{request_id}] Fetching team ID from: {teams_url}")
@@ -1198,8 +1198,8 @@ def conversation():
             if conversation_id:
                 payload["conversationId"] = conversation_id
 
-            # Используем прямой URL без /teams/{team_id}, согласно документации API
-            api_url = "https://api.1min.ai/features/conversations/messages"
+            # Используем правильный URL API с /api/
+            api_url = "https://api.1min.ai/api/features/conversations/messages"
             # Добавляем conversationId как параметр запроса
             api_params = {"conversationId": conversation_id}
             
