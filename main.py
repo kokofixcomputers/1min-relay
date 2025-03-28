@@ -737,8 +737,30 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
 
         headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
+        # Пытаемся получить ID команды
+        team_id = None
+        try:
+            # Попытка получить ID команды через API
+            teams_url = f"{ONE_MIN_API_URL}/teams"
+            teams_response = api_request("GET", teams_url, headers=headers)
+            if teams_response.status_code == 200:
+                teams_data = teams_response.json()
+                if "data" in teams_data and teams_data["data"]:
+                    team_id = teams_data["data"][0].get("id")
+                    logger.debug(f"[{request_id}] Found team ID: {team_id}")
+        except Exception as e:
+            logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
+
+        # Формируем URL для создания беседы
+        if team_id:
+            conversation_url = f"{ONE_MIN_API_URL}/teams/{team_id}/features/conversations?type=CHAT_WITH_PDF"
+        else:
+            conversation_url = f"{ONE_MIN_API_URL}/features/conversations?type=CHAT_WITH_PDF"
+        
+        logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
+
         response = api_request(
-            "POST", ONE_MIN_CONVERSATION_API_URL, json=payload, headers=headers
+            "POST", conversation_url, json=payload, headers=headers
         )
 
         if response.status_code != 200:
@@ -1026,11 +1048,31 @@ def conversation():
         if has_delete_keywords and has_file_keywords and user_file_ids:
             logger.info(f"[{request_id}] Deletion request detected, removing all user files")
             
+            # Пытаемся получить ID команды
+            team_id = None
+            try:
+                # Попытка получить ID команды через API
+                teams_url = f"{ONE_MIN_API_URL}/teams"
+                teams_headers = {"API-KEY": api_key}
+                teams_response = api_request("GET", teams_url, headers=teams_headers)
+                if teams_response.status_code == 200:
+                    teams_data = teams_response.json()
+                    if "data" in teams_data and teams_data["data"]:
+                        team_id = teams_data["data"][0].get("id")
+                        logger.debug(f"[{request_id}] Found team ID for deletion: {team_id}")
+            except Exception as e:
+                logger.error(f"[{request_id}] Error getting team ID for deletion: {str(e)}")
+            
             deleted_files = []
             for file_id in user_file_ids:
                 try:
-                    # Формируем URL для удаления файла
-                    delete_url = f"{ONE_MIN_ASSET_URL}/{file_id}"
+                    # Формируем URL для удаления файла в зависимости от наличия team_id
+                    if team_id:
+                        delete_url = f"{ONE_MIN_API_URL}/teams/{team_id}/assets/{file_id}"
+                    else:
+                        delete_url = f"{ONE_MIN_ASSET_URL}/{file_id}"
+                        
+                    logger.debug(f"[{request_id}] Using URL for deletion: {delete_url}")
                     headers = {"API-KEY": api_key}
                     
                     delete_response = api_request("DELETE", delete_url, headers=headers)
@@ -1104,11 +1146,40 @@ def conversation():
             payload = {"conversationId": conversation_id, "message": enhanced_prompt}
 
             # Используем URL для бесед вместо общего API URL
-            # Попробуем изменить формат URL для запросов к API
-            api_url = f"{ONE_MIN_API_URL}/conversations/{conversation_id}/message"
-            logger.debug(f"[{request_id}] Using conversation API URL: {api_url}")
+            # Исправляем формат URL для запросов к API на основе анализа HAR-файла
+            api_url = f"{ONE_MIN_API_URL}/teams/{{team_id}}/features/conversations/messages"
+            # Выполняем запрос для получения команды пользователя
+            team_id = None
+            try:
+                # Попытка получить ID команды через API
+                teams_url = f"{ONE_MIN_API_URL}/teams"
+                teams_response = api_request("GET", teams_url, headers={"API-KEY": api_key})
+                if teams_response.status_code == 200:
+                    teams_data = teams_response.json()
+                    if "data" in teams_data and teams_data["data"]:
+                        team_id = teams_data["data"][0].get("id")
+                        logger.debug(f"[{request_id}] Found team ID: {team_id}")
+            except Exception as e:
+                logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
             
-            # Выводим полное содержимое payload и URL для диагностики
+            if not team_id:
+                # Используем альтернативный формат без team_id
+                api_url = f"{ONE_MIN_API_URL}/features/conversations/{conversation_id}/messages"
+            else:
+                # Применяем найденный team_id
+                api_url = api_url.format(team_id=team_id)
+            
+            # Добавляем фильтры, как в запросе из HAR
+            api_params = {
+                "filters": json.dumps({
+                    "conversationId": conversation_id,
+                    "page": 1,
+                    "pageSize": 10
+                })
+            }
+            
+            logger.debug(f"[{request_id}] Using conversation API URL: {api_url}")
+            logger.debug(f"[{request_id}] With params: {api_params}")
             logger.debug(f"[{request_id}] Full request payload: {json.dumps(payload)}")
             
             headers = {"API-KEY": api_key, "Content-Type": "application/json"}
@@ -1117,7 +1188,7 @@ def conversation():
             if not request_data.get("stream", False):
                 try:
                     response = api_request(
-                        "POST", api_url, json=payload, headers=headers
+                        "POST", api_url, json=payload, headers=headers, params=api_params
                     )
                     logger.debug(
                         f"[{request_id}] Response status code: {response.status_code}"
@@ -1157,7 +1228,7 @@ def conversation():
                 # Потоковый запрос для беседы с документами
                 try:
                     response = api_request(
-                        "POST", api_url, json=payload, headers=headers
+                        "POST", api_url, json=payload, headers=headers, params=api_params
                     )
 
                     if response.status_code != 200:
