@@ -184,10 +184,13 @@ else:
     logger.info("Memcached not available, session storage disabled")
 
 
+# Константы URL
 ONE_MIN_API_URL = "https://api.1min.ai/api/features"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
 ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
+# Добавляем константу таймаута, используемую в функции api_request
+DEFAULT_TIMEOUT = 30
 
 # Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
@@ -728,23 +731,6 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
     logger.info(f"[{request_id}] Creating conversation with {len(file_ids)} files")
 
     try:
-        # Получаем team_id пользователя
-        team_id = None
-        try:
-            # Пробуем получить team_id из API
-            teams_url = "https://api.1min.ai/teams"  # Исправлен URL (без /api)
-            headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-            teams_response = requests.get(teams_url, headers=headers)
-            if teams_response.status_code == 200:
-                teams_data = teams_response.json()
-                if "data" in teams_data and teams_data["data"]:
-                    team_id = teams_data["data"][0].get("id")
-                    logger.debug(f"[{request_id}] Got team ID: {team_id}")
-            else:
-                logger.warning(f"[{request_id}] Failed to get team ID: {teams_response.status_code} - {teams_response.text}")
-        except Exception as e:
-            logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
-            
         # Формируем payload для запроса с правильными именами полей
         payload = {
             "title": title,
@@ -755,12 +741,8 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
 
         logger.debug(f"[{request_id}] Conversation payload: {json.dumps(payload)}")
 
-        # Выбираем правильный URL в зависимости от наличия team_id
-        if team_id:
-            conversation_url = f"https://api.1min.ai/teams/{team_id}/features/conversations?type=CHAT_WITH_PDF"
-        else:
-            # Если не удалось получить team_id, используем URL без него
-            conversation_url = "https://api.1min.ai/features/conversations?type=CHAT_WITH_PDF"
+        # Используем прямой URL без /teams/{team_id}, согласно документации API
+        conversation_url = "https://api.1min.ai/features/conversations?type=CHAT_WITH_PDF"
             
         logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
         
@@ -1184,7 +1166,7 @@ def conversation():
             # Получаем team_id пользователя
             team_id = None
             try:
-                teams_url = "https://api.1min.ai/teams"  # Исправлен URL (убрано /api/)
+                teams_url = "https://api.1min.ai/api/teams"  # Исправлен URL (добавлен /api/)
                 teams_headers = {"API-KEY": api_key, "Content-Type": "application/json"}
                 
                 logger.debug(f"[{request_id}] Fetching team ID from: {teams_url}")
@@ -1216,15 +1198,10 @@ def conversation():
             if conversation_id:
                 payload["conversationId"] = conversation_id
 
-            # Используем URL для бесед
-            if team_id:
-                api_url = f"https://api.1min.ai/teams/{team_id}/features/conversations/messages"  # Исправлен URL
-                # Добавляем conversationId как параметр запроса
-                api_params = {"conversationId": conversation_id}
-            else:
-                api_url = "https://api.1min.ai/features/conversations/messages"  # Исправлен URL
-                # Добавляем conversationId как параметр запроса
-                api_params = {"conversationId": conversation_id}
+            # Используем прямой URL без /teams/{team_id}, согласно документации API
+            api_url = "https://api.1min.ai/features/conversations/messages"
+            # Добавляем conversationId как параметр запроса
+            api_params = {"conversationId": conversation_id}
             
             logger.debug(f"[{request_id}] Sending message to conversation using URL: {api_url} with params: {api_params}")
             
