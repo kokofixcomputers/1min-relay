@@ -712,86 +712,106 @@ def prepare_payload(
 
 def create_conversation_with_files(file_ids, title, model, api_key, request_id=None):
     """
-    Создает новую беседу с файлами
-
+    Создает новую беседу с файлами в 1min.ai API.
+    
     Args:
-        file_ids: Список ID файлов
-        title: Название беседы
-        model: Модель ИИ
-        api_key: API ключ
-        request_id: ID запроса для логирования
-
+        file_ids (list): Список ID файлов для добавления в беседу
+        title (str): Название беседы
+        model (str): Модель для беседы
+        api_key (str): API-ключ пользователя
+        request_id (str): ID запроса для логирования
+        
     Returns:
-        str: ID беседы или None в случае ошибки
+        str: ID созданной беседы или None в случае ошибки
     """
     request_id = request_id or str(uuid.uuid4())[:8]
-    logger.info(f"[{request_id}] Creating conversation with files: {file_ids}")
-
+    logger.info(f"[{request_id}] Creating conversation with {len(file_ids)} files")
+    
+    # Получаем team_id пользователя
+    team_id = None
     try:
-        payload = {
-            "title": title,
-            "type": "CHAT_WITH_PDF",
-            "model": model,
-            "fileList": file_ids,
-        }
-
-        headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-
-        # Пытаемся получить ID команды
-        team_id = None
-        try:
-            # Попытка получить ID команды через API
-            teams_url = f"{ONE_MIN_API_URL}/teams"
-            teams_response = api_request("GET", teams_url, headers=headers)
-            if teams_response.status_code == 200:
-                teams_data = teams_response.json()
-                if "data" in teams_data and teams_data["data"]:
-                    team_id = teams_data["data"][0].get("id")
-                    logger.debug(f"[{request_id}] Found team ID: {team_id}")
-        except Exception as e:
-            logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
-
-        # Формируем URL для создания беседы
-        if team_id:
-            conversation_url = f"{ONE_MIN_API_URL}/teams/{team_id}/features/conversations?type=CHAT_WITH_PDF"
-        else:
-            conversation_url = f"{ONE_MIN_API_URL}/features/conversations?type=CHAT_WITH_PDF"
+        teams_url = "https://api.1min.ai/api/teams"
+        teams_headers = {"API-KEY": api_key, "Content-Type": "application/json"}
         
-        logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
-
-        response = api_request(
-            "POST", conversation_url, json=payload, headers=headers
-        )
-
-        if response.status_code != 200:
-            logger.error(
-                f"[{request_id}] Failed to create conversation: {response.status_code} - {response.text}"
-            )
-            return None
-
-        response_data = response.json()
-
-        # Ищем ID беседы в разных местах ответа
-        conversation_id = None
-        if "conversation" in response_data and "uuid" in response_data["conversation"]:
-            conversation_id = response_data["conversation"]["uuid"]
-        elif "id" in response_data:
-            conversation_id = response_data["id"]
-        elif "uuid" in response_data:
-            conversation_id = response_data["uuid"]
-
-        if not conversation_id:
-            logger.error(
-                f"[{request_id}] Could not find conversation ID in response: {response_data}"
-            )
-            return None
-
-        logger.info(
-            f"[{request_id}] Conversation created successfully: {conversation_id}"
-        )
-        return conversation_id
+        logger.debug(f"[{request_id}] Fetching team ID from: {teams_url}")
+        teams_response = requests.get(teams_url, headers=teams_headers)
+        
+        if teams_response.status_code == 200:
+            teams_data = teams_response.json()
+            if "data" in teams_data and teams_data["data"]:
+                team_id = teams_data["data"][0].get("id")
+                logger.debug(f"[{request_id}] Got team ID: {team_id}")
+        else:
+            logger.warning(f"[{request_id}] Failed to get team ID: {teams_response.status_code} - {teams_response.text}")
     except Exception as e:
-        logger.error(f"[{request_id}] Error creating conversation: {str(e)}")
+        logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
+    
+    # Подготавливаем payload для создания беседы
+    payload = {
+        "type": "CHAT_WITH_PDF",
+        "title": title,
+        "model": model,
+        "fileIds": file_ids
+    }
+    
+    # Формируем URL для создания беседы
+    if team_id:
+        conversation_url = f"https://api.1min.ai/api/teams/{team_id}/features/conversations"
+    else:
+        conversation_url = "https://api.1min.ai/api/features/conversations"
+    
+    headers = {"API-KEY": api_key, "Content-Type": "application/json"}
+    
+    logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
+    logger.debug(f"[{request_id}] Conversation payload: {json.dumps(payload)}")
+    
+    try:
+        # Отправляем запрос на создание беседы
+        response = requests.post(conversation_url, json=payload, headers=headers)
+        
+        logger.debug(f"[{request_id}] Create conversation response status: {response.status_code}")
+        
+        if response.status_code != 200:
+            logger.error(f"[{request_id}] Failed to create conversation: {response.status_code} - {response.text}")
+            return None
+        
+        # Извлекаем ID созданной беседы
+        response_data = response.json()
+        logger.debug(f"[{request_id}] Create conversation response: {json.dumps(response_data)[:500]}...")
+        
+        # Функция для рекурсивного поиска conversation_id в ответе
+        def find_conversation_id(obj, path=""):
+            if isinstance(obj, dict):
+                if "conversationId" in obj:
+                    logger.debug(f"[{request_id}] Found conversationId at path '{path}.conversationId'")
+                    return obj["conversationId"]
+                elif "id" in obj and "type" in obj and obj.get("type") == "CHAT_WITH_PDF":
+                    logger.debug(f"[{request_id}] Found conversation id at path '{path}.id'")
+                    return obj["id"]
+                
+                for key, value in obj.items():
+                    result = find_conversation_id(value, f"{path}.{key}")
+                    if result:
+                        return result
+            elif isinstance(obj, list):
+                for i, item in enumerate(obj):
+                    result = find_conversation_id(item, f"{path}[{i}]")
+                    if result:
+                        return result
+            return None
+        
+        conversation_id = find_conversation_id(response_data)
+        
+        if not conversation_id:
+            logger.error(f"[{request_id}] Could not extract conversation ID from response")
+            return None
+        
+        logger.info(f"[{request_id}] Successfully created conversation with ID: {conversation_id}")
+        return conversation_id
+    
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception during conversation creation: {str(e)}")
+        traceback.print_exc()
         return None
 
 
@@ -1121,7 +1141,7 @@ def conversation():
         has_file_reference = any(keyword in extracted_prompt for keyword in all_file_keywords)
 
         # Если есть file_ids и запрос содержит ключевые слова о файлах или есть ID беседы, используем CHAT_WITH_PDF
-        if file_ids and len(file_ids) > 0 and (has_file_reference or conversation_id):
+        if file_ids and len(file_ids) > 0:
             logger.debug(
                 f"[{request_id}] Creating CHAT_WITH_PDF request with {len(file_ids)} files"
             )
@@ -1130,6 +1150,25 @@ def conversation():
             enhanced_prompt = all_messages
             if not enhanced_prompt.strip().startswith(DOCUMENT_ANALYSIS_INSTRUCTION):
                 enhanced_prompt = f"{DOCUMENT_ANALYSIS_INSTRUCTION}\n\n{all_messages}"
+
+            # Получаем team_id пользователя
+            team_id = None
+            try:
+                teams_url = "https://api.1min.ai/api/teams"
+                teams_headers = {"API-KEY": api_key, "Content-Type": "application/json"}
+                
+                logger.debug(f"[{request_id}] Fetching team ID from: {teams_url}")
+                teams_response = requests.get(teams_url, headers=teams_headers)
+                
+                if teams_response.status_code == 200:
+                    teams_data = teams_response.json()
+                    if "data" in teams_data and teams_data["data"]:
+                        team_id = teams_data["data"][0].get("id")
+                        logger.debug(f"[{request_id}] Got team ID: {team_id}")
+                else:
+                    logger.warning(f"[{request_id}] Failed to get team ID: {teams_response.status_code} - {teams_response.text}")
+            except Exception as e:
+                logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
 
             # Если нет conversation_id, создаем новую беседу
             if not conversation_id:
@@ -1143,121 +1182,96 @@ def conversation():
                     )
 
             # Формируем payload для запроса с файлами
-            payload = {"conversationId": conversation_id, "message": enhanced_prompt}
+            payload = {"message": enhanced_prompt}
+            if conversation_id:
+                payload["conversationId"] = conversation_id
 
-            # Используем URL для бесед вместо общего API URL
-            # Исправляем формат URL для запросов к API на основе анализа HAR-файла
-            api_url = f"{ONE_MIN_API_URL}/teams/{{team_id}}/features/conversations/messages"
-            # Выполняем запрос для получения команды пользователя
-            team_id = None
-            try:
-                # Попытка получить ID команды через API
-                teams_url = f"{ONE_MIN_API_URL}/teams"
-                teams_response = api_request("GET", teams_url, headers={"API-KEY": api_key})
-                if teams_response.status_code == 200:
-                    teams_data = teams_response.json()
-                    if "data" in teams_data and teams_data["data"]:
-                        team_id = teams_data["data"][0].get("id")
-                        logger.debug(f"[{request_id}] Found team ID: {team_id}")
-            except Exception as e:
-                logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
-            
-            if not team_id:
-                # Используем альтернативный формат без team_id
-                api_url = f"{ONE_MIN_API_URL}/features/conversations/{conversation_id}/messages"
+            # Используем URL для бесед
+            if team_id:
+                api_url = f"https://api.1min.ai/api/teams/{team_id}/features/conversations/messages"
+                # Добавляем conversationId как параметр запроса
+                api_params = {"conversationId": conversation_id}
             else:
-                # Применяем найденный team_id
-                api_url = api_url.format(team_id=team_id)
+                api_url = "https://api.1min.ai/api/features/conversations/messages"
+                # Добавляем conversationId как параметр запроса
+                api_params = {"conversationId": conversation_id}
             
-            # Добавляем фильтры, как в запросе из HAR
-            api_params = {
-                "filters": json.dumps({
-                    "conversationId": conversation_id,
-                    "page": 1,
-                    "pageSize": 10
-                })
-            }
-            
-            logger.debug(f"[{request_id}] Using conversation API URL: {api_url}")
-            logger.debug(f"[{request_id}] With params: {api_params}")
-            logger.debug(f"[{request_id}] Full request payload: {json.dumps(payload)}")
+            logger.debug(f"[{request_id}] Sending message to conversation using URL: {api_url} with params: {api_params}")
             
             headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-            # Выполнение запроса в зависимости от stream
-            if not request_data.get("stream", False):
-                try:
-                    response = api_request(
-                        "POST", api_url, json=payload, headers=headers, params=api_params
-                    )
-                    logger.debug(
-                        f"[{request_id}] Response status code: {response.status_code}"
-                    )
-
-                    if response.status_code != 200:
-                        if response.status_code == 401:
-                            return ERROR_HANDLER(1020, key=api_key)
-                        try:
-                            error_content = response.json()
-                            logger.error(
-                                f"[{request_id}] Error response: {error_content}"
-                            )
-                        except:
-                            logger.error(
-                                f"[{request_id}] Could not parse error response as JSON"
-                            )
-                        return ERROR_HANDLER(response.status_code)
-
-                    one_min_response = response.json()
-                    # Извлекаем ответ из структуры сообщения беседы
-                    if "message" in one_min_response:
-                        message_content = one_min_response["message"].get("content", "")
-                        one_min_response = {"resultObject": [message_content]}
-
-                    transformed_response = transform_response(
-                        one_min_response, request_data, prompt_token
-                    )
-
-                    response = make_response(jsonify(transformed_response))
-                    set_response_headers(response)
-                    return response, 200
-                except Exception as e:
-                    logger.error(f"[{request_id}] Exception during request: {str(e)}")
-                    return jsonify({"error": str(e)}), 500
+            # В зависимости от параметра stream выбираем способ запроса
+            if stream:
+                # Потоковый запрос
+                return streaming_request(
+                    api_url, payload, headers, request_id, model, model_settings, api_params=api_params
+                )
             else:
-                # Потоковый запрос для беседы с документами
+                # Обычный запрос
                 try:
-                    response = api_request(
-                        "POST", api_url, json=payload, headers=headers, params=api_params
-                    )
-
+                    response = requests.post(api_url, json=payload, headers=headers, params=api_params)
+                    
+                    logger.debug(f"[{request_id}] API response status code: {response.status_code}")
                     if response.status_code != 200:
-                        if response.status_code == 401:
-                            return ERROR_HANDLER(1020, key=api_key)
-                        return ERROR_HANDLER(response.status_code)
+                        logger.error(
+                            f"[{request_id}] API error: {response.status_code} - {response.text}"
+                        )
+                        return (
+                            jsonify({"error": "API request failed", "details": response.text}),
+                            response.status_code,
+                        )
 
-                    one_min_response = response.json()
-                    # Извлекаем текст ответа из структуры сообщения беседы
-                    if "message" in one_min_response:
-                        message_content = one_min_response["message"].get("content", "")
-                    else:
-                        message_content = "Не удалось извлечь содержание ответа из беседы с документами"
-
-                    # Возвращаем эмулированный поток
-                    return Response(
-                        emulate_stream_response(
-                            message_content, request_data, model, prompt_token
-                        ),
-                        content_type="text/event-stream",
+                    # Преобразуем ответ в формат OpenAI
+                    response_data = response.json()
+                    logger.debug(f"[{request_id}] Raw API response: {json.dumps(response_data)[:500]}...")
+                    
+                    # Извлекаем ответ из разных мест структуры данных
+                    ai_response = None
+                    if "answer" in response_data:
+                        ai_response = response_data["answer"]
+                    elif "message" in response_data:
+                        ai_response = response_data["message"]
+                    elif "result" in response_data:
+                        ai_response = response_data["result"]
+                    elif "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
+                        ai_response = response_data["aiRecord"]["aiRecordDetail"].get("answer", "")
+                    
+                    if not ai_response:
+                        # Рекурсивно ищем ответ по ключам answer, message, result
+                        def find_response(obj, path=""):
+                            if isinstance(obj, dict):
+                                for key in ["answer", "message", "result"]:
+                                    if key in obj:
+                                        logger.debug(f"[{request_id}] Found response at path '{path}.{key}'")
+                                        return obj[key]
+                                
+                                for key, value in obj.items():
+                                    result = find_response(value, f"{path}.{key}")
+                                    if result:
+                                        return result
+                            elif isinstance(obj, list):
+                                for i, item in enumerate(obj):
+                                    result = find_response(item, f"{path}[{i}]")
+                                    if result:
+                                        return result
+                            return None
+                        
+                        ai_response = find_response(response_data)
+                    
+                    if not ai_response:
+                        logger.error(f"[{request_id}] Could not extract AI response from API response")
+                        return jsonify({"error": "Could not extract AI response"}), 500
+                        
+                    openai_response = format_openai_response(
+                        ai_response, model, request_id
                     )
+                    return jsonify(openai_response)
                 except Exception as e:
                     logger.error(
-                        f"[{request_id}] Exception during streaming request emulation: {str(e)}"
+                        f"[{request_id}] Exception while processing API response: {str(e)}"
                     )
+                    traceback.print_exc()
                     return jsonify({"error": str(e)}), 500
-
-            # Прерываем обработку, так как ответ уже отправлен
-            return
 
         # Подсчет токенов
         prompt_token = calculate_token(str(all_messages))
@@ -2930,22 +2944,78 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
 
 
 # Функция для выполнения запроса к API с новой сессией
-def api_request(method, url, **kwargs):
+def api_request(req_method, url, headers=None, 
+                requester_ip=None, data=None, 
+                files=None, stream=False, 
+                timeout=None, json=None, **kwargs):
     """
-    Выполняет HTTP-запрос с новой сессией и автоматическим закрытием соединения
-
-    Args:
-        method: HTTP-метод (GET, POST и т.д.)
-        url: URL для запроса
-        **kwargs: Дополнительные параметры для requests
-
-    Returns:
-        requests.Response: Ответ от сервера
+    Perform API request to 1min.ai API
     """
-    session = create_session()
+    session = requests.Session()
+    
+    # Configure retry strategy
+    retry_strategy = requests.packages.urllib3.util.retry.Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"],
+    )
+    adapter = requests.adapters.HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
     try:
-        response = session.request(method, url, **kwargs)
+        # Normalize URL
+        if not url.startswith('http'):
+            url = MINAI_API_URL + url
+        
+        # Build request parameters
+        req_params = {}
+        
+        if headers:
+            req_params["headers"] = headers
+            
+        req_params["timeout"] = timeout or DEFAULT_TIMEOUT
+        
+        if files:
+            req_params["files"] = files
+        elif data:
+            if isinstance(data, str):
+                req_params["data"] = data
+            else:
+                req_params["json"] = data
+        
+        # Add JSON data if provided
+        if json:
+            req_params["json"] = json
+            
+        # Add params if provided
+        if 'params' in kwargs and kwargs['params']:
+            req_params["params"] = kwargs['params']
+        
+        # Process streaming option
+        if stream:
+            req_params["stream"] = True
+        
+        # Make the request
+        response = None
+        if req_method.upper() == "GET":
+            response = session.get(url, **req_params)
+        elif req_method.upper() == "POST":
+            response = session.post(url, **req_params)
+        elif req_method.upper() == "PUT":
+            response = session.put(url, **req_params)
+        elif req_method.upper() == "DELETE":
+            response = session.delete(url, **req_params)
+        elif req_method.upper() == "PATCH":
+            response = session.patch(url, **req_params)
+        else:
+            raise ValueError(f"Unsupported method: {req_method}")
+        
         return response
+    except Exception as e:
+        logger.error(f"API request error: {str(e)}")
+        raise e
     finally:
         session.close()
 
@@ -3789,3 +3859,48 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
+
+def split_text_for_streaming(text, chunk_size=6):
+    """
+    Разбивает текст на небольшие части для эмуляции потокового вывода.
+    
+    Args:
+        text (str): Текст для разбиения
+        chunk_size (int): Приблизительный размер частей в словах
+        
+    Returns:
+        list: Список частей текста
+    """
+    if not text:
+        return [""]
+    
+    # Разбиваем текст на предложения
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    
+    # Группируем предложения в чанки
+    chunks = []
+    current_chunk = []
+    current_word_count = 0
+    
+    for sentence in sentences:
+        words_in_sentence = len(sentence.split())
+        
+        # Если текущий чанк пуст или добавление предложения не превысит лимит слов
+        if not current_chunk or current_word_count + words_in_sentence <= chunk_size:
+            current_chunk.append(sentence)
+            current_word_count += words_in_sentence
+        else:
+            # Формируем чанк и начинаем новый
+            chunks.append(" ".join(current_chunk))
+            current_chunk = [sentence]
+            current_word_count = words_in_sentence
+    
+    # Добавляем последний чанк, если он не пуст
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+    
+    # Если чанков нет (разбиение не сработало), возвращаем весь текст целиком
+    if not chunks:
+        return [text]
+    
+    return chunks
