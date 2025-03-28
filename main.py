@@ -721,7 +721,7 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
 
     try:
         payload = {
-            "title": name,
+            "title": title,
             "type": "CHAT_WITH_PDF",
             "model": model,
             "fileList": file_ids,
