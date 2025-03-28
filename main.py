@@ -52,7 +52,7 @@ IMAGE_DESCRIPTION_INSTRUCTION = "Describe the scene, actions, text, or meme elem
 DOCUMENT_ANALYSIS_INSTRUCTION = "Review the uploaded document and provide at least a general description of its content, such as the main topic, a brief summary, or the overall purpose of the text. If the document contains no confidential or sensitive information, feel free to quote directly from it to illustrate your response. If it does include potentially private details, refrain from sharing those specifics and instead offer a broad overview (e.g., 'a memo about team performance' or 'a guide on software usage'). Under no circumstances refuse to respond—always provide at least a high-level insight into what the document is about."
 
 # Переменные окружения
-RELAY_KEY = os.getenv("RELAY_KEY", "")
+
 PORT = int(os.getenv("PORT", 5001))
 
 def check_memcached_connection():
