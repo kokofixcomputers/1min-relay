@@ -13,6 +13,7 @@ import warnings
 import re
 import asyncio
 import math
+import threading
 
 import coloredlogs
 import printedcolors
@@ -28,6 +29,10 @@ from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
 from pymemcache.client.base import Client
 from waitress import serve
 import memcache
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения из .env файла
+load_dotenv()
 
 # Suppress warnings from flask_limiter
 warnings.filterwarnings(
@@ -46,6 +51,9 @@ IMAGE_DESCRIPTION_INSTRUCTION = "Describe the scene, actions, text, or meme elem
 # Инструкция для анализа документов
 DOCUMENT_ANALYSIS_INSTRUCTION = "Review the uploaded document and provide at least a general description of its content, such as the main topic, a brief summary, or the overall purpose of the text. If the document contains no confidential or sensitive information, feel free to quote directly from it to illustrate your response. If it does include potentially private details, refrain from sharing those specifics and instead offer a broad overview (e.g., 'a memo about team performance' or 'a guide on software usage'). Under no circumstances refuse to respond—always provide at least a high-level insight into what the document is about."
 
+# Переменные окружения
+RELAY_KEY = os.getenv("RELAY_KEY", "")
+PORT = int(os.getenv("PORT", 5001))
 
 def check_memcached_connection():
     """
@@ -994,8 +1002,84 @@ def conversation():
         file_ids = request_data.get("file_ids", [])
         conversation_id = request_data.get("conversation_id", None)
 
-        # Если есть file_ids, используем CHAT_WITH_PDF
-        if file_ids and len(file_ids) > 0:
+        # Извлекаем текст запроса для анализа ключевых слов
+        prompt_text = all_messages.lower()
+        extracted_prompt = messages[-1].get("content", "")
+        if isinstance(extracted_prompt, list):
+            extracted_prompt = " ".join([item.get("text", "") for item in extracted_prompt if "text" in item])
+        extracted_prompt = extracted_prompt.lower()
+
+        logger.debug(f"[{request_id}] Extracted prompt text: {extracted_prompt}")
+
+        # Проверяем запрос на удаление файлов
+        delete_keywords = ["удалить", "удали", "удаление", "очисти", "очистка", "delete", "remove", "clean"]
+        file_keywords = ["файл", "файлы", "file", "files", "документ", "документы", "document", "documents"]
+        mime_type_keywords = ["pdf", "txt", "doc", "docx", "csv", "xls", "xlsx", "json", "md", "html", "htm", "xml", "pptx", "ppt", "rtf"]
+
+        # Объединяем все ключевые слова для файлов
+        all_file_keywords = file_keywords + mime_type_keywords
+
+        # Проверяем запрос на удаление файлов (должны быть и ключевые слова удаления, и файловые ключевые слова)
+        has_delete_keywords = any(keyword in extracted_prompt for keyword in delete_keywords)
+        has_file_keywords = any(keyword in extracted_prompt for keyword in all_file_keywords)
+
+        if has_delete_keywords and has_file_keywords and user_file_ids:
+            logger.info(f"[{request_id}] Deletion request detected, removing all user files")
+            
+            deleted_files = []
+            for file_id in user_file_ids:
+                try:
+                    # Формируем URL для удаления файла
+                    delete_url = f"{ONE_MIN_ASSET_URL}/{file_id}"
+                    headers = {"API-KEY": api_key}
+                    
+                    delete_response = api_request("DELETE", delete_url, headers=headers)
+                    
+                    if delete_response.status_code == 200:
+                        logger.info(f"[{request_id}] Successfully deleted file: {file_id}")
+                        deleted_files.append(file_id)
+                    else:
+                        logger.error(f"[{request_id}] Failed to delete file {file_id}: {delete_response.status_code}")
+                except Exception as e:
+                    logger.error(f"[{request_id}] Error deleting file {file_id}: {str(e)}")
+            
+            # Очищаем списох файлов пользователя в memcached
+            if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None and deleted_files:
+                try:
+                    user_key = f"user:{api_key}"
+                    safe_memcached_operation('set', user_key, json.dumps([]))
+                    logger.info(f"[{request_id}] Cleared user files list in memcached")
+                except Exception as e:
+                    logger.error(f"[{request_id}] Error clearing user files in memcached: {str(e)}")
+            
+            # Отправляем ответ о удалении файлов
+            return jsonify({
+                "id": str(uuid.uuid4()),
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": f"Удалено файлов: {len(deleted_files)}. Список файлов очищен."
+                        },
+                        "finish_reason": "stop"
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": calculate_token(prompt_text),
+                    "completion_tokens": 20,
+                    "total_tokens": calculate_token(prompt_text) + 20
+                }
+            }), 200
+
+        # Проверяем запрос на наличие ключевых слов для обработки файлов
+        has_file_reference = any(keyword in extracted_prompt for keyword in all_file_keywords)
+
+        # Если есть file_ids и запрос содержит ключевые слова о файлах или есть ID беседы, используем CHAT_WITH_PDF
+        if file_ids and len(file_ids) > 0 and (has_file_reference or conversation_id):
             logger.debug(
                 f"[{request_id}] Creating CHAT_WITH_PDF request with {len(file_ids)} files"
             )
@@ -3520,21 +3604,111 @@ def safe_memcached_operation(operation, *args, **kwargs):
         return None
 
 
+def delete_all_files_task():
+    """
+    Функция для периодического удаления всех файлов пользователей
+    """
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Starting scheduled files cleanup task")
+    
+    try:
+        # Получаем всех пользователей с файлами из memcached
+        if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+            # Получаем все ключи, которые начинаются с "user:"
+            try:
+                keys = []
+                # Получаем все ключи через сканирование (т.к. memcached не поддерживает выборку по шаблону)
+                for key in MEMCACHED_CLIENT.stats('items').keys():
+                    if key.startswith(b'items:') and b':number' in key:
+                        slab = key.decode().split(':')[1]
+                        dump_keys = MEMCACHED_CLIENT.stats(f'cachedump {slab} 0')
+                        if dump_keys:
+                            for cache_key in dump_keys:
+                                if cache_key.startswith(b'user:'):
+                                    keys.append(cache_key.decode())
+                
+                logger.info(f"[{request_id}] Found {len(keys)} user keys for cleanup")
+                
+                # Удаляем файлы для каждого пользователя
+                for user_key in keys:
+                    try:
+                        api_key = user_key.replace("user:", "")
+                        user_files_json = safe_memcached_operation('get', user_key)
+                        
+                        if not user_files_json:
+                            continue
+                            
+                        user_files = []
+                        try:
+                            if isinstance(user_files_json, str):
+                                user_files = json.loads(user_files_json)
+                            elif isinstance(user_files_json, bytes):
+                                user_files = json.loads(user_files_json.decode('utf-8'))
+                            else:
+                                user_files = user_files_json
+                        except:
+                            continue
+                        
+                        logger.info(f"[{request_id}] Cleaning up {len(user_files)} files for user {api_key[:8]}...")
+                        
+                        # Удаляем каждый файл
+                        for file_info in user_files:
+                            file_id = file_info.get("id")
+                            if file_id:
+                                try:
+                                    delete_url = f"{ONE_MIN_ASSET_URL}/{file_id}"
+                                    headers = {"API-KEY": api_key}
+                                    
+                                    delete_response = api_request("DELETE", delete_url, headers=headers)
+                                    
+                                    if delete_response.status_code == 200:
+                                        logger.info(f"[{request_id}] Scheduled cleanup: deleted file {file_id}")
+                                    else:
+                                        logger.error(f"[{request_id}] Scheduled cleanup: failed to delete file {file_id}: {delete_response.status_code}")
+                                except Exception as e:
+                                    logger.error(f"[{request_id}] Scheduled cleanup: error deleting file {file_id}: {str(e)}")
+                        
+                        # Очищаем список файлов пользователя
+                        safe_memcached_operation('set', user_key, json.dumps([]))
+                        logger.info(f"[{request_id}] Cleared files list for user {api_key[:8]}")
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Error processing user {user_key}: {str(e)}")
+            except Exception as e:
+                logger.error(f"[{request_id}] Error getting keys from memcached: {str(e)}")
+    except Exception as e:
+        logger.error(f"[{request_id}] Error in scheduled cleanup task: {str(e)}")
+    
+    # Запланировать следующее выполнение через час
+    cleanup_timer = threading.Timer(3600, delete_all_files_task)
+    cleanup_timer.daemon = True
+    cleanup_timer.start()
+    logger.info(f"[{request_id}] Scheduled next cleanup in 1 hour")
+
+# Запускаем задачу при старте сервера
 if __name__ == "__main__":
+    # Запускаем задачу удаления файлов
+    delete_all_files_task()
+    
+    # Запускаем приложение
     internal_ip = socket.gethostbyname(socket.gethostname())
-    response = requests.get("https://api.ipify.org")
-    public_ip = response.text
+    try:
+        response = requests.get("https://api.ipify.org")
+        public_ip = response.text
+    except:
+        public_ip = "Не удалось определить"
+        
     logger.info(
         f"""{printedcolors.Color.fg.lightcyan}  
 Server is ready to serve at:
-Internal IP: {internal_ip}:5001
+Internal IP: {internal_ip}:{PORT}
 Public IP: {public_ip} (only if you've setup port forwarding on your router.)
 Enter this url to OpenAI clients supporting custom endpoint:
-{internal_ip}:5001/v1
+{internal_ip}:{PORT}/v1
 If does not work, try:
-{internal_ip}:5001/v1/chat/completions
+{internal_ip}:{PORT}/v1/chat/completions
 {printedcolors.Color.reset}"""
     )
+    
     serve(
-        app, host="0.0.0.0", port=5001, threads=6
+        app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
