@@ -1104,7 +1104,13 @@ def conversation():
             payload = {"conversationId": conversation_id, "message": enhanced_prompt}
 
             # Используем URL для бесед вместо общего API URL
-            api_url = f"{ONE_MIN_CONVERSATION_API_URL}/{conversation_id}/message"
+            # Попробуем изменить формат URL для запросов к API
+            api_url = f"{ONE_MIN_API_URL}/conversations/{conversation_id}/message"
+            logger.debug(f"[{request_id}] Using conversation API URL: {api_url}")
+            
+            # Выводим полное содержимое payload и URL для диагностики
+            logger.debug(f"[{request_id}] Full request payload: {json.dumps(payload)}")
+            
             headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
             # Выполнение запроса в зависимости от stream
