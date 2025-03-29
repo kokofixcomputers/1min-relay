@@ -1505,7 +1505,7 @@ def generate_image():
             "promptObject": {
                 "prompt": prompt,
                 "mode": request_data.get("mode", "relax"),
-                "n": request_data.get("n", 4),
+                "n": 1,  # Всегда генерируем только 1 изображение
                 "aspect_ratio": request_data.get("size", "1:1"),
                 "isNiji6": request_data.get("isNiji6", False),
                 "maintainModeration": request_data.get("maintainModeration", True),
@@ -1542,7 +1542,7 @@ def generate_image():
             "promptObject": {
                 "prompt": prompt,
                 "mode": request_data.get("mode", "relax"),
-                "n": request_data.get("n", 4),
+                "n": 1,  # Всегда генерируем только 1 изображение
                 "isNiji6": request_data.get("isNiji6", False),
                 "maintainModeration": request_data.get("maintainModeration", True),
                 "negativePrompt": request_data.get("negativePrompt", negative_prompt),
@@ -1762,6 +1762,10 @@ def generate_image():
         retry_delay = 1
         error_response = None
 
+        # Для моделей Midjourney не делаем повторных запросов, так как они все равно выполняются
+        if model.startswith("midjourney"):
+            max_retries = 1  # Для Midjourney делаем только одну попытку
+            
         while retry_count < max_retries:
             try:
                 response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
@@ -1773,6 +1777,20 @@ def generate_image():
                 if response.status_code == 200:
                     break
                 
+                # Для Midjourney возвращаем ошибку сразу без повторных попыток
+                if model.startswith("midjourney"):
+                    error_msg = "Unknown error"
+                    try:
+                        error_data = response.json()
+                        if "error" in error_data:
+                            error_msg = error_data["error"]
+                    except:
+                        pass
+                    return (
+                        jsonify({"error": error_msg}),
+                        response.status_code,
+                    )
+                    
                 # Если ошибка 429 (Rate Limit) или 500 (Server Error), повторяем запрос
                 elif response.status_code in [429, 500, 502, 503, 504]:
                     retry_count += 1
