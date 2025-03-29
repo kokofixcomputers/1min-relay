@@ -1485,19 +1485,19 @@ def generate_image():
         }
     elif model == "stable-diffusion-xl-1024-v1-0":
         logger.info(f"[{request_id}] Preparing request for stable-diffusion-xl-1024-v1-0")
-        # Создаем запрос в соответствии с HAR-данными
+        # Создаем запрос точно как в рабочем примере
         payload = {
             "type": "IMAGE_GENERATOR",
             "model": "stable-diffusion-xl-1024-v1-0",
             "promptObject": {
                 "prompt": prompt,
-                "samples": request_data.get("n", 1),
+                "samples": 1,
                 "size": "1024x1024",
                 "cfg_scale": 7,
                 "steps": 30,
                 "seed": 0,
-                "clip_guidance_preset": "NONE",
-            },
+                "clip_guidance_preset": "NONE"
+            }
         }
         # Логируем созданный payload
         logger.debug(f"[{request_id}] Created SDXL payload: {json.dumps(payload)}")
@@ -1671,20 +1671,20 @@ def generate_image():
             del payload["promptObject"]["no"]
     elif model == "stable-diffusion-v1-6":
         logger.info(f"[{request_id}] Preparing request for stable-diffusion-v1-6")
-        # Создаем запрос в соответствии с HAR-данными
+        # Создаем запрос точно как в рабочем примере
         payload = {
             "type": "IMAGE_GENERATOR",
             "model": "stable-diffusion-v1-6",
             "promptObject": {
                 "prompt": prompt,
-                "samples": request_data.get("n", 1),
+                "samples": 1,
                 "width": 512,
                 "height": 512,
                 "cfg_scale": 7,
                 "steps": 30,
                 "seed": 0,
-                "clip_guidance_preset": "NONE",
-            },
+                "clip_guidance_preset": "NONE"
+            }
         }
         # Логируем созданный payload
         logger.debug(f"[{request_id}] Created SD1.6 payload: {json.dumps(payload)}")
@@ -3101,6 +3101,15 @@ def api_request(req_method, url, headers=None,
                 timeout=None, json=None, **kwargs):
     """Выполняет HTTP-запрос к API с нормализацией URL и обработкой ошибок"""
     req_url = url.strip()
+    
+    # Добавляем параметр isStreaming=false для запросов генерации изображений
+    if "features" in req_url and not "stream" in req_url and req_method.upper() == "POST" and json and json.get("type") == "IMAGE_GENERATOR":
+        logger.debug(f"[IMAGE_GENERATOR] Adding isStreaming=false parameter to URL")
+        if "?" in req_url:
+            req_url += "&isStreaming=false"
+        else:
+            req_url += "?isStreaming=false"
+            
     logger.debug(f"API request URL: {req_url}")
     
     # Параметры запроса
