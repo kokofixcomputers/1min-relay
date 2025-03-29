@@ -184,7 +184,7 @@ else:
     logger.info("Memcached not available, session storage disabled")
 
 
-# Константы URL
+# Основной URL для API
 ONE_MIN_API_URL = "https://api.1min.ai/api/features"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
@@ -1505,7 +1505,7 @@ def generate_image():
             "promptObject": {
                 "prompt": prompt,
                 "mode": request_data.get("mode", "relax"),
-                "n": 1,  # Всегда генерируем только 1 изображение
+                "n": 4,  # Midjourney всегда генерирует 4 изображения
                 "aspect_ratio": request_data.get("size", "1:1"),
                 "isNiji6": request_data.get("isNiji6", False),
                 "maintainModeration": request_data.get("maintainModeration", True),
@@ -1542,7 +1542,7 @@ def generate_image():
             "promptObject": {
                 "prompt": prompt,
                 "mode": request_data.get("mode", "relax"),
-                "n": 1,  # Всегда генерируем только 1 изображение
+                "n": 4,  # Midjourney всегда генерирует 4 изображения
                 "isNiji6": request_data.get("isNiji6", False),
                 "maintainModeration": request_data.get("maintainModeration", True),
                 "negativePrompt": request_data.get("negativePrompt", negative_prompt),
@@ -1801,19 +1801,6 @@ def generate_image():
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Увеличиваем время ожидания экспоненциально
                     
-                    # Если это midjourney модель, попробуем изменить запрос
-                    if model.startswith("midjourney") and retry_count > 2:
-                        logger.warning(f"[{request_id}] Modifying midjourney request to simplify")
-                        # Упрощаем промпт для midjourney, убирая спец-символы
-                        prompt = re.sub(r'--\w+\s+[\w:]+', '', prompt).strip()
-                        if "midjourney_6_1" in model or "midjourney-6.1" in model:
-                            payload["promptObject"]["prompt"] = prompt
-                            # Удаляем лишние поля, которые могут вызывать ошибки
-                            for field in ["aspect_height", "aspect_width", "negativePrompt", "no", "weird"]:
-                                if field in payload["promptObject"]:
-                                    del payload["promptObject"][field]
-                        logger.debug(f"[{request_id}] Modified payload: {json.dumps(payload)[:200]}...")
-                    
                     continue
                     
                 # Для других ошибок возвращаем ответ сразу
@@ -1839,6 +1826,11 @@ def generate_image():
                 )
                 time.sleep(retry_delay)
                 retry_delay *= 2
+                
+                # Для моделей Midjourney не повторяем запросы даже при исключениях
+                if model.startswith("midjourney"):
+                    return jsonify({"error": f"API request error: {str(e)}"}), 500
+                    
                 continue
                 
         # Если после всех попыток по-прежнему получаем ошибки
