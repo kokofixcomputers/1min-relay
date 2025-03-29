@@ -1500,19 +1500,9 @@ def generate_image():
             },
         }
     elif model == "midjourney":
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "midjourney",
-            "promptObject": {
-                "prompt": prompt,
-                "mode": request_data.get("mode", "relax"),
-                "n": 4,  # Midjourney всегда генерирует 4 изображения
-                "aspect_ratio": request_data.get("size", "1:1"),
-                "isNiji6": request_data.get("isNiji6", False),
-                "maintainModeration": request_data.get("maintainModeration", True),
-            },
-        }
-    elif model == "midjourney_6_1" or model == "midjourney-6.1":
+        # Допустимые соотношения сторон для Midjourney
+        allowed_aspect_ratios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:5", "5:4"]
+        
         # Значения по умолчанию
         aspect_width = 1
         aspect_height = 1
@@ -1536,6 +1526,124 @@ def generate_image():
                 aspect_height = int(ar_matches.group(2))
                 # Удаляем параметр --ar из промпта
                 prompt = re.sub(ar_pattern, "", prompt).strip()
+                
+                # Проверяем, допустимо ли указанное соотношение сторон
+                entered_ratio = f"{aspect_width}:{aspect_height}"
+                if entered_ratio not in allowed_aspect_ratios:
+                    return jsonify({
+                        "error": {
+                            "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
+                            "type": "invalid_request_error",
+                            "param": "aspect_ratio",
+                            "code": "parameter_invalid"
+                        }
+                    }), 400
+        # Если --ar не указан, проверяем параметр size
+        else:
+            # Получаем соотношение сторон из запроса или используем дефолтное
+            aspect_ratio = request_data.get("size", "1:1")
+            if ":" not in aspect_ratio:  # Если формат не соответствует "x:y"
+                aspect_ratio = "1:1"
+                
+            # Проверяем, что соотношение сторон допустимо
+            if aspect_ratio not in allowed_aspect_ratios:
+                return jsonify({
+                    "error": {
+                        "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
+                        "type": "invalid_request_error",
+                        "param": "aspect_ratio",
+                        "code": "parameter_invalid"
+                    }
+                }), 400
+                
+            # Разбиваем соотношение сторон на width и height
+            ar_parts = aspect_ratio.split(":")
+            aspect_width = int(ar_parts[0])
+            aspect_height = int(ar_parts[1])
+            
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": "midjourney",
+            "promptObject": {
+                "prompt": prompt,
+                "mode": request_data.get("mode", "relax"),
+                "n": 4,  # Midjourney всегда генерирует 4 изображения
+                "aspect_width": aspect_width,
+                "aspect_height": aspect_height,
+                "isNiji6": request_data.get("isNiji6", False),
+                "maintainModeration": request_data.get("maintainModeration", True),
+                "negativePrompt": request_data.get("negativePrompt", negative_prompt),
+                "no": request_data.get("no", no_param),
+                "image_weight": request_data.get("image_weight", 1),
+                "weird": request_data.get("weird", 0),
+            },
+        }
+        # Если не задан negativePrompt или no, удаляем эти поля
+        if not payload["promptObject"]["negativePrompt"]:
+            del payload["promptObject"]["negativePrompt"]
+        if not payload["promptObject"]["no"]:
+            del payload["promptObject"]["no"]
+    elif model == "midjourney_6_1" or model == "midjourney-6.1":
+        # Допустимые соотношения сторон для Midjourney
+        allowed_aspect_ratios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:5", "5:4"]
+        
+        # Значения по умолчанию
+        aspect_width = 1
+        aspect_height = 1
+        negative_prompt = ""
+        no_param = ""
+        
+        # Обработка параметра --no для негативного промпта
+        if "--no" in prompt:
+            parts = prompt.split("--no")
+            prompt = parts[0].strip()
+            if len(parts) > 1:
+                negative_prompt = parts[1].strip()
+                no_param = negative_prompt.split(" ")[0] if negative_prompt else ""
+                
+        # Обработка параметра --ar для соотношения сторон
+        if "--ar" in prompt:
+            ar_pattern = r"--ar\s+(\d+):(\d+)"
+            ar_matches = re.search(ar_pattern, prompt)
+            if ar_matches:
+                aspect_width = int(ar_matches.group(1))
+                aspect_height = int(ar_matches.group(2))
+                # Удаляем параметр --ar из промпта
+                prompt = re.sub(ar_pattern, "", prompt).strip()
+                
+                # Проверяем, допустимо ли указанное соотношение сторон
+                entered_ratio = f"{aspect_width}:{aspect_height}"
+                if entered_ratio not in allowed_aspect_ratios:
+                    return jsonify({
+                        "error": {
+                            "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
+                            "type": "invalid_request_error",
+                            "param": "aspect_ratio",
+                            "code": "parameter_invalid"
+                        }
+                    }), 400
+        # Если --ar не указан, проверяем параметр size
+        else:
+            # Получаем соотношение сторон из запроса или используем дефолтное
+            aspect_ratio = request_data.get("size", "1:1")
+            if ":" not in aspect_ratio:  # Если формат не соответствует "x:y"
+                aspect_ratio = "1:1"
+                
+            # Проверяем, что соотношение сторон допустимо
+            if aspect_ratio not in allowed_aspect_ratios:
+                return jsonify({
+                    "error": {
+                        "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
+                        "type": "invalid_request_error",
+                        "param": "aspect_ratio",
+                        "code": "parameter_invalid"
+                    }
+                }), 400
+                
+            # Разбиваем соотношение сторон на width и height
+            ar_parts = aspect_ratio.split(":")
+            aspect_width = int(ar_parts[0])
+            aspect_height = int(ar_parts[1])
         
         payload = {
             "type": "IMAGE_GENERATOR",
