@@ -209,7 +209,7 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # "tts-1",     # Синтез речи
     # "tts-1-hd",  # Синтез речи HD
     #
-    # "dall-e-2",  # Генерация изображений
+    "dall-e-2",  # Генерация изображений
     "dall-e-3",    # Генерация изображений
     # Claude
     "claude-instant-1.2",
@@ -1484,21 +1484,37 @@ def generate_image():
             },
         }
     elif model == "stable-diffusion-xl-1024-v1-0":
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "stable-diffusion-xl-1024-v1-0",
-            "promptObject": {
-                "prompt": prompt,
-                "samples": request_data.get("n", 1),
-                "size": request_data.get("size", "1024x1024"),
-                "cfg_scale": request_data.get("cfg_scale", 7),
-                "clip_guidance_preset": request_data.get(
-                    "clip_guidance_preset", "NONE"
-                ),
-                "seed": request_data.get("seed", 0),
-                "steps": request_data.get("steps", 30),
-            },
-        }
+        try:
+            # Добавляем более подробное логирование
+            logger.debug(f"[{request_id}] Creating payload for stable-diffusion-xl-1024-v1-0")
+            logger.debug(f"[{request_id}] Prompt value: '{prompt}', type: {type(prompt)}")
+            
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "stable-diffusion-xl-1024-v1-0",
+                "promptObject": {
+                    "prompt": prompt,
+                    "samples": request_data.get("n", 1),
+                    "size": request_data.get("size", "1024x1024"),
+                    "cfg_scale": request_data.get("cfg_scale", 7),
+                    "clip_guidance_preset": request_data.get(
+                        "clip_guidance_preset", "NONE"
+                    ),
+                    "seed": request_data.get("seed", 0),
+                    "steps": request_data.get("steps", 30),
+                },
+            }
+            logger.debug(f"[{request_id}] Successfully created payload for stable-diffusion-xl-1024-v1-0")
+        except Exception as e:
+            logger.error(f"[{request_id}] Error creating payload for stable-diffusion-xl-1024-v1-0: {str(e)}")
+            # Отправляем пользователю сообщение об ошибке
+            return jsonify({
+                "error": {
+                    "message": f"Ошибка при создании запроса для модели {model}: {str(e)}",
+                    "type": "server_error",
+                    "code": "payload_creation_failed"
+                }
+            }), 500
     elif model == "midjourney":
         # Допустимые соотношения сторон для Midjourney
         allowed_aspect_ratios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:5", "5:4"]
@@ -1668,22 +1684,38 @@ def generate_image():
         if not payload["promptObject"]["no"]:
             del payload["promptObject"]["no"]
     elif model == "stable-diffusion-v1-6":
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "stable-diffusion-v1-6",
-            "promptObject": {
-                "prompt": prompt,
-                "samples": request_data.get("n", 1),
-                "cfg_scale": request_data.get("cfg_scale", 7),
-                "clip_guidance_preset": request_data.get(
-                    "clip_guidance_preset", "NONE"
-                ),
-                "height": request_data.get("height", 512),
-                "width": request_data.get("width", 512),
-                "seed": request_data.get("seed", 0),
-                "steps": request_data.get("steps", 30),
-            },
-        }
+        try:
+            # Добавляем более подробное логирование
+            logger.debug(f"[{request_id}] Creating payload for stable-diffusion-v1-6")
+            logger.debug(f"[{request_id}] Prompt value: '{prompt}', type: {type(prompt)}")
+            
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "stable-diffusion-v1-6",
+                "promptObject": {
+                    "prompt": prompt,
+                    "samples": request_data.get("n", 1),
+                    "cfg_scale": request_data.get("cfg_scale", 7),
+                    "clip_guidance_preset": request_data.get(
+                        "clip_guidance_preset", "NONE"
+                    ),
+                    "height": request_data.get("height", 512),
+                    "width": request_data.get("width", 512),
+                    "seed": request_data.get("seed", 0),
+                    "steps": request_data.get("steps", 30),
+                },
+            }
+            logger.debug(f"[{request_id}] Successfully created payload for stable-diffusion-v1-6")
+        except Exception as e:
+            logger.error(f"[{request_id}] Error creating payload for stable-diffusion-v1-6: {str(e)}")
+            # Отправляем пользователю сообщение об ошибке
+            return jsonify({
+                "error": {
+                    "message": f"Ошибка при создании запроса для модели {model}: {str(e)}",
+                    "type": "server_error",
+                    "code": "payload_creation_failed"
+                }
+            }), 500
     elif model in ["black-forest-labs/flux-schnell", "flux-schnell"]:
         payload = {
             "type": "IMAGE_GENERATOR",
