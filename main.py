@@ -1502,62 +1502,80 @@ def generate_image():
         # Логируем созданный payload
         logger.debug(f"[{request_id}] Created SDXL payload: {json.dumps(payload)}")
     elif model == "midjourney":
-        # Допустимые соотношения сторон для Midjourney
-        allowed_aspect_ratios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:5", "5:4"]
-        
         # Значения по умолчанию
         aspect_width = 1
         aspect_height = 1
         negative_prompt = ""
         no_param = ""
         
-        # Обработка параметра --no для негативного промпта
-        if "--no" in prompt:
-            parts = prompt.split("--no")
-            prompt = parts[0].strip()
-            if len(parts) > 1:
-                negative_prompt = parts[1].strip()
-                no_param = negative_prompt.split(" ")[0] if negative_prompt else ""
+        # Обработка параметра --no для негативного промпта (учитываем оба варианта тире)
+        no_pattern = r"(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)"
+        no_matches = re.search(no_pattern, prompt)
+        if no_matches:
+            negative_prompt = no_matches.group(2).strip()
+            no_param = negative_prompt  # Используем весь текст после --no как параметр no
+            # Удаляем параметр --no из промпта
+            prompt = re.sub(no_pattern, "", prompt).strip()
+        
+        # Обработка параметра --ar для соотношения сторон (учитываем оба варианта тире)
+        # Изменяем регулярное выражение, чтобы оно захватывало любые числа (целые и дробные)
+        ar_pattern = r"(-{2}|\u2014)ar\s+(\d+\.?\d*):(\d+\.?\d*)"
+        ar_matches = re.search(ar_pattern, prompt)
+        if ar_matches:
+            width_str = ar_matches.group(2)
+            height_str = ar_matches.group(3)
+            
+            # Проверяем, что числа целые (без десятичной точки или равны целому числу)
+            if '.' in width_str or '.' in height_str:
+                width_val = float(width_str)
+                height_val = float(height_str)
                 
-        # Обработка параметра --ar для соотношения сторон
-        if "--ar" in prompt:
-            ar_pattern = r"--ar\s+(\d+):(\d+)"
-            ar_matches = re.search(ar_pattern, prompt)
-            if ar_matches:
-                aspect_width = int(ar_matches.group(1))
-                aspect_height = int(ar_matches.group(2))
-                # Удаляем параметр --ar из промпта
-                prompt = re.sub(ar_pattern, "", prompt).strip()
-                
-                # Проверяем, допустимо ли указанное соотношение сторон
-                entered_ratio = f"{aspect_width}:{aspect_height}"
-                if entered_ratio not in allowed_aspect_ratios:
+                # Проверяем, являются ли числа целыми (например, 2.0 считается целым)
+                if width_val != int(width_val) or height_val != int(height_val):
                     return jsonify({
                         "error": {
-                            "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
+                            "message": "Соотношение сторон должно содержать только целые числа",
                             "type": "invalid_request_error",
                             "param": "aspect_ratio",
                             "code": "parameter_invalid"
                         }
                     }), 400
-        # Если --ar не указан, проверяем параметр size
-        else:
-            # Получаем соотношение сторон из запроса или используем дефолтное
-            aspect_ratio = request_data.get("size", "1:1")
-            if ":" not in aspect_ratio:  # Если формат не соответствует "x:y"
-                aspect_ratio = "1:1"
+                else:
+                    # Если числа целые, но записаны с десятичной точкой (например, 2.0), преобразуем их в целые
+                    aspect_width = int(width_val)
+                    aspect_height = int(height_val)
+            else:
+                # Если в строках нет десятичных точек, просто преобразуем в целые числа
+                aspect_width = int(width_str)
+                aspect_height = int(height_str)
                 
-            # Проверяем, что соотношение сторон допустимо
-            if aspect_ratio not in allowed_aspect_ratios:
+            # Удаляем параметр --ar из промпта
+            prompt = re.sub(ar_pattern, "", prompt).strip()
+            
+            # Проверяем, что оба числа положительные
+            if aspect_width <= 0 or aspect_height <= 0:
                 return jsonify({
                     "error": {
-                        "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
+                        "message": "Соотношение сторон должно содержать только положительные числа",
                         "type": "invalid_request_error",
                         "param": "aspect_ratio",
                         "code": "parameter_invalid"
                     }
                 }), 400
-                
+
+            # Проверяем, что соотношение сторон не превышает 2:1 или 1:2
+            max_side = max(aspect_width, aspect_height)
+            min_side = min(aspect_width, aspect_height)
+            if max_side / min_side > 2:
+                return jsonify({
+                    "error": {
+                        "message": "Соотношение сторон не должно превышать 2:1 или 1:2",
+                        "type": "invalid_request_error",
+                        "param": "aspect_ratio",
+                        "code": "parameter_invalid"
+                    }
+                }), 400
+
             # Разбиваем соотношение сторон на width и height
             ar_parts = aspect_ratio.split(":")
             aspect_width = int(ar_parts[0])
@@ -1595,53 +1613,74 @@ def generate_image():
         negative_prompt = ""
         no_param = ""
         
-        # Обработка параметра --no для негативного промпта
-        if "--no" in prompt:
-            parts = prompt.split("--no")
-            prompt = parts[0].strip()
-            if len(parts) > 1:
-                negative_prompt = parts[1].strip()
-                no_param = negative_prompt.split(" ")[0] if negative_prompt else ""
+        # Обработка параметра --no для негативного промпта (учитываем оба варианта тире)
+        no_pattern = r"(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)"
+        no_matches = re.search(no_pattern, prompt)
+        if no_matches:
+            negative_prompt = no_matches.group(2).strip()
+            no_param = negative_prompt  # Используем весь текст после --no как параметр no
+            # Удаляем параметр --no из промпта
+            prompt = re.sub(no_pattern, "", prompt).strip()
                 
-        # Обработка параметра --ar для соотношения сторон
-        if "--ar" in prompt:
-            ar_pattern = r"--ar\s+(\d+):(\d+)"
-            ar_matches = re.search(ar_pattern, prompt)
-            if ar_matches:
-                aspect_width = int(ar_matches.group(1))
-                aspect_height = int(ar_matches.group(2))
-                # Удаляем параметр --ar из промпта
-                prompt = re.sub(ar_pattern, "", prompt).strip()
+        # Обработка параметра --ar для соотношения сторон (учитываем оба варианта тире)
+        # Изменяем регулярное выражение, чтобы оно захватывало любые числа (целые и дробные)
+        ar_pattern = r"(-{2}|\u2014)ar\s+(\d+\.?\d*):(\d+\.?\d*)"
+        ar_matches = re.search(ar_pattern, prompt)
+        if ar_matches:
+            width_str = ar_matches.group(2)
+            height_str = ar_matches.group(3)
+            
+            # Проверяем, что числа целые (без десятичной точки или равны целому числу)
+            if '.' in width_str or '.' in height_str:
+                width_val = float(width_str)
+                height_val = float(height_str)
                 
-                # Проверяем, допустимо ли указанное соотношение сторон
-                entered_ratio = f"{aspect_width}:{aspect_height}"
-                if entered_ratio not in allowed_aspect_ratios:
+                # Проверяем, являются ли числа целыми (например, 2.0 считается целым)
+                if width_val != int(width_val) or height_val != int(height_val):
                     return jsonify({
                         "error": {
-                            "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
+                            "message": "Соотношение сторон должно содержать только целые числа",
                             "type": "invalid_request_error",
                             "param": "aspect_ratio",
                             "code": "parameter_invalid"
                         }
                     }), 400
-        # Если --ar не указан, проверяем параметр size
-        else:
-            # Получаем соотношение сторон из запроса или используем дефолтное
-            aspect_ratio = request_data.get("size", "1:1")
-            if ":" not in aspect_ratio:  # Если формат не соответствует "x:y"
-                aspect_ratio = "1:1"
+                else:
+                    # Если числа целые, но записаны с десятичной точкой (например, 2.0), преобразуем их в целые
+                    aspect_width = int(width_val)
+                    aspect_height = int(height_val)
+            else:
+                # Если в строках нет десятичных точек, просто преобразуем в целые числа
+                aspect_width = int(width_str)
+                aspect_height = int(height_str)
                 
-            # Проверяем, что соотношение сторон допустимо
-            if aspect_ratio not in allowed_aspect_ratios:
+            # Удаляем параметр --ar из промпта
+            prompt = re.sub(ar_pattern, "", prompt).strip()
+            
+            # Проверяем, что оба числа положительные
+            if aspect_width <= 0 or aspect_height <= 0:
                 return jsonify({
                     "error": {
-                        "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
+                        "message": "Соотношение сторон должно содержать только положительные числа",
                         "type": "invalid_request_error",
                         "param": "aspect_ratio",
                         "code": "parameter_invalid"
                     }
                 }), 400
-                
+
+            # Проверяем, что соотношение сторон не превышает 2:1 или 1:2
+            max_side = max(aspect_width, aspect_height)
+            min_side = min(aspect_width, aspect_height)
+            if max_side / min_side > 2:
+                return jsonify({
+                    "error": {
+                        "message": "Соотношение сторон не должно превышать 2:1 или 1:2",
+                        "type": "invalid_request_error",
+                        "param": "aspect_ratio",
+                        "code": "parameter_invalid"
+                    }
+                }), 400
+
             # Разбиваем соотношение сторон на width и height
             ar_parts = aspect_ratio.split(":")
             aspect_width = int(ar_parts[0])
@@ -1669,6 +1708,7 @@ def generate_image():
             del payload["promptObject"]["negativePrompt"]
         if not payload["promptObject"]["no"]:
             del payload["promptObject"]["no"]
+            
     elif model == "stable-diffusion-v1-6":
         logger.info(f"[{request_id}] Preparing request for stable-diffusion-v1-6")
         # Создаем запрос точно как в рабочем примере
