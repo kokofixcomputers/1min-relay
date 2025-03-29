@@ -1769,15 +1769,14 @@ def generate_image():
             "model": "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
             "promptObject": {
                 "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "width": request_data.get("width", 1024),
-                "height": request_data.get("height", 1024),
-                "negative_prompt": request_data.get("negative_prompt", ""),
+                "n": request_data.get("n", 1),
+                "size": request_data.get("size", "1024x1024"),
+                "negativePrompt": request_data.get("negativePrompt", ""),
             },
         }
         # Удаляем пустые параметры
-        if not payload["promptObject"]["negative_prompt"]:
-            del payload["promptObject"]["negative_prompt"]
+        if not payload["promptObject"]["negativePrompt"]:
+            del payload["promptObject"]["negativePrompt"]
     elif model in [
         "b24e16ff-06e3-43eb-8d33-4416c2d75876",
         "lightning-xl",
@@ -1787,15 +1786,14 @@ def generate_image():
             "model": "b24e16ff-06e3-43eb-8d33-4416c2d75876",
             "promptObject": {
                 "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "width": request_data.get("width", 1024),
-                "height": request_data.get("height", 1024),
-                "negative_prompt": request_data.get("negative_prompt", ""),
+                "n": request_data.get("n", 1),
+                "size": request_data.get("size", "1024x1024"),
+                "negativePrompt": request_data.get("negativePrompt", ""),
             },
         }
         # Удаляем пустые параметры
-        if not payload["promptObject"]["negative_prompt"]:
-            del payload["promptObject"]["negative_prompt"]
+        if not payload["promptObject"]["negativePrompt"]:
+            del payload["promptObject"]["negativePrompt"]
     elif model in [
         "5c232a9e-9061-4777-980a-ddc8e65647c6",
         "vision-xl",
@@ -1805,15 +1803,14 @@ def generate_image():
             "model": "5c232a9e-9061-4777-980a-ddc8e65647c6",
             "promptObject": {
                 "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "width": request_data.get("width", 1024),
-                "height": request_data.get("height", 1024),
-                "negative_prompt": request_data.get("negative_prompt", ""),
+                "n": request_data.get("n", 1),
+                "size": request_data.get("size", "1024x1024"),
+                "negativePrompt": request_data.get("negativePrompt", ""),
             },
         }
         # Удаляем пустые параметры
-        if not payload["promptObject"]["negative_prompt"]:
-            del payload["promptObject"]["negative_prompt"]
+        if not payload["promptObject"]["negativePrompt"]:
+            del payload["promptObject"]["negativePrompt"]
     elif model in [
         "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
         "anime-xl",
@@ -1823,15 +1820,14 @@ def generate_image():
             "model": "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
             "promptObject": {
                 "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "width": request_data.get("width", 1024),
-                "height": request_data.get("height", 1024),
-                "negative_prompt": request_data.get("negative_prompt", ""),
+                "n": request_data.get("n", 1),
+                "size": request_data.get("size", "1024x1024"),
+                "negativePrompt": request_data.get("negativePrompt", ""),
             },
         }
         # Удаляем пустые параметры
-        if not payload["promptObject"]["negative_prompt"]:
-            del payload["promptObject"]["negative_prompt"]
+        if not payload["promptObject"]["negativePrompt"]:
+            del payload["promptObject"]["negativePrompt"]
     elif model in [
         "1e60896f-3c26-4296-8ecc-53e2afecc132",
         "diffusion-xl",
@@ -1841,15 +1837,14 @@ def generate_image():
             "model": "1e60896f-3c26-4296-8ecc-53e2afecc132",
             "promptObject": {
                 "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "width": request_data.get("width", 1024),
-                "height": request_data.get("height", 1024),
-                "negative_prompt": request_data.get("negative_prompt", ""),
+                "n": request_data.get("n", 1),
+                "size": request_data.get("size", "1024x1024"),
+                "negativePrompt": request_data.get("negativePrompt", ""),
             },
         }
         # Удаляем пустые параметры
-        if not payload["promptObject"]["negative_prompt"]:
-            del payload["promptObject"]["negative_prompt"]
+        if not payload["promptObject"]["negativePrompt"]:
+            del payload["promptObject"]["negativePrompt"]
     elif model in [
         "aa77f04e-3eec-4034-9c07-d0f619684628",
         "kino-xl",
@@ -1859,15 +1854,14 @@ def generate_image():
             "model": "aa77f04e-3eec-4034-9c07-d0f619684628",
             "promptObject": {
                 "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "width": request_data.get("width", 1024),
-                "height": request_data.get("height", 1024),
-                "negative_prompt": request_data.get("negative_prompt", ""),
+                "n": request_data.get("n", 1),
+                "size": request_data.get("size", "1024x1024"),
+                "negativePrompt": request_data.get("negativePrompt", ""),
             },
         }
         # Удаляем пустые параметры
-        if not payload["promptObject"]["negative_prompt"]:
-            del payload["promptObject"]["negative_prompt"]
+        if not payload["promptObject"]["negativePrompt"]:
+            del payload["promptObject"]["negativePrompt"]
     elif model in [
         "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
         "albedo-base-xl",
@@ -1877,15 +1871,14 @@ def generate_image():
             "model": "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
             "promptObject": {
                 "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "width": request_data.get("width", 512),
-                "height": request_data.get("height", 512),
-                "negative_prompt": request_data.get("negative_prompt", ""),
+                "n": request_data.get("n", 1),
+                "size": request_data.get("size", "512x512"),
+                "negativePrompt": request_data.get("negativePrompt", ""),
             },
         }
         # Удаляем пустые параметры
-        if not payload["promptObject"]["negative_prompt"]:
-            del payload["promptObject"]["negative_prompt"]
+        if not payload["promptObject"]["negativePrompt"]:
+            del payload["promptObject"]["negativePrompt"]
 
     else:
         logger.error(f"[{request_id}] Invalid model: {model}")
@@ -1903,9 +1896,17 @@ def generate_image():
         retry_delay = 1
         error_response = None
 
-        # Для моделей Midjourney не делаем повторных запросов, так как они все равно выполняются
-        if model.startswith("midjourney"):
-            max_retries = 1  # Для Midjourney делаем только одну попытку
+        # Для моделей Midjourney и Leonardo не делаем повторных запросов, так как они все равно выполняются
+        if model.startswith("midjourney") or model in [
+            "6b645e3a-d64f-4341-a6d8-7a3690fbf042", "phoenix",  # Leonardo.ai - Phoenix
+            "b24e16ff-06e3-43eb-8d33-4416c2d75876", "lightning-xl",  # Leonardo.ai - Lightning XL
+            "5c232a9e-9061-4777-980a-ddc8e65647c6", "vision-xl",  # Leonardo.ai - Vision XL
+            "e71a1c2f-4f80-4800-934f-2c68979d8cc8", "anime-xl",  # Leonardo.ai - Anime XL
+            "1e60896f-3c26-4296-8ecc-53e2afecc132", "diffusion-xl",  # Leonardo.ai - Diffusion XL
+            "aa77f04e-3eec-4034-9c07-d0f619684628", "kino-xl",  # Leonardo.ai - Kino XL
+            "2067ae52-33fd-4a82-bb92-c2c55e7d2786", "albedo-base-xl"  # Leonardo.ai - Albedo Base XL
+        ]:
+            max_retries = 1  # Для этих моделей делаем только одну попытку
             
         while retry_count < max_retries:
             try:
