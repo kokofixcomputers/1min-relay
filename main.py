@@ -191,6 +191,7 @@ ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/strea
 ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
 # Добавляем константу таймаута, используемую в функции api_request
 DEFAULT_TIMEOUT = 30
+MIDJOURNEY_TIMEOUT = 900  # 15 минут для запросов к Midjourney
 
 # Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
@@ -2984,76 +2985,53 @@ def api_request(req_method, url, headers=None,
                 requester_ip=None, data=None, 
                 files=None, stream=False, 
                 timeout=None, json=None, **kwargs):
-    """
-    Perform API request to 1min.ai API
-    """
-    session = requests.Session()
+    """Выполняет HTTP-запрос к API с нормализацией URL и обработкой ошибок"""
+    req_url = url.strip()
+    logger.debug(f"API request URL: {req_url}")
     
-    # Configure retry strategy
-    retry_strategy = requests.packages.urllib3.util.retry.Retry(
-        total=3,
-        backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"],
-    )
-    adapter = requests.adapters.HTTPAdapter(max_retries=retry_strategy)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
+    # Параметры запроса
+    req_params = {}
+    if headers:
+        req_params["headers"] = headers
+    if data:
+        req_params["data"] = data
+    if files:
+        req_params["files"] = files
+    if stream:
+        req_params["stream"] = stream
+    if json:
+        req_params["json"] = json
     
-    try:
-        # Normalize URL
-        if not url.startswith('http'):
-            url = MINAI_API_URL + url
+    # Добавляем остальные параметры
+    req_params.update(kwargs)
+    
+    # Используем увеличенный таймаут для запросов Midjourney
+    is_midjourney = False
+    
+    # Проверяем JSON на наличие упоминаний Midjourney
+    if json and isinstance(json, dict):
+        model_name = json.get("model", "")
+        prompt_type = json.get("type", "")
+        if "midjourney" in model_name.lower() or (prompt_type == "IMAGE_GENERATOR" and "midjourney" in str(json).lower()):
+            is_midjourney = True
+    
+    # Проверяем все параметры запроса на наличие упоминаний Midjourney
+    if not is_midjourney and "midjourney" in str(req_params).lower():
+        is_midjourney = True
         
-        # Build request parameters
-        req_params = {}
-        
-        if headers:
-            req_params["headers"] = headers
-            
+    if is_midjourney:
+        req_params["timeout"] = timeout or MIDJOURNEY_TIMEOUT
+        logger.debug(f"Using extended timeout for Midjourney: {MIDJOURNEY_TIMEOUT}s")
+    else:
         req_params["timeout"] = timeout or DEFAULT_TIMEOUT
         
-        if files:
-            req_params["files"] = files
-        elif data:
-            if isinstance(data, str):
-                req_params["data"] = data
-            else:
-                req_params["json"] = data
-        
-        # Add JSON data if provided
-        if json:
-            req_params["json"] = json
-            
-        # Add params if provided
-        if 'params' in kwargs and kwargs['params']:
-            req_params["params"] = kwargs['params']
-        
-        # Process streaming option
-        if stream:
-            req_params["stream"] = True
-        
-        # Make the request
-        response = None
-        if req_method.upper() == "GET":
-            response = session.get(url, **req_params)
-        elif req_method.upper() == "POST":
-            response = session.post(url, **req_params)
-        elif req_method.upper() == "PUT":
-            response = session.put(url, **req_params)
-        elif req_method.upper() == "DELETE":
-            response = session.delete(url, **req_params)
-        elif req_method.upper() == "PATCH":
-            response = session.patch(url, **req_params)
-        else:
-            raise ValueError(f"Unsupported method: {req_method}")
-        
+    # Выполняем запрос
+    try:
+        response = requests.request(req_method, req_url, **req_params)
         return response
     except Exception as e:
         logger.error(f"API request error: {str(e)}")
-        raise e
-    finally:
-        session.close()
+        raise
 
 
 @app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
