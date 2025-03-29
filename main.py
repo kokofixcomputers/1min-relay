@@ -1484,37 +1484,23 @@ def generate_image():
             },
         }
     elif model == "stable-diffusion-xl-1024-v1-0":
-        try:
-            # Добавляем более подробное логирование
-            logger.debug(f"[{request_id}] Creating payload for stable-diffusion-xl-1024-v1-0")
-            logger.debug(f"[{request_id}] Prompt value: '{prompt}', type: {type(prompt)}")
-            
-            payload = {
-                "type": "IMAGE_GENERATOR",
-                "model": "stable-diffusion-xl-1024-v1-0",
-                "promptObject": {
-                    "prompt": prompt,
-                    "samples": request_data.get("n", 1),
-                    "size": request_data.get("size", "1024x1024"),
-                    "cfg_scale": request_data.get("cfg_scale", 7),
-                    "clip_guidance_preset": request_data.get(
-                        "clip_guidance_preset", "NONE"
-                    ),
-                    "seed": request_data.get("seed", 0),
-                    "steps": request_data.get("steps", 30),
-                },
-            }
-            logger.debug(f"[{request_id}] Successfully created payload for stable-diffusion-xl-1024-v1-0")
-        except Exception as e:
-            logger.error(f"[{request_id}] Error creating payload for stable-diffusion-xl-1024-v1-0: {str(e)}")
-            # Отправляем пользователю сообщение об ошибке
-            return jsonify({
-                "error": {
-                    "message": f"Ошибка при создании запроса для модели {model}: {str(e)}",
-                    "type": "server_error",
-                    "code": "payload_creation_failed"
-                }
-            }), 500
+        logger.info(f"[{request_id}] Preparing request for stable-diffusion-xl-1024-v1-0")
+        # Создаем запрос в соответствии с HAR-данными
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": "stable-diffusion-xl-1024-v1-0",
+            "promptObject": {
+                "prompt": prompt,
+                "samples": request_data.get("n", 1),
+                "size": "1024x1024",
+                "cfg_scale": 7,
+                "steps": 30,
+                "seed": 0,
+                "clip_guidance_preset": "NONE",
+            },
+        }
+        # Логируем созданный payload
+        logger.debug(f"[{request_id}] Created SDXL payload: {json.dumps(payload)}")
     elif model == "midjourney":
         # Допустимые соотношения сторон для Midjourney
         allowed_aspect_ratios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:5", "5:4"]
@@ -1684,38 +1670,24 @@ def generate_image():
         if not payload["promptObject"]["no"]:
             del payload["promptObject"]["no"]
     elif model == "stable-diffusion-v1-6":
-        try:
-            # Добавляем более подробное логирование
-            logger.debug(f"[{request_id}] Creating payload for stable-diffusion-v1-6")
-            logger.debug(f"[{request_id}] Prompt value: '{prompt}', type: {type(prompt)}")
-            
-            payload = {
-                "type": "IMAGE_GENERATOR",
-                "model": "stable-diffusion-v1-6",
-                "promptObject": {
-                    "prompt": prompt,
-                    "samples": request_data.get("n", 1),
-                    "cfg_scale": request_data.get("cfg_scale", 7),
-                    "clip_guidance_preset": request_data.get(
-                        "clip_guidance_preset", "NONE"
-                    ),
-                    "height": request_data.get("height", 512),
-                    "width": request_data.get("width", 512),
-                    "seed": request_data.get("seed", 0),
-                    "steps": request_data.get("steps", 30),
-                },
-            }
-            logger.debug(f"[{request_id}] Successfully created payload for stable-diffusion-v1-6")
-        except Exception as e:
-            logger.error(f"[{request_id}] Error creating payload for stable-diffusion-v1-6: {str(e)}")
-            # Отправляем пользователю сообщение об ошибке
-            return jsonify({
-                "error": {
-                    "message": f"Ошибка при создании запроса для модели {model}: {str(e)}",
-                    "type": "server_error",
-                    "code": "payload_creation_failed"
-                }
-            }), 500
+        logger.info(f"[{request_id}] Preparing request for stable-diffusion-v1-6")
+        # Создаем запрос в соответствии с HAR-данными
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": "stable-diffusion-v1-6",
+            "promptObject": {
+                "prompt": prompt,
+                "samples": request_data.get("n", 1),
+                "width": 512,
+                "height": 512,
+                "cfg_scale": 7,
+                "steps": 30,
+                "seed": 0,
+                "clip_guidance_preset": "NONE",
+            },
+        }
+        # Логируем созданный payload
+        logger.debug(f"[{request_id}] Created SD1.6 payload: {json.dumps(payload)}")
     elif model in ["black-forest-labs/flux-schnell", "flux-schnell"]:
         payload = {
             "type": "IMAGE_GENERATOR",
@@ -1896,7 +1868,7 @@ def generate_image():
         retry_delay = 1
         error_response = None
 
-        # Для моделей Midjourney и Leonardo не делаем повторных запросов, так как они все равно выполняются
+        # Для моделей Midjourney, Leonardo и Stable Diffusion не делаем повторных запросов
         if model.startswith("midjourney") or model in [
             "6b645e3a-d64f-4341-a6d8-7a3690fbf042", "phoenix",  # Leonardo.ai - Phoenix
             "b24e16ff-06e3-43eb-8d33-4416c2d75876", "lightning-xl",  # Leonardo.ai - Lightning XL
@@ -1904,7 +1876,8 @@ def generate_image():
             "e71a1c2f-4f80-4800-934f-2c68979d8cc8", "anime-xl",  # Leonardo.ai - Anime XL
             "1e60896f-3c26-4296-8ecc-53e2afecc132", "diffusion-xl",  # Leonardo.ai - Diffusion XL
             "aa77f04e-3eec-4034-9c07-d0f619684628", "kino-xl",  # Leonardo.ai - Kino XL
-            "2067ae52-33fd-4a82-bb92-c2c55e7d2786", "albedo-base-xl"  # Leonardo.ai - Albedo Base XL
+            "2067ae52-33fd-4a82-bb92-c2c55e7d2786", "albedo-base-xl",  # Leonardo.ai - Albedo Base XL
+            "stable-diffusion-xl-1024-v1-0", "stable-diffusion-v1-6"  # Stable Diffusion models
         ]:
             max_retries = 1  # Для этих моделей делаем только одну попытку
             
