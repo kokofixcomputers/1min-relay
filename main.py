@@ -900,15 +900,52 @@ def conversation():
         # Проверяем, содержит ли запрос команду вариации изображения
         variation_match = None
         if prompt_text:
-            variation_match = re.search(r'/v([1-4])\s+(https?://[^\s]+)', prompt_text)
+            # Ищем формат старых команд /v1-/v4
+            old_variation_match = re.search(r'/v([1-4])\s+(https?://[^\s]+)', prompt_text)
+            # Ищем новый формат [_V1_]-[_V4_]
+            new_variation_match = re.search(r'\[_V([1-4])_\]', prompt_text)
+            
+            # Если найден новый формат, проверяем, есть ли в истории диалога URL
+            if new_variation_match and request_data.get("messages"):
+                variation_number = new_variation_match.group(1)
+                logger.debug(f"[{request_id}] Found new format variation command: {variation_number}")
+                
+                # Ищем URL в предыдущих сообщениях ассистента
+                image_url = None
+                for msg in reversed(request_data.get("messages", [])):
+                    if msg.get("role") == "assistant" and msg.get("content"):
+                        # Ищем URL изображения в контенте сообщения ассистента
+                        url_match = re.search(r'!\[.*?\]\((https?://[^\s)]+)', msg.get("content", ""))
+                        if url_match:
+                            # Берем первый найденный URL
+                            image_url = url_match.group(1)
+                            logger.debug(f"[{request_id}] Found image URL in assistant message: {image_url}")
+                            break
+                
+                if image_url:
+                    variation_match = new_variation_match
+                    logger.info(f"[{request_id}] Detected variation command: {variation_number} for URL: {image_url}")
+            # Если найден старый формат, используем его
+            elif old_variation_match:
+                variation_match = old_variation_match
+                variation_number = old_variation_match.group(1)
+                image_url = old_variation_match.group(2)
+                logger.info(f"[{request_id}] Detected old format variation command: {variation_number} for URL: {image_url}")
             
         if variation_match:
             # Обрабатываем команду вариации изображения
-            variation_number = variation_match.group(1)
-            image_url = variation_match.group(2)
-            logger.info(f"[{request_id}] Detected image variation command: {variation_number} for URL: {image_url}")
-            
             try:
+                # Если это новый формат, мы уже нашли URL в коде выше
+                if variation_match == new_variation_match:
+                    # image_url уже получен выше
+                    pass
+                else:
+                    # Для старого формата извлекаем URL прямо из команды
+                    variation_number = variation_match.group(1)
+                    image_url = variation_match.group(2)
+                
+                logger.info(f"[{request_id}] Processing variation for image: {image_url}")
+                
                 # Скачиваем изображение во временный файл
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                 img_response = requests.get(image_url, stream=True)
@@ -2148,9 +2185,16 @@ def generate_image():
             
             # Формируем markdown-текст с кнопками вариаций
             if len(full_image_urls) == 1:
-                text_response = f"![Image]({full_image_urls[0]}) - [ /v1 {full_image_urls[0]} ]"
+                text_response = f"![Image]({full_image_urls[0]}) [_V1_]"
             else:
-                text_response = "\n".join([f"![Image {i+1}]({url}) - [ /v{i+1} {url} ]" for i, url in enumerate(full_image_urls)])
+                # Формируем текст с изображениями и кнопками вариаций на одной строке
+                image_lines = []
+                
+                for i, url in enumerate(full_image_urls):
+                    image_lines.append(f"![Image {i+1}]({url}) [_V{i+1}_]")
+                
+                # Объединяем строки с новой строкой между ними
+                text_response = "\n".join(image_lines)
                 
             openai_response["choices"] = [
                 {
@@ -2381,9 +2425,16 @@ def image_variations():
             # Добавляем текст с кнопками вариаций для markdown-отображения
             markdown_text = ""
             if len(full_variation_urls) == 1:
-                markdown_text = f"![Variation]({full_variation_urls[0]}) - [ /v1 {full_variation_urls[0]} ]"
+                markdown_text = f"![Variation]({full_variation_urls[0]}) [_V1_]"
             else:
-                markdown_text = "\n".join([f"![Variation {i+1}]({url}) - [ /v{i+1} {url} ]" for i, url in enumerate(full_variation_urls)])
+                # Формируем текст с изображениями и кнопками вариаций на одной строке
+                image_lines = []
+                
+                for i, url in enumerate(full_variation_urls):
+                    image_lines.append(f"![Variation {i+1}]({url}) [_V{i+1}_]")
+                
+                # Объединяем строки с новой строкой между ними
+                markdown_text = "\n".join(image_lines)
             
             # Добавляем текстовый контент в ответ
             openai_response["choices"] = [
