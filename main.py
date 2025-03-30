@@ -401,7 +401,7 @@ MIDJOURNEY_ALLOWED_ASPECT_RATIOS = [
     "1:2"      # Maximum allowed vertical format
 ]
 
-FLUX_ALLOWED_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:5", "5:4"]
+FLUX_ALLOWED_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4"]
 LEONARDO_ALLOWED_ASPECT_RATIOS = ["1:1", "4:3", "3:4"]
 
 # Допустимые размеры для разных моделей
@@ -722,6 +722,9 @@ def prepare_payload(
                     "maxWord": max_word if web_search else None,
                 },
             }
+            
+            if web_search:
+                logger.debug(f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
         else:
             logger.debug(
                 f"[{request_id}] Model {model} does not support vision, falling back to text-only chat"
@@ -737,6 +740,9 @@ def prepare_payload(
                     "maxWord": max_word if web_search else None,
                 },
             }
+            
+            if web_search:
+                logger.debug(f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
     elif code_interpreter:
         # Если code_interpreter запрошен и поддерживается
         payload = {
@@ -758,6 +764,9 @@ def prepare_payload(
                 "maxWord": max_word if web_search else None,
             },
         }
+        
+        if web_search:
+            logger.debug(f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
 
     return payload
 
@@ -880,6 +889,33 @@ def conversation():
         # Получаем и нормализуем модель
         model = request_data.get("model", "").strip()
         logger.info(f"[{request_id}] Using model: {model}")
+        
+        # Проверяем поддержку веб-поиска для модели
+        capabilities = get_model_capabilities(model)
+        
+        # Проверяем, запрошен ли веб-поиск через инструменты OpenAI
+        web_search_requested = False
+        tools = request_data.get("tools", [])
+        for tool in tools:
+            if tool.get("type") == "retrieval":
+                web_search_requested = True
+                logger.debug(f"[{request_id}] Web search requested via retrieval tool")
+                break
+        
+        # Проверяем наличие параметра web_search
+        if not web_search_requested and request_data.get("web_search", False):
+            web_search_requested = True
+            logger.debug(f"[{request_id}] Web search requested via web_search parameter")
+        
+        # Добавляем явный параметр web_search, если запрошен и поддерживается моделью
+        if web_search_requested:
+            if capabilities["retrieval"]:
+                request_data["web_search"] = True
+                request_data["num_of_site"] = request_data.get("num_of_site", 1)
+                request_data["max_word"] = request_data.get("max_word", 1000)
+                logger.info(f"[{request_id}] Web search enabled for model {model}")
+            else:
+                logger.warning(f"[{request_id}] Model {model} does not support web search, ignoring request")
         
         # Извлекаем содержимое последнего сообщения для возможной генерации изображений
         messages = request_data.get("messages", [])
@@ -1524,6 +1560,13 @@ def conversation():
 
             logger.debug(f"[{request_id}] Streaming URL: {streaming_url}")
             logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:200]}...")
+            
+            # Если включен веб-поиск, выводим полный блок webSearch для отладки
+            if "promptObject" in payload and payload["promptObject"].get("webSearch"):
+                logger.info(f"[{request_id}] Web search parameters in payload: " +
+                          f"webSearch={payload['promptObject'].get('webSearch')}, " +
+                          f"numOfSite={payload['promptObject'].get('numOfSite')}, " +
+                          f"maxWord={payload['promptObject'].get('maxWord')}")
 
             try:
                 # Используем сессию для управления соединением
@@ -1953,7 +1996,7 @@ def generate_image():
                 "model": "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
                 "promptObject": {
                     "prompt": prompt,
-                    "n": request_data.get("n", 1),
+                    "n": request_data.get("n", 4),
                     "size": size,  # Размер определяется на основе aspect_ratio в parse_aspect_ratio
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
                 },
@@ -1971,7 +2014,7 @@ def generate_image():
                 "model": "b24e16ff-06e3-43eb-8d33-4416c2d75876",
                 "promptObject": {
                     "prompt": prompt,
-                    "n": request_data.get("n", 1),
+                    "n": request_data.get("n", 4),
                     "size": size,  # Размер определяется на основе aspect_ratio в parse_aspect_ratio
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
                 },
@@ -1989,7 +2032,7 @@ def generate_image():
                 "model": "5c232a9e-9061-4777-980a-ddc8e65647c6",
                 "promptObject": {
                     "prompt": prompt,
-                    "n": request_data.get("n", 1),
+                    "n": request_data.get("n", 4),
                     "size": size,  # Размер определяется на основе aspect_ratio в parse_aspect_ratio
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
                 },
@@ -2007,7 +2050,7 @@ def generate_image():
                 "model": "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
                 "promptObject": {
                     "prompt": prompt,
-                    "n": request_data.get("n", 1),
+                    "n": request_data.get("n", 4),
                     "size": size or request_data.get("size", "1024x1024"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
                     "aspect_ratio": aspect_ratio
@@ -2028,7 +2071,7 @@ def generate_image():
                 "model": "1e60896f-3c26-4296-8ecc-53e2afecc132",
                 "promptObject": {
                     "prompt": prompt,
-                    "n": request_data.get("n", 1),
+                    "n": request_data.get("n", 4),
                     "size": size or request_data.get("size", "1024x1024"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
                     "aspect_ratio": aspect_ratio
@@ -2049,7 +2092,7 @@ def generate_image():
                 "model": "aa77f04e-3eec-4034-9c07-d0f619684628",
                 "promptObject": {
                     "prompt": prompt,
-                    "n": request_data.get("n", 1),
+                    "n": request_data.get("n", 4),
                     "size": size or request_data.get("size", "1024x1024"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
                     "aspect_ratio": aspect_ratio
@@ -2070,8 +2113,8 @@ def generate_image():
                 "model": "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
                 "promptObject": {
                     "prompt": prompt,
-                    "n": request_data.get("n", 1),
-                    "size": size or request_data.get("size", "512x512"),
+                    "n": request_data.get("n", 4),
+                    "size": size or request_data.get("size", "1024x1024"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
                     "aspect_ratio": aspect_ratio
                 },
