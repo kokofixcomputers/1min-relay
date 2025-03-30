@@ -1028,9 +1028,9 @@ def conversation():
                 # и попробовать все доступные модели
                 variation_count = request_data.get("n", 1)
                 variation_urls = image_variations(
-                    image_url=image_url,
-                    user_model=model,
-                    n=variation_count,
+                    image_url, 
+                    model, 
+                    variation_count,
                     request_id=request_id
                 )
                 
