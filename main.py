@@ -1026,10 +1026,11 @@ def conversation():
                 
                 # Проверяем, поддерживает ли модель вариации
                 if model not in IMAGE_VARIATION_MODELS:
-                    # Если модель не поддерживает вариации, используем midjourney_6_1 как fallback
-                    fallback_model = "midjourney_6_1"
-                    logger.warning(f"[{request_id}] Model {model} does not support image variations. Using {fallback_model} as fallback")
-                    form_data["model"] = fallback_model
+                    # Если модель не поддерживает вариации, используем последовательно fallback модели
+                    logger.warning(f"[{request_id}] Model {model} does not support image variations. Will try fallback models")
+                    # Будем использовать внутренний маршрут /v1/images/variations, который уже имеет логику fallback
+                else:
+                    logger.debug(f"[{request_id}] Model {model} supports image variations")
                 
                 # Отправляем запрос на вариацию изображения через внутренний маршрут
                 variation_headers = {"Authorization": f"Bearer {api_key}"}
@@ -2372,252 +2373,262 @@ def image_variations():
         return jsonify({"error": "No image file provided"}), 400
 
     image_file = request.files["image"]
-    model = request.form.get("model", "dall-e-2").strip()
+    original_model = request.form.get("model", "dall-e-2").strip()
     n = request.form.get("n", 1)
     size = request.form.get("size", "1024x1024")
     prompt_text = request.form.get("prompt", "")  # Извлекаем промпт из запроса если он есть
+    mode = request.form.get("mode", "relax")  # Получаем режим из запроса
 
-    logger.debug(f"[{request_id}] Using model: {model} for image variations")
+    logger.debug(f"[{request_id}] Original model requested: {original_model} for image variations")
     
-    # Проверяем, поддерживает ли модель вариации
-    original_model = model  # Сохраняем изначальную модель
+    # Определяем порядок моделей для fallback
+    fallback_models = ["midjourney_6_1", "midjourney", "clipdrop", "dall-e-2"]
     
-    if model not in IMAGE_VARIATION_MODELS:
-        # Если модель не поддерживает вариации, используем midjourney_6_1 как fallback
-        fallback_model = "midjourney_6_1"
-        logger.warning(f"[{request_id}] Model {model} does not support image variations. Using {fallback_model} as fallback")
-        model = fallback_model  # Меняем модель на поддерживаемую
+    # Если запрошенная модель поддерживает вариации, пробуем сначала её
+    if original_model in IMAGE_VARIATION_MODELS:
+        # Начинаем с запрошенной модели, затем пробуем другие, исключая уже запрошенную
+        models_to_try = [original_model] + [m for m in fallback_models if m != original_model]
     else:
-        logger.debug(f"[{request_id}] Model {model} supports image variations")
-
+        # Если запрошенная модель не поддерживает вариации, начинаем с fallback моделей
+        logger.warning(f"[{request_id}] Model {original_model} does not support image variations. Will try fallback models")
+        models_to_try = fallback_models
+    
+    # Сохраняем временный файл для многократного использования
     try:
-        # Создаем новую сессию для загрузки изображения
-        session = create_session()
-        headers = {"API-KEY": api_key}
-
-        # Загрузка изображения в 1min.ai
-        files = {"asset": (image_file.filename, image_file, "image/png")}
-
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        image_file.save(temp_file.name)
+        temp_file.close()
+    except Exception as e:
+        logger.error(f"[{request_id}] Failed to save temporary file: {str(e)}")
+        return jsonify({"error": "Failed to process image file"}), 500
+    
+    # Создаем сессию для загрузки изображения
+    session = create_session()
+    headers = {"API-KEY": api_key}
+    
+    # Извлекаем соотношение сторон из промпта если оно есть
+    aspect_width = 1
+    aspect_height = 1
+    if "--ar" in prompt_text:
+        ar_match = re.search(r'--ar\s+(\d+):(\d+)', prompt_text)
+        if ar_match:
+            aspect_width = int(ar_match.group(1))
+            aspect_height = int(ar_match.group(2))
+            logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_width}:{aspect_height}")
+    
+    # Пробуем каждую модель по очереди
+    for model in models_to_try:
+        logger.info(f"[{request_id}] Trying model: {model} for image variations")
+        
         try:
-            asset_response = session.post(
-                ONE_MIN_ASSET_URL, files=files, headers=headers
-            )
-            logger.debug(
-                f"[{request_id}] Image upload response status code: {asset_response.status_code}"
-            )
-
-            if asset_response.status_code != 200:
-                session.close()
-                logger.error(
-                    f"[{request_id}] Failed to upload image: {asset_response.status_code} - {asset_response.text}"
-                )
-                return (
-                    jsonify(
-                        {"error": "Failed to upload image for variation processing"}
-                    ),
-                    asset_response.status_code,
-                )
-
-            # Извлекаем ID загруженного изображения и полный URL
-            asset_data = asset_response.json()
-            logger.debug(f"[{request_id}] Asset upload response: {asset_data}")
-
-            # Получаем URL или ID изображения
-            image_id = None
-            image_url = None
-            image_location = None
-
-            # Ищем ID в разных местах структуры ответа
-            if "id" in asset_data:
-                image_id = asset_data["id"]
-            elif "fileContent" in asset_data and "id" in asset_data["fileContent"]:
-                image_id = asset_data["fileContent"]["id"]
-            elif "fileContent" in asset_data and "uuid" in asset_data["fileContent"]:
-                image_id = asset_data["fileContent"]["uuid"]
-            
-            # Ищем абсолютный URL (location) для изображения
-            if "asset" in asset_data and "location" in asset_data["asset"]:
-                image_location = asset_data["asset"]["location"]
-            
-            # Если есть path, используем его как URL изображения
-            if "fileContent" in asset_data and "path" in asset_data["fileContent"]:
-                image_url = asset_data["fileContent"]["path"]
-                # Добавляем хост, если путь относительный
-                if not image_url.startswith("http"):
-                    image_url = f"https://asset.1min.ai{image_url if image_url.startswith('/') else '/' + image_url}"
-
-            if not (image_id or image_url or image_location):
-                session.close()
-                logger.error(f"[{request_id}] Failed to extract image information from response")
-                return jsonify({"error": "Failed to process uploaded image"}), 500
-
-            # Формируем payload для вариации изображения
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": model,
-                "promptObject": {
-                    "n": int(n),
-                    "size": size,
-                    "mode": "relax",
-                    "isNiji6": False,
-                    "maintainModeration": True
-                }
-            }
-
-            # Для VIP-пользователей добавляем credit в запрос
-            if api_key.startswith("vip-"):
-                payload["credits"] = 90000  # Стандартное количество кредитов для VIP
-
-            # Приоритет использования: 1) image_location (абсолютный URL) 2) image_url 3) image_id
-            if image_location:
-                payload["promptObject"]["imageUrl"] = image_location
-                logger.debug(f"[{request_id}] Using absolute URL for variation: {image_location}")
-            elif image_url:
-                payload["promptObject"]["imageUrl"] = image_url
-                logger.debug(f"[{request_id}] Using path URL for variation: {image_url}")
-            elif image_id:
-                payload["promptObject"]["image_id"] = image_id
-                logger.debug(f"[{request_id}] Using image ID for variation: {image_id}")
-            else:
-                session.close()
-                logger.error(f"[{request_id}] No valid image reference found")
-                return jsonify({"error": "Failed to extract valid image reference"}), 500
-
-            # Добавляем значения для aspect_ratio если они есть
-            aspect_width = 1
-            aspect_height = 1
-            
-            # Извлекаем соотношение сторон из промпта если оно есть
-            if "--ar" in prompt_text:
-                ar_match = re.search(r'--ar\s+(\d+):(\d+)', prompt_text)
-                if ar_match:
-                    aspect_width = int(ar_match.group(1))
-                    aspect_height = int(ar_match.group(2))
-            
-            payload["promptObject"]["aspect_width"] = aspect_width
-            payload["promptObject"]["aspect_height"] = aspect_height
-
-            # Использование timeout для всех моделей (15 минут)
-            timeout = MIDJOURNEY_TIMEOUT
+            # Загрузка изображения в 1min.ai
+            with open(temp_file.name, 'rb') as img_file:
+                files = {"asset": (os.path.basename(temp_file.name), img_file, "image/png")}
                 
-            logger.debug(f"[{request_id}] Sending variation request with payload: {payload}")
-
-            # Отправляем запрос на создание вариации
-            variation_response = api_request(
-                "POST",
-                f"{ONE_MIN_API_URL}",
-                headers={"API-KEY": api_key, "Content-Type": "application/json"},
-                json=payload,
-                timeout=timeout
-            )
-
-            if variation_response.status_code != 200:
-                session.close()
-                logger.error(
-                    f"[{request_id}] Variation request failed: {variation_response.status_code} - {variation_response.text}"
+                asset_response = session.post(
+                    ONE_MIN_ASSET_URL, files=files, headers=headers
                 )
-                return (
-                    jsonify({"error": "Failed to create image variations"}),
-                    variation_response.status_code,
+                logger.debug(
+                    f"[{request_id}] Image upload response status code: {asset_response.status_code}"
                 )
 
-            # Обрабатываем ответ и формируем результат
-            variation_data = variation_response.json()
-            logger.debug(f"[{request_id}] Variation response: {variation_data}")
+                if asset_response.status_code != 200:
+                    logger.error(
+                        f"[{request_id}] Failed to upload image: {asset_response.status_code} - {asset_response.text}"
+                    )
+                    continue  # Пробуем следующую модель
 
-            # Извлекаем URL вариаций
-            variation_urls = []
-            
-            # Пытаемся найти URL вариаций в ответе
-            if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
-                record_detail = variation_data["aiRecord"]["aiRecordDetail"]
-                if "resultObject" in record_detail:
-                    result = record_detail["resultObject"]
+                # Извлекаем ID загруженного изображения и полный URL
+                asset_data = asset_response.json()
+                logger.debug(f"[{request_id}] Asset upload response: {asset_data}")
+
+                # Получаем URL или ID изображения
+                image_id = None
+                image_url = None
+                image_location = None
+
+                # Ищем ID в разных местах структуры ответа
+                if "id" in asset_data:
+                    image_id = asset_data["id"]
+                elif "fileContent" in asset_data and "id" in asset_data["fileContent"]:
+                    image_id = asset_data["fileContent"]["id"]
+                elif "fileContent" in asset_data and "uuid" in asset_data["fileContent"]:
+                    image_id = asset_data["fileContent"]["uuid"]
+                
+                # Ищем абсолютный URL (location) для изображения
+                if "asset" in asset_data and "location" in asset_data["asset"]:
+                    image_location = asset_data["asset"]["location"]
+                
+                # Если есть path, используем его как URL изображения
+                if "fileContent" in asset_data and "path" in asset_data["fileContent"]:
+                    image_url = asset_data["fileContent"]["path"]
+                    # Добавляем хост, если путь относительный
+                    if not image_url.startswith("http"):
+                        image_url = f"https://asset.1min.ai{image_url if image_url.startswith('/') else '/' + image_url}"
+
+                if not (image_id or image_url or image_location):
+                    logger.error(f"[{request_id}] Failed to extract image information from response")
+                    continue  # Пробуем следующую модель
+
+                # Формируем payload для вариации изображения
+                payload = {
+                    "type": "IMAGE_VARIATOR",
+                    "model": model,
+                    "promptObject": {
+                        "n": int(n),
+                        "size": size,
+                        "mode": mode,
+                        "isNiji6": False,
+                        "maintainModeration": True,
+                        "aspect_width": aspect_width,
+                        "aspect_height": aspect_height
+                    }
+                }
+
+                # Для VIP-пользователей добавляем credit в запрос
+                if api_key.startswith("vip-"):
+                    payload["credits"] = 90000  # Стандартное количество кредитов для VIP
+
+                # Приоритет использования: 1) image_location (абсолютный URL) 2) image_url 3) image_id
+                if image_location:
+                    payload["promptObject"]["imageUrl"] = image_location
+                    logger.debug(f"[{request_id}] Using absolute URL for variation: {image_location}")
+                elif image_url:
+                    payload["promptObject"]["imageUrl"] = image_url
+                    logger.debug(f"[{request_id}] Using path URL for variation: {image_url}")
+                elif image_id:
+                    payload["promptObject"]["image_id"] = image_id
+                    logger.debug(f"[{request_id}] Using image ID for variation: {image_id}")
+                else:
+                    logger.error(f"[{request_id}] No valid image reference found")
+                    continue  # Пробуем следующую модель
+
+                # Использование timeout для всех моделей (15 минут)
+                timeout = MIDJOURNEY_TIMEOUT
+                    
+                logger.debug(f"[{request_id}] Sending variation request with payload: {payload}")
+
+                # Отправляем запрос на создание вариации
+                variation_response = api_request(
+                    "POST",
+                    f"{ONE_MIN_API_URL}",
+                    headers={"API-KEY": api_key, "Content-Type": "application/json"},
+                    json=payload,
+                    timeout=timeout
+                )
+
+                if variation_response.status_code != 200:
+                    logger.error(
+                        f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}"
+                    )
+                    continue  # Пробуем следующую модель
+
+                # Обрабатываем ответ и формируем результат
+                variation_data = variation_response.json()
+                logger.debug(f"[{request_id}] Variation response: {variation_data}")
+
+                # Извлекаем URL вариаций
+                variation_urls = []
+                
+                # Пытаемся найти URL вариаций в ответе
+                if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
+                    record_detail = variation_data["aiRecord"]["aiRecordDetail"]
+                    if "resultObject" in record_detail:
+                        result = record_detail["resultObject"]
+                        if isinstance(result, list):
+                            variation_urls = result
+                        elif isinstance(result, str):
+                            variation_urls = [result]
+                
+                # Альтернативный путь поиска
+                if not variation_urls and "resultObject" in variation_data:
+                    result = variation_data["resultObject"]
                     if isinstance(result, list):
                         variation_urls = result
                     elif isinstance(result, str):
                         variation_urls = [result]
-            
-            # Альтернативный путь поиска
-            if not variation_urls and "resultObject" in variation_data:
-                result = variation_data["resultObject"]
-                if isinstance(result, list):
-                    variation_urls = result
-                elif isinstance(result, str):
-                    variation_urls = [result]
 
-            if not variation_urls:
-                session.close()
-                logger.error(f"[{request_id}] No variation URLs found in response")
-                return jsonify({"error": "No variations were generated"}), 500
+                if not variation_urls:
+                    logger.error(f"[{request_id}] No variation URLs found in response with model {model}")
+                    continue  # Пробуем следующую модель
 
-            # Формируем полные URL для вариаций
-            full_variation_urls = []
-            asset_host = "https://asset.1min.ai"
-            
-            for url in variation_urls:
-                if not url:
-                    continue
-                    
-                # Если URL не полный, добавляем хост
-                if not url.startswith("http"):
-                    if url.startswith("/"):
-                        full_url = f"{asset_host}{url}"
-                    else:
-                        full_url = f"{asset_host}/{url}"
-                else:
-                    full_url = url
-                    
-                full_variation_urls.append(full_url)
-
-            # Формируем ответ в формате OpenAI
-            openai_data = []
-            for url in full_variation_urls:
-                openai_data.append({"url": url})
-
-            openai_response = {
-                "created": int(time.time()),
-                "data": openai_data,
-            }
-
-            # Добавляем текст с кнопками вариаций для markdown-отображения
-            markdown_text = ""
-            if len(full_variation_urls) == 1:
-                markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
-            else:
-                # Формируем текст с изображениями и кнопками вариаций на одной строке
-                image_lines = []
+                # Успешно получили вариации, выходим из цикла
+                logger.info(f"[{request_id}] Successfully generated variations with model {model}")
+                break
                 
-                for i, url in enumerate(full_variation_urls):
-                    image_lines.append(f"![Variation {i+1}]({url}) `[_V{i+1}_]`")
-                
-                # Объединяем строки с новой строкой между ними
-                markdown_text = "\n".join(image_lines)
-            
-            # Добавляем текстовый контент в ответ
-            openai_response["choices"] = [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": markdown_text
-                    },
-                    "index": 0,
-                    "finish_reason": "stop"
-                }
-            ]
-
-            session.close()
-            logger.info(f"[{request_id}] Successfully generated {len(openai_data)} image variations")
-            return jsonify(openai_response), 200
-
         except Exception as e:
-            session.close()
-            logger.error(f"[{request_id}] Exception during variation request: {str(e)}")
-            return jsonify({"error": str(e)}), 500
+            logger.error(f"[{request_id}] Exception during variation request with model {model}: {str(e)}")
+            continue  # Пробуем следующую модель
+    
+    # Очищаем временный файл
+    try:
+        os.unlink(temp_file.name)
+    except:
+        pass
+    
+    # Проверяем, удалось ли получить вариации с какой-либо из моделей
+    if not variation_urls:
+        session.close()
+        return jsonify({"error": "Failed to create image variations with any available model"}), 500
+    
+    # Формируем полные URL для вариаций
+    full_variation_urls = []
+    asset_host = "https://asset.1min.ai"
+    
+    for url in variation_urls:
+        if not url:
+            continue
+            
+        # Если URL не полный, добавляем хост
+        if not url.startswith("http"):
+            if url.startswith("/"):
+                full_url = f"{asset_host}{url}"
+            else:
+                full_url = f"{asset_host}/{url}"
+        else:
+            full_url = url
+            
+        full_variation_urls.append(full_url)
 
-    except Exception as e:
-        logger.error(f"[{request_id}] Exception during image variation processing: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+    # Формируем ответ в формате OpenAI
+    openai_data = []
+    for url in full_variation_urls:
+        openai_data.append({"url": url})
+
+    openai_response = {
+        "created": int(time.time()),
+        "data": openai_data,
+    }
+
+    # Добавляем текст с кнопками вариаций для markdown-отображения
+    markdown_text = ""
+    if len(full_variation_urls) == 1:
+        markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
+    else:
+        # Формируем текст с изображениями и кнопками вариаций на одной строке
+        image_lines = []
+        
+        for i, url in enumerate(full_variation_urls):
+            image_lines.append(f"![Variation {i+1}]({url}) `[_V{i+1}_]`")
+        
+        # Объединяем строки с новой строкой между ними
+        markdown_text = "\n".join(image_lines)
+    
+    # Добавляем текстовый контент в ответ
+    openai_response["choices"] = [
+        {
+            "message": {
+                "role": "assistant",
+                "content": markdown_text
+            },
+            "index": 0,
+            "finish_reason": "stop"
+        }
+    ]
+
+    session.close()
+    logger.info(f"[{request_id}] Successfully generated {len(openai_data)} image variations using model {model}")
+    return jsonify(openai_response), 200
 
 
 @app.route("/v1/assistants", methods=["POST", "OPTIONS"])
