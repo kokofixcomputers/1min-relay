@@ -2559,7 +2559,7 @@ def image_variations():
                         img_file.seek(0)
                         
                         # Проксируем запрос через собственный эндпоинт 1min.ai для DALL-E 2
-                        onemin_url = f"{ONE_MIN_API_URL}/openai/images/variations"
+                        onemin_url = "https://api.1min.ai/api/features/images/variations"
                         
                         logger.debug(f"[{request_id}] Trying 1min.ai API for DALL-E 2 variations")
                         dalle_onemin_headers = {"API-KEY": api_key}
@@ -4783,10 +4783,18 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
     except Exception as e:
         logger.error(f"[{request_id}] Error while processing image for variations: {str(e)}")
         logger.error(traceback.format_exc())
+        return jsonify({"error": f"Failed to create image variations: {str(e)}"}), 500
     
-    # Возвращаем URL вариаций или пустой список в случае ошибки
+    # Возвращаем URL вариаций или ошибку, если список пустой
     if not variation_urls:
         logger.error(f"[{request_id}] Failed to create image variations with all models")
+        return jsonify({"error": f"Failed to create image variations with model {current_model} or any fallback models"}), 500
         
-    return variation_urls
+    # Формируем и возвращаем ответ в формате OpenAI API
+    response_data = {
+        "created": int(time.time()),
+        "data": [{"url": url} for url in variation_urls]
+    }
+    
+    return jsonify(response_data)
 
