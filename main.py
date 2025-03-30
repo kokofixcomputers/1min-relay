@@ -1024,13 +1024,33 @@ def conversation():
                 
                 logger.info(f"[{request_id}] Processing variation for image: {image_url}")
                 
+                # Вызываем специальную функцию image_variations чтобы создать вариации 
+                # и попробовать все доступные модели
+                variation_count = request_data.get("n", 1)
+                variation_urls = image_variations(
+                    request_id=request_id,
+                    image_url=image_url,
+                    user_model=model,
+                    n=variation_count
+                )
+                
+                if variation_urls:
+                    # Формируем ответ в формате OpenAI API
+                    response_data = {
+                        "created": int(time.time()),
+                        "data": [{"url": url} for url in variation_urls]
+                    }
+                    return jsonify(response_data)
+                
+                # Если не удалось получить вариации, используем традиционный метод через эндпоинт
+                
                 # Скачиваем изображение во временный файл
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                 img_response = requests.get(image_url, stream=True)
                 
                 if img_response.status_code != 200:
                     return jsonify({"error": f"Failed to download image from URL. Status code: {img_response.status_code}"}), 400
-                    
+                        
                 with open(temp_file.name, 'wb') as f:
                     for chunk in img_response.iter_content(chunk_size=8192):
                         f.write(chunk)
@@ -2394,7 +2414,7 @@ def image_variations():
 
     image_file = request.files["image"]
     original_model = request.form.get("model", "dall-e-2").strip()
-    n = request.form.get("n", 1)
+    n = int(request.form.get("n", 1))
     size = request.form.get("size", "1024x1024")
     prompt_text = request.form.get("prompt", "")  # Извлекаем промпт из запроса если он есть
     mode = request.form.get("mode", "relax")  # Получаем режим из запроса
@@ -2446,6 +2466,111 @@ def image_variations():
         current_model = model
         
         try:
+            # Специальная обработка для DALL-E 2
+            if model == "dall-e-2":
+                # Для DALL-E 2 нужно использовать специальный эндпоинт OpenAI с прямой передачей файла
+                logger.debug(f"[{request_id}] Special handling for DALL-E 2 variations")
+                
+                # Открываем файл изображения и создаем запрос
+                with open(temp_file.name, 'rb') as img_file:
+                    # OpenAI ожидает файл напрямую в form-data
+                    dalle_files = {
+                        'image': (os.path.basename(temp_file.name), img_file, 'image/png')
+                    }
+                    
+                    # Параметры запроса
+                    dalle_form_data = {
+                        'n': n,
+                        'size': size,
+                        'model': 'dall-e-2'
+                    }
+                    
+                    # Создаем запрос на вариацию напрямую к OpenAI API
+                    try:
+                        # Пробуем использовать прямое подключение к OpenAI если доступно
+                        openai_api_key = os.environ.get("OPENAI_API_KEY")
+                        if openai_api_key:
+                            openai_headers = {"Authorization": f"Bearer {openai_api_key}"}
+                            openai_url = "https://api.openai.com/v1/images/variations"
+                            
+                            logger.debug(f"[{request_id}] Trying direct OpenAI API for DALL-E 2 variations")
+                            variation_response = requests.post(
+                                openai_url,
+                                files=dalle_files,
+                                data=dalle_form_data,
+                                headers=openai_headers,
+                                timeout=300
+                            )
+                            
+                            if variation_response.status_code == 200:
+                                logger.debug(f"[{request_id}] OpenAI API variation successful")
+                                variation_data = variation_response.json()
+                                
+                                # Извлекаем URL из ответа
+                                if "data" in variation_data and isinstance(variation_data["data"], list):
+                                    for item in variation_data["data"]:
+                                        if "url" in item:
+                                            variation_urls.append(item["url"])
+                                
+                                if variation_urls:
+                                    logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via OpenAI API")
+                                    # Формируем ответ в формате OpenAI API
+                                    response_data = {
+                                        "created": int(time.time()),
+                                        "data": [{"url": url} for url in variation_urls]
+                                    }
+                                    return jsonify(response_data)
+                            else:
+                                logger.error(f"[{request_id}] OpenAI API variation failed: {variation_response.status_code}, {variation_response.text}")
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Error trying direct OpenAI API: {str(e)}")
+                    
+                    # Если прямой запрос к OpenAI не удался, пробуем через 1min.ai API
+                    try:
+                        # Переоткрываем файл, потому что он мог быть прочитан в предыдущем запросе
+                        img_file.seek(0)
+                        
+                        # Проксируем запрос через собственный эндпоинт 1min.ai для DALL-E 2
+                        onemin_url = f"{ONE_MIN_API_URL}/openai/images/variations"
+                        
+                        logger.debug(f"[{request_id}] Trying 1min.ai API for DALL-E 2 variations")
+                        dalle_onemin_headers = {"API-KEY": api_key}
+                        variation_response = requests.post(
+                            onemin_url,
+                            files=dalle_files,
+                            data=dalle_form_data,
+                            headers=dalle_onemin_headers,
+                            timeout=300
+                        )
+                        
+                        if variation_response.status_code == 200:
+                            logger.debug(f"[{request_id}] 1min.ai API variation successful")
+                            variation_data = variation_response.json()
+                            
+                            # Извлекаем URL из ответа
+                            if "data" in variation_data and isinstance(variation_data["data"], list):
+                                for item in variation_data["data"]:
+                                    if "url" in item:
+                                        variation_urls.append(item["url"])
+                            
+                            if variation_urls:
+                                logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via 1min.ai API")
+                                # Формируем ответ в формате OpenAI API
+                                response_data = {
+                                    "created": int(time.time()),
+                                    "data": [{"url": url} for url in variation_urls]
+                                }
+                                return jsonify(response_data)
+                        else:
+                            logger.error(f"[{request_id}] 1min.ai API variation failed: {variation_response.status_code}, {variation_response.text}")
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Error trying 1min.ai API: {str(e)}")
+                
+                # Если не удалось создать вариацию с DALL-E 2, продолжаем с другими моделями
+                logger.warning(f"[{request_id}] Failed to create variations with DALL-E 2, trying next model")
+                continue
+            
+            # Для остальных моделей используем стандартную логику
             # Загрузка изображения в 1min.ai
             with open(temp_file.name, 'rb') as img_file:
                 files = {"asset": (os.path.basename(temp_file.name), img_file, "image/png")}
@@ -4407,7 +4532,76 @@ def image_variations(request_id, image_url, user_model, n, aspect_width=None, as
             
         file_name = f"variation_{request_id}.{image_format}"
         
-        # Пробуем каждую модель по очереди
+        # Сначала пробуем DALL-E 2 через OpenAI API напрямую, если доступно
+        if "dall-e-2" in variation_models and os.environ.get("OPENAI_API_KEY"):
+            openai_api_key = os.environ.get("OPENAI_API_KEY")
+            openai_headers = {"Authorization": f"Bearer {openai_api_key}"}
+            openai_url = "https://api.openai.com/v1/images/variations"
+            
+            # Сохраняем временный файл на диск для OpenAI API
+            temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=f".{image_format}")
+            temp_path.write(temp_file.getvalue())
+            temp_path.close()
+            
+            try:
+                logger.info(f"[{request_id}] Trying DALL-E 2 via direct OpenAI API")
+                
+                # Открываем файл для отправки в OpenAI
+                with open(temp_path.name, 'rb') as img_file:
+                    # OpenAI ожидает файл напрямую в form-data
+                    dalle_files = {
+                        'image': (os.path.basename(temp_path.name), img_file, f'image/{image_format}')
+                    }
+                    
+                    # Параметры запроса
+                    dalle_form_data = {
+                        'n': n,
+                        'size': "1024x1024",
+                        'model': 'dall-e-2'
+                    }
+                    
+                    # Отправляем запрос к OpenAI
+                    variation_response = requests.post(
+                        openai_url,
+                        files=dalle_files,
+                        data=dalle_form_data,
+                        headers=openai_headers,
+                        timeout=300
+                    )
+                    
+                    if variation_response.status_code == 200:
+                        logger.info(f"[{request_id}] DALL-E 2 variation via direct OpenAI API successful")
+                        variation_data = variation_response.json()
+                        
+                        # Извлекаем URL из ответа
+                        if "data" in variation_data and isinstance(variation_data["data"], list):
+                            for item in variation_data["data"]:
+                                if "url" in item:
+                                    variation_urls.append(item["url"])
+                        
+                        # Если успешно получили URL, возвращаем результат
+                        if variation_urls:
+                            logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations using DALL-E 2 via OpenAI API")
+                            # Удаляем временный файл
+                            try:
+                                os.unlink(temp_path.name)
+                            except:
+                                pass
+                            return variation_urls
+                    else:
+                        logger.error(f"[{request_id}] DALL-E 2 via OpenAI API failed: {variation_response.status_code}, {variation_response.text}")
+            
+            except Exception as e:
+                logger.error(f"[{request_id}] Error with OpenAI API for DALL-E 2: {str(e)}")
+                logger.error(traceback.format_exc())
+            
+            # Удаляем временный файл если он все еще существует
+            try:
+                os.unlink(temp_path.name)
+            except:
+                pass
+        
+        # Пробуем каждую модель по очереди через 1min.ai API
         for model in variation_models:
             current_model = model
             logger.info(f"[{request_id}] Trying image variation with model: {model}")
