@@ -8,7 +8,7 @@ Relay 1min AI API to OpenAI Structure in 1 minute.
 - support of IMAGE_GENERATOR models (also works from `/v1/chat/conversations` route)
 - support of IMAGE_VARIATOR models
 - support of files (assets) upload
-- support of webSearch and function_callings
+- support of webSearch / site crawling and function_callings (tools)
 - support of CHAT_WITH_IMAGE and CHAT_WITH_PDF
 ---
 ## TO DO
