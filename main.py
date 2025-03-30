@@ -257,8 +257,8 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "grok-2",
     # Иные модели (закомментированы для будущего использования)
     # "stable-image",                 # StabilityAI - Генерация изображений
-    "stable-diffusion-xl-1024-v1-0",  # StabilityAI - Генерация изображений
-    "stable-diffusion-v1-6",          # StabilityAI - Генерация изображений
+    # "stable-diffusion-xl-1024-v1-0",  # StabilityAI - Генерация изображений
+    # "stable-diffusion-v1-6",          # StabilityAI - Генерация изображений
     # "esrgan-v1-x2plus",             # StabilityAI - Улучшение изображений
     # "stable-video-diffusion",       # StabilityAI - Генерация видео
     "phoenix",         # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
@@ -984,9 +984,16 @@ def conversation():
                 
                 # Формируем форм-данные для запроса вариации
                 form_data = {
-                    "model": model or "midjourney_6_1",  # По умолчанию используем Midjourney
+                    "model": model,  # Используем текущую модель
                     "n": request_data.get("n", 1)
                 }
+                
+                # Проверяем, поддерживает ли модель вариации
+                if model not in IMAGE_VARIATION_MODELS:
+                    # Если модель не поддерживает вариации, используем midjourney_6_1 как fallback
+                    fallback_model = "midjourney_6_1"
+                    logger.warning(f"[{request_id}] Model {model} does not support image variations. Using {fallback_model} as fallback")
+                    form_data["model"] = fallback_model
                 
                 # Отправляем запрос на вариацию изображения через внутренний маршрут
                 variation_headers = {"Authorization": f"Bearer {api_key}"}
@@ -1662,6 +1669,40 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
             
         logger.debug(f"[{request_id}] Adjusted size for DALL-E 3: {size}, aspect_ratio: {aspect_ratio}")
     
+    # Для моделей Leonardo устанавливаем соответствующие размеры на основе соотношения сторон
+    elif (model in [
+        "6b645e3a-d64f-4341-a6d8-7a3690fbf042", "phoenix",  # Leonardo.ai - Phoenix
+        "b24e16ff-06e3-43eb-8d33-4416c2d75876", "lightning-xl",  # Leonardo.ai - Lightning XL
+        "5c232a9e-9061-4777-980a-ddc8e65647c6", "vision-xl",  # Leonardo.ai - Vision XL
+        "e71a1c2f-4f80-4800-934f-2c68979d8cc8", "anime-xl",  # Leonardo.ai - Anime XL
+        "1e60896f-3c26-4296-8ecc-53e2afecc132", "diffusion-xl",  # Leonardo.ai - Diffusion XL
+        "aa77f04e-3eec-4034-9c07-d0f619684628", "kino-xl",  # Leonardo.ai - Kino XL
+        "2067ae52-33fd-4a82-bb92-c2c55e7d2786", "albedo-base-xl"  # Leonardo.ai - Albedo Base XL
+    ]) and aspect_ratio:
+        # Определяем размер на основе соотношения сторон
+        if aspect_ratio == "1:1":
+            size = LEONARDO_SIZES["1:1"]  # "1024x1024"
+        elif aspect_ratio == "4:3":
+            size = LEONARDO_SIZES["4:3"]  # "1024x768"
+        elif aspect_ratio == "3:4":
+            size = LEONARDO_SIZES["3:4"]  # "768x1024"
+        # Для других соотношений округляем до ближайшего поддерживаемого
+        else:
+            width, height = map(int, aspect_ratio.split(':'))
+            ratio = width / height
+            
+            if abs(ratio - 1) < 0.1:  # близко к 1:1
+                size = LEONARDO_SIZES["1:1"]  # "1024x1024"
+                aspect_ratio = "1:1"
+            elif ratio > 1:  # ширина больше высоты (альбомная ориентация)
+                size = LEONARDO_SIZES["4:3"]  # "1024x768"
+                aspect_ratio = "4:3"
+            else:  # высота больше ширины (портретная ориентация)
+                size = LEONARDO_SIZES["3:4"]  # "768x1024"
+                aspect_ratio = "3:4"
+                
+        logger.debug(f"[{request_id}] Adjusted size for Leonardo model: {size}, aspect_ratio: {aspect_ratio}")
+    
     return prompt, aspect_ratio, size, ar_error
 
 
@@ -1913,36 +1954,32 @@ def generate_image():
                 "promptObject": {
                     "prompt": prompt,
                     "n": request_data.get("n", 1),
-                    "size": size or request_data.get("size", "1024x1024"),
+                    "size": size,  # Размер определяется на основе aspect_ratio в parse_aspect_ratio
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
-                    "aspect_ratio": aspect_ratio
                 },
             }
             # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
-            if not payload["promptObject"]["aspect_ratio"]:
-                del payload["promptObject"]["aspect_ratio"]
+            logger.debug(f"[{request_id}] Leonardo.ai Phoenix payload with size: {size}, from aspect_ratio: {aspect_ratio}")
         elif model in [
             "b24e16ff-06e3-43eb-8d33-4416c2d75876",
             "lightning-xl",
-        ]:  # Leonardo.ai - Lightning XL
+         ]:  # Leonardo.ai - Lightning XL
             payload = {
                 "type": "IMAGE_GENERATOR",
                 "model": "b24e16ff-06e3-43eb-8d33-4416c2d75876",
                 "promptObject": {
                     "prompt": prompt,
                     "n": request_data.get("n", 1),
-                    "size": size or request_data.get("size", "1024x1024"),
+                    "size": size,  # Размер определяется на основе aspect_ratio в parse_aspect_ratio
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
-                    "aspect_ratio": aspect_ratio
                 },
             }
             # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
-            if not payload["promptObject"]["aspect_ratio"]:
-                del payload["promptObject"]["aspect_ratio"]
+            logger.debug(f"[{request_id}] Leonardo.ai Lightning XL payload with size: {size}, from aspect_ratio: {aspect_ratio}")
         elif model in [
             "5c232a9e-9061-4777-980a-ddc8e65647c6",
             "vision-xl",
@@ -1953,16 +1990,14 @@ def generate_image():
                 "promptObject": {
                     "prompt": prompt,
                     "n": request_data.get("n", 1),
-                    "size": size or request_data.get("size", "1024x1024"),
+                    "size": size,  # Размер определяется на основе aspect_ratio в parse_aspect_ratio
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
-                    "aspect_ratio": aspect_ratio
                 },
             }
             # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
-            if not payload["promptObject"]["aspect_ratio"]:
-                del payload["promptObject"]["aspect_ratio"]
+            logger.debug(f"[{request_id}] Leonardo.ai Vision XL payload with size: {size}, from aspect_ratio: {aspect_ratio}")
         elif model in [
             "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
             "anime-xl",
@@ -1983,6 +2018,7 @@ def generate_image():
                 del payload["promptObject"]["negativePrompt"]
             if not payload["promptObject"]["aspect_ratio"]:
                 del payload["promptObject"]["aspect_ratio"]
+            logger.debug(f"[{request_id}] Leonardo.ai Anime XL payload with size: {size}")
         elif model in [
             "1e60896f-3c26-4296-8ecc-53e2afecc132",
             "diffusion-xl",
@@ -2003,10 +2039,11 @@ def generate_image():
                 del payload["promptObject"]["negativePrompt"]
             if not payload["promptObject"]["aspect_ratio"]:
                 del payload["promptObject"]["aspect_ratio"]
+            logger.debug(f"[{request_id}] Leonardo.ai Diffusion XL payload with size: {size}")
         elif model in [
             "aa77f04e-3eec-4034-9c07-d0f619684628",
             "kino-xl",
-         ]:  # Leonardo.ai - Kino XL
+        ]:  # Leonardo.ai - Kino XL
             payload = {
                 "type": "IMAGE_GENERATOR",
                 "model": "aa77f04e-3eec-4034-9c07-d0f619684628",
@@ -2023,10 +2060,11 @@ def generate_image():
                 del payload["promptObject"]["negativePrompt"]
             if not payload["promptObject"]["aspect_ratio"]:
                 del payload["promptObject"]["aspect_ratio"]
+            logger.debug(f"[{request_id}] Leonardo.ai Kino XL payload with size: {size}")
         elif model in [
             "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
             "albedo-base-xl",
-        ]:  # Leonardo.ai - Albedo Base XL
+         ]:  # Leonardo.ai - Albedo Base XL
             payload = {
                 "type": "IMAGE_GENERATOR",
                 "model": "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
@@ -2043,6 +2081,7 @@ def generate_image():
                 del payload["promptObject"]["negativePrompt"]
             if not payload["promptObject"]["aspect_ratio"]:
                 del payload["promptObject"]["aspect_ratio"]
+            logger.debug(f"[{request_id}] Leonardo.ai Albedo Base XL payload with size: {size}")
         else:
             logger.error(f"[{request_id}] Invalid model: {model}")
             return ERROR_HANDLER(1002, model)
@@ -2298,10 +2337,15 @@ def image_variations():
     logger.debug(f"[{request_id}] Using model: {model} for image variations")
     
     # Проверяем, поддерживает ли модель вариации
+    original_model = model  # Сохраняем изначальную модель
+    
     if model not in IMAGE_VARIATION_MODELS:
-        error_msg = f"Model {model} does not support image variations. Supported models: {', '.join(IMAGE_VARIATION_MODELS)}"
-        logger.error(f"[{request_id}] {error_msg}")
-        return jsonify({"error": error_msg}), 400
+        # Если модель не поддерживает вариации, используем midjourney_6_1 как fallback
+        fallback_model = "midjourney_6_1"
+        logger.warning(f"[{request_id}] Model {model} does not support image variations. Using {fallback_model} as fallback")
+        model = fallback_model  # Меняем модель на поддерживаемую
+    else:
+        logger.debug(f"[{request_id}] Model {model} supports image variations")
 
     try:
         # Создаем новую сессию для загрузки изображения
