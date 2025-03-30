@@ -1028,10 +1028,10 @@ def conversation():
                 # и попробовать все доступные модели
                 variation_count = request_data.get("n", 1)
                 variation_urls = image_variations(
-                    request_id=request_id,
                     image_url=image_url,
                     user_model=model,
-                    n=variation_count
+                    n=variation_count,
+                    request_id=request_id
                 )
                 
                 if variation_urls:
@@ -4482,13 +4482,17 @@ def split_text_for_streaming(text, chunk_size=6):
     
     return chunks
 
-def image_variations(request_id, image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None):
+def image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
     """
     Создает вариации на основе исходного изображения.
     """
     # Инициализируем список URL перед циклом
     variation_urls = []
     current_model = None
+    
+    # Используем временный ID запроса, если не был предоставлен
+    if request_id is None:
+        request_id = str(uuid.uuid4())
 
     # Определяем список моделей для вариаций
     variation_models = []
