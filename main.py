@@ -374,6 +374,9 @@ VARIATION_SUPPORTED_MODELS = [
     "clipdrop"
 ]
 
+# Определяем константу IMAGE_VARIATION_MODELS на основе VARIATION_SUPPORTED_MODELS
+IMAGE_VARIATION_MODELS = VARIATION_SUPPORTED_MODELS
+
 # Допустимые соотношения сторон для разных моделей
 MIDJOURNEY_ALLOWED_ASPECT_RATIOS = [
     "1:1",     # Square
