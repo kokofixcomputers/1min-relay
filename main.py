@@ -36,6 +36,7 @@ from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 import io
 import imghdr
+from werkzeug.datastructures import FileStorage, MultiDict
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
@@ -1044,7 +1045,7 @@ def conversation():
                         "model": model,
                         "n": request_data.get("n", 1)
                     }
-                    safe_memcached_operation('set', variation_key, json.dumps(variation_data), time=300)  # Хранить 5 минут
+                    safe_memcached_operation('set', variation_key, json.dumps(variation_data), expire=300)  # Хранить 5 минут
                     logger.debug(f"[{request_id}] Saved variation data to memcached with key: {variation_key}")
                 
                 # Перенаправляем на маршрут /v1/images/variations
@@ -2387,12 +2388,46 @@ def image_variations():
                 
                 # Проверяем, что файл существует
                 if os.path.exists(temp_file_path):
-                    # Создаем файл для запроса
-                    with open(temp_file_path, 'rb') as f:
-                        request.files = {"image": f}
-                        request.form = {"model": model, "n": n}
-                        # Продолжаем выполнение с использованием стандартного кода ниже
+                    # Загружаем файл и обрабатываем напрямую
+                    try:
+                        with open(temp_file_path, 'rb') as f:
+                            file_data = f.read()
+                            
+                        # Создаем временный файл для обработки запроса
+                        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+                        temp_file.write(file_data)
+                        temp_file.close()
+                        
+                        # Создаем файловый объект для маршрута image_variations
+                        from io import BytesIO
+                        file_data_io = BytesIO(file_data)
+                        
+                        # Регистрируем файл в request.files через воркэраунд
+                        from werkzeug.datastructures import FileStorage
+                        file_storage = FileStorage(
+                            stream=file_data_io,
+                            filename="variation.png",
+                            content_type="image/png",
+                        )
+                        
+                        # Обрабатываем запрос с новым временным файлом
+                        request.files = {"image": file_storage}
+                        request.form = MultiDict([("model", model), ("n", str(n))])
+                        
                         logger.info(f"[{request_id}] Using file from memcached for image variations")
+                        
+                        # Удаляем оригинальный временный файл
+                        try:
+                            os.unlink(temp_file_path)
+                            logger.debug(f"[{request_id}] Deleted original temporary file: {temp_file_path}")
+                        except Exception as e:
+                            logger.warning(f"[{request_id}] Failed to delete original temporary file: {str(e)}")
+                            
+                        # Будем использовать оригинальный временный файл вместо создания нового
+                        # чтобы избежать проблем с закрытием потока                        
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Error processing file from memcached: {str(e)}")
+                        return jsonify({"error": f"Error processing variation request: {str(e)}"}), 500
                 else:
                     logger.error(f"[{request_id}] Temporary file not found: {temp_file_path}")
                     return jsonify({"error": "Image file not found"}), 400
