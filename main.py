@@ -965,9 +965,10 @@ def conversation():
             logger.info(f"[{request_id}] Redirecting image generation model to /v1/images/generations")
             
             # Создаем новый запрос только с необходимыми полями для генерации изображения
+            # Берем только текущий промпт пользователя без объединения с историей
             image_request = {
                 "model": model,
-                "prompt": prompt_text,
+                "prompt": prompt_text,  # Только текущий запрос
                 "n": request_data.get("n", 1),
                 "size": request_data.get("size", "1024x1024")
             }
@@ -980,20 +981,24 @@ def conversation():
             # Проверяем наличие специальных параметров в промпте для моделей типа midjourney
             if model.startswith("midjourney"):
                 # Добавляем проверки и параметры для midjourney моделей
-                if "--ar" in prompt_text:
+                if "--ar" in prompt_text or "\u2014ar" in prompt_text:
                     logger.debug(f"[{request_id}] Found aspect ratio parameter in prompt")
                 elif request_data.get("aspect_ratio"):
                     image_request["aspect_ratio"] = request_data.get("aspect_ratio")
                     
-                if "--no" in prompt_text:
+                if "--no" in prompt_text or "\u2014no" in prompt_text:
                     logger.debug(f"[{request_id}] Found negative prompt parameter in prompt")
                 elif request_data.get("negative_prompt"):
-                    # Добавляем негативный промпт прямо в промпт
-                    image_request["prompt"] = f"{prompt_text} --no {request_data.get('negative_prompt')}"
+                    # Добавляем негативный промпт как отдельный параметр
+                    image_request["negative_prompt"] = request_data.get("negative_prompt")
                     
+            # Удаляем сообщения из запроса, чтобы избежать объединения истории
+            if "messages" in image_request:
+                del image_request["messages"]
+                
             logger.debug(f"[{request_id}] Final image request: {json.dumps(image_request)[:200]}...")
             
-            # Сохраняем модифицированный запрос
+            # Сохраняем модифицированный запрос (только последний запрос без истории)
             request.environ["body_copy"] = json.dumps(image_request)
             return redirect(url_for('generate_image'), code=307)  # 307 сохраняет метод и тело запроса
             
@@ -1577,6 +1582,10 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
             
         logger.debug(f"[{request_id}] Using aspect ratio from request: {aspect_ratio}")
     
+    # Удаляем все другие возможные модификаторы параметров
+    # Удаляем негативные промпты (--no или —no)
+    prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
+    
     # Для моделей DALL-E 3 устанавливаем соответствующие размеры
     if model == "dall-e-3" and aspect_ratio:
         width, height = map(int, aspect_ratio.split(':'))
@@ -1629,6 +1638,12 @@ def generate_image():
     model = request_data.get("model", "dall-e-3").strip()
     prompt = request_data.get("prompt", "").strip()
     
+    # Если запрос был перенаправлен из функции conversation, 
+    # мы должны брать только последний запрос пользователя без истории
+    if request.environ.get("HTTP_REFERER") and "chat/completions" in request.environ.get("HTTP_REFERER"):
+        logger.debug(f"[{request_id}] Request came from chat completions, isolating the prompt")
+        # Мы не объединяем промпты, а берем только последний запрос пользователя
+    
     # Определим наличие негативного промпта (если есть)
     negative_prompt = None
     no_match = re.search(r'(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)', prompt)
@@ -1649,6 +1664,7 @@ def generate_image():
         # Проверяем, есть ли промпт в сообщениях
         messages = request_data.get("messages", [])
         if messages and len(messages) > 0:
+            # Берем только последнее сообщение пользователя
             last_message = messages[-1]
             if last_message.get("role") == "user":
                 content = last_message.get("content", "")
@@ -1661,6 +1677,18 @@ def generate_image():
                         if isinstance(item, dict) and "text" in item:
                             text_parts.append(item["text"])
                     prompt = " ".join(text_parts)
+                    
+                # Обрабатываем параметры в промпте из сообщения
+                negative_prompt = None
+                no_match = re.search(r'(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)', prompt)
+                if no_match:
+                    negative_prompt = no_match.group(2).strip()
+                
+                # Повторно обрабатываем промпт для удаления модификаторов
+                prompt, aspect_ratio, size, ar_error = parse_aspect_ratio(prompt, model, request_data, request_id)
+                
+                if ar_error:
+                    return jsonify({"error": ar_error}), 400
         
         if prompt:
             logger.debug(f"[{request_id}] Found prompt in messages: {prompt[:100]}..." if len(prompt) > 100 else f"[{request_id}] Found prompt in messages: {prompt}")
