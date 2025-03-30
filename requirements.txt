@@ -11,3 +11,4 @@ pymemcache==4.0.0
 tiktoken>=0.7.0
 python-memcached==1.62
 python-dotenv==1.0.1
+werkzeug==3.0.1
