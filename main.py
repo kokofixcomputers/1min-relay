@@ -904,8 +904,8 @@ def conversation():
             old_variation_match = re.search(r'/v([1-4])\s+(https?://[^\s]+)', prompt_text)
             # Ищем формат с квадратными скобками [_V1_]-[_V4_]
             square_variation_match = re.search(r'\[_V([1-4])_\]', prompt_text)
-            # Ищем новый формат с моноширинным текстом `V1`-`V4`
-            mono_variation_match = re.search(r'`V([1-4])`', prompt_text)
+            # Ищем новый формат с моноширинным текстом `[_V1_]`-`[_V4_]`
+            mono_variation_match = re.search(r'`\[_V([1-4])_\]`', prompt_text)
             
             # Если найден моноширинный формат, проверяем, есть ли в истории диалога URL
             if mono_variation_match and request_data.get("messages"):
@@ -1915,11 +1915,14 @@ def generate_image():
                     "n": request_data.get("n", 1),
                     "size": size or request_data.get("size", "1024x1024"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                    "aspect_ratio": aspect_ratio
                 },
             }
             # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
+            if not payload["promptObject"]["aspect_ratio"]:
+                del payload["promptObject"]["aspect_ratio"]
         elif model in [
             "b24e16ff-06e3-43eb-8d33-4416c2d75876",
             "lightning-xl",
@@ -1932,11 +1935,14 @@ def generate_image():
                     "n": request_data.get("n", 1),
                     "size": size or request_data.get("size", "1024x1024"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                    "aspect_ratio": aspect_ratio
                 },
             }
             # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
+            if not payload["promptObject"]["aspect_ratio"]:
+                del payload["promptObject"]["aspect_ratio"]
         elif model in [
             "5c232a9e-9061-4777-980a-ddc8e65647c6",
             "vision-xl",
@@ -1949,11 +1955,14 @@ def generate_image():
                     "n": request_data.get("n", 1),
                     "size": size or request_data.get("size", "1024x1024"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                    "aspect_ratio": aspect_ratio
                 },
             }
             # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
+            if not payload["promptObject"]["aspect_ratio"]:
+                del payload["promptObject"]["aspect_ratio"]
         elif model in [
             "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
             "anime-xl",
@@ -1966,11 +1975,14 @@ def generate_image():
                     "n": request_data.get("n", 1),
                     "size": size or request_data.get("size", "1024x1024"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                    "aspect_ratio": aspect_ratio
                 },
             }
             # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
+            if not payload["promptObject"]["aspect_ratio"]:
+                del payload["promptObject"]["aspect_ratio"]
         elif model in [
             "1e60896f-3c26-4296-8ecc-53e2afecc132",
             "diffusion-xl",
@@ -1983,15 +1995,18 @@ def generate_image():
                     "n": request_data.get("n", 1),
                     "size": size or request_data.get("size", "1024x1024"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                    "aspect_ratio": aspect_ratio
                 },
             }
             # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
+            if not payload["promptObject"]["aspect_ratio"]:
+                del payload["promptObject"]["aspect_ratio"]
         elif model in [
             "aa77f04e-3eec-4034-9c07-d0f619684628",
             "kino-xl",
-        ]:  # Leonardo.ai - Kino XL
+         ]:  # Leonardo.ai - Kino XL
             payload = {
                 "type": "IMAGE_GENERATOR",
                 "model": "aa77f04e-3eec-4034-9c07-d0f619684628",
@@ -2000,11 +2015,14 @@ def generate_image():
                     "n": request_data.get("n", 1),
                     "size": size or request_data.get("size", "1024x1024"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                    "aspect_ratio": aspect_ratio
                 },
             }
             # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
+            if not payload["promptObject"]["aspect_ratio"]:
+                del payload["promptObject"]["aspect_ratio"]
         elif model in [
             "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
             "albedo-base-xl",
@@ -2017,11 +2035,14 @@ def generate_image():
                     "n": request_data.get("n", 1),
                     "size": size or request_data.get("size", "512x512"),
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                    "aspect_ratio": aspect_ratio
                 },
             }
             # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
+            if not payload["promptObject"]["aspect_ratio"]:
+                del payload["promptObject"]["aspect_ratio"]
         else:
             logger.error(f"[{request_id}] Invalid model: {model}")
             return ERROR_HANDLER(1002, model)
@@ -2207,13 +2228,13 @@ def generate_image():
             
             # Формируем markdown-текст с кнопками вариаций
             if len(full_image_urls) == 1:
-                text_response = f"![Image]({full_image_urls[0]}) [_V1_]"
+                text_response = f"![Image]({full_image_urls[0]}) `[_V1_]`"
             else:
                 # Формируем текст с изображениями и кнопками вариаций на одной строке
                 image_lines = []
                 
                 for i, url in enumerate(full_image_urls):
-                    image_lines.append(f"![Image {i+1}]({url}) [_V{i+1}_]")
+                    image_lines.append(f"![Image {i+1}]({url}) `[_V{i+1}_]`")
                 
                 # Объединяем строки с новой строкой между ними
                 text_response = "\n".join(image_lines)
@@ -2475,13 +2496,13 @@ def image_variations():
             # Добавляем текст с кнопками вариаций для markdown-отображения
             markdown_text = ""
             if len(full_variation_urls) == 1:
-                markdown_text = f"![Variation]({full_variation_urls[0]}) [_V1_]"
+                markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
             else:
                 # Формируем текст с изображениями и кнопками вариаций на одной строке
                 image_lines = []
                 
                 for i, url in enumerate(full_variation_urls):
-                    image_lines.append(f"![Variation {i+1}]({url}) [_V{i+1}_]")
+                    image_lines.append(f"![Variation {i+1}]({url}) `[_V{i+1}_]`")
                 
                 # Объединяем строки с новой строкой между ними
                 markdown_text = "\n".join(image_lines)
