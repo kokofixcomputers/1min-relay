@@ -1030,8 +1030,7 @@ def conversation():
                 variation_urls = image_variations(
                     image_url, 
                     model, 
-                    variation_count,
-                    request_id=request_id
+                    variation_count
                 )
                 
                 if variation_urls:
