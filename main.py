@@ -2652,15 +2652,7 @@ def image_variations():
                 payload = {
                     "type": "IMAGE_VARIATOR",
                     "model": model,
-                    "promptObject": {
-                        "n": int(n),
-                        "size": size,
-                        "mode": mode,
-                        "isNiji6": False,
-                        "maintainModeration": True,
-                        "aspect_width": aspect_width,
-                        "aspect_height": aspect_height
-                    }
+                    "promptObject": {}
                 }
 
                 # Для VIP-пользователей добавляем credit в запрос
@@ -2669,6 +2661,12 @@ def image_variations():
 
                 # Специальная обработка для разных моделей
                 if model == "dall-e-2":
+                    # Для DALL-E 2 нужны минимальные параметры - только n и size
+                    payload["promptObject"] = {
+                        "n": 1,  # DALL-E 2 всегда использует 1
+                        "size": "1024x1024"  # DALL-E 2 всегда использует 1024x1024
+                    }
+                    
                     # Для DALL-E 2 нужно использовать параметр "image", а не "imageUrl"
                     # DALL-E 2 требует ID актива, а не URL
                     if "asset" in asset_data and "id" in asset_data["asset"]:
@@ -2686,20 +2684,36 @@ def image_variations():
                     else:
                         logger.error(f"[{request_id}] Could not find valid asset ID for DALL-E 2")
                         continue  # Переходим к следующей модели
-
-                    # Удаляем несовместимые параметры
-                    if "aspect_width" in payload["promptObject"]:
-                        del payload["promptObject"]["aspect_width"]
-                    if "aspect_height" in payload["promptObject"]:
-                        del payload["promptObject"]["aspect_height"]
-                    # Удаляем дополнительные несовместимые параметры
-                    if "mode" in payload["promptObject"]:
-                        del payload["promptObject"]["mode"]
-                    if "isNiji6" in payload["promptObject"]:
-                        del payload["promptObject"]["isNiji6"]
-                    if "maintainModeration" in payload["promptObject"]:
-                        del payload["promptObject"]["maintainModeration"]
+                elif model == "midjourney" or model == "midjourney_6_1":
+                    # Для Midjourney нужны все обязательные параметры
+                    payload["promptObject"] = {
+                        "n": int(n),
+                        "mode": mode,
+                        "isNiji6": False,
+                        "maintainModeration": True,
+                        "aspect_width": aspect_width if aspect_width else 1,
+                        "aspect_height": aspect_height if aspect_height else 1
+                    }
+                    
+                    # Приоритет использования: 1) image_location (абсолютный URL) 2) image_url 3) image_id
+                    if image_location:
+                        payload["promptObject"]["imageUrl"] = image_location
+                        logger.debug(f"[{request_id}] Using absolute URL for variation: {image_location}")
+                    elif image_url:
+                        payload["promptObject"]["imageUrl"] = image_url
+                        logger.debug(f"[{request_id}] Using path URL for variation: {image_url}")
+                    elif image_id:
+                        payload["promptObject"]["image_id"] = image_id
+                        logger.debug(f"[{request_id}] Using image ID for variation: {image_id}")
+                    else:
+                        logger.error(f"[{request_id}] No valid image reference found")
+                        continue  # Пробуем следующую модель
                 else:
+                    # Для всех остальных моделей (SD, Clipdrop) используем минимальные параметры
+                    payload["promptObject"] = {
+                        "n": int(n)
+                    }
+                    
                     # Приоритет использования: 1) image_location (абсолютный URL) 2) image_url 3) image_id
                     if image_location:
                         payload["promptObject"]["imageUrl"] = image_location
@@ -4687,32 +4701,30 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 # Формируем запрос для вариации изображения в зависимости от модели
                 variation_payload = {
                     "model": model,
-                    "n": n,
                 }
                 
-                # Добавляем размеры, если они указаны
-                if aspect_width and aspect_height:
-                    variation_payload["aspect_width"] = aspect_width
-                    variation_payload["aspect_height"] = aspect_height
-                
-                # Добавляем режим, если он указан
-                if mode:
-                    variation_payload["mode"] = mode
-                
-                # Особая обработка для DALL-E 2
+                # Особая обработка для разных моделей
                 if model == "dall-e-2":
+                    # DALL-E 2 используем минимальные параметры
+                    variation_payload["n"] = 1  # DALL-E 2 всегда использует 1
                     # DALL-E 2 использует 'image' вместо 'imageUrl'
                     variation_payload["image"] = asset_id
+                elif model == "midjourney" or model == "midjourney_6_1":
+                    # Для Midjourney нужны все обязательные параметры
+                    variation_payload["n"] = int(n)
+                    variation_payload["mode"] = mode if mode else "relax"
+                    variation_payload["isNiji6"] = False
+                    variation_payload["maintainModeration"] = True
                     
-                    # Удаляем несовместимые параметры
-                    if "aspect_width" in variation_payload:
-                        del variation_payload["aspect_width"]
-                    if "aspect_height" in variation_payload:
-                        del variation_payload["aspect_height"]
-                    if "mode" in variation_payload:
-                        del variation_payload["mode"]
-                else:
+                    # Добавляем размеры, если они указаны
+                    variation_payload["aspect_width"] = aspect_width if aspect_width else 1
+                    variation_payload["aspect_height"] = aspect_height if aspect_height else 1
+                    
                     # Другие модели используют imageUrl
+                    variation_payload["imageUrl"] = image_content_url
+                else:
+                    # Для Stable Diffusion и других моделей - минимальные параметры
+                    variation_payload["n"] = int(n)
                     variation_payload["imageUrl"] = image_content_url
                 
                 logger.debug(f"[{request_id}] Variation payload: {variation_payload}")
