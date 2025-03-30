@@ -14,6 +14,9 @@ import re
 import asyncio
 import math
 import threading
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
 import coloredlogs
 import printedcolors
@@ -186,9 +189,9 @@ else:
 
 # Основной URL для API
 ONE_MIN_API_URL = "https://api.1min.ai/api/features"
+ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
-ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
 # Добавляем константу таймаута, используемую в функции api_request
 DEFAULT_TIMEOUT = 30
 MIDJOURNEY_TIMEOUT = 900  # 15 минут для запросов к Midjourney
@@ -361,6 +364,47 @@ IMAGE_GENERATION_MODELS = [
     "flux-1.1-pro"
 ]
 
+# Модели, которые поддерживают вариации изображений
+VARIATION_SUPPORTED_MODELS = [
+    "midjourney",
+    "midjourney_6_1",
+    "dall-e-2",
+    #"dall-e-3",
+    "clipdrop"
+]
+
+# Допустимые соотношения сторон для разных моделей
+MIDJOURNEY_ALLOWED_ASPECT_RATIOS = [
+    "1:1",     # Square
+    "16:9",    # Widescreen format
+    "9:16",    # Vertical variant of 16:9
+    "16:10",   # Alternative widescreen
+    "10:16",   # Vertical variant of 16:10
+    "8:5",     # Alternative widescreen
+    "5:8",     # Vertical variant of 16:10
+    "3:4",     # Portrait/print
+    "4:3",     # Standard TV/monitor format
+    "3:2",     # Popular in photography
+    "2:3",     # Inverse of 3:2
+    "4:5",     # Common in social media posts
+    "5:4",     # Nearly square format
+    "137:100", # Academy ratio (1.37:1) as an integer ratio
+    "166:100", # European cinema (1.66:1) as an integer ratio
+    "185:100", # Cinematic format (1.85:1) as an integer ratio185
+    "83:50",   # European cinema (1.66:1) as an integer ratio
+    "37:20",   # Cinematic format (1.85:1) as an integer ratio
+    "2:1",     # Maximum allowed widescreen format
+    "1:2"      # Maximum allowed vertical format
+]
+
+FLUX_ALLOWED_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:5", "5:4"]
+LEONARDO_ALLOWED_ASPECT_RATIOS = ["1:1", "4:3", "3:4"]
+
+# Допустимые размеры для разных моделей
+DALLE2_SIZES = ["1024x1024", "512x512", "256x256"]
+DALLE3_SIZES = ["1024x1024", "1024x1792", "1792x1024"]
+LEONARDO_SIZES = ALBEDO_SIZES = {"1:1": "1024x1024", "4:3": "1024x768", "3:4": "768x1024"}
+
 # Определение моделей для синтеза речи (TTS)
 TEXT_TO_SPEECH_MODELS = [
     "tts-1"#,
@@ -382,7 +426,7 @@ SPEECH_TO_TEXT_MODELS = [
 ]
 
 # Default values
-SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o", "deepseek-chat"]
+SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
 PERMIT_MODELS_FROM_SUBSET_ONLY = False
 
 # Read environment variables
@@ -1403,12 +1447,15 @@ def conversation():
 @app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
 @limiter.limit("500 per minute")
 def generate_image():
+    """
+    Маршрут для генерации изображений
+    """
     if request.method == "OPTIONS":
         return handle_options_request()
 
     # Создаем уникальный ID для запроса
     request_id = str(uuid.uuid4())
-    logger.debug(f"[{request_id}] Processing image generation request")
+    logger.info(f"[{request_id}] Received request: /v1/images/generations")
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -1418,24 +1465,33 @@ def generate_image():
     api_key = auth_header.split(" ")[1]
     headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-    # Проверяем наличие сохраненного тела запроса из перенаправления
-    if hasattr(request, 'environ') and 'body_copy' in request.environ:
-        try:
-            request_data = json.loads(request.environ['body_copy'])
-            logger.debug(f"[{request_id}] Using body from redirect: {json.dumps(request_data)[:200]}...")
-        except Exception as e:
-            logger.error(f"[{request_id}] Error parsing body_copy: {str(e)}")
-            request_data = request.json
+    # Проверка, что данные переданы в правильном формате
+    if request.is_json:
+        request_data = request.get_json()
     else:
-        request_data = request.json
+        logger.error(f"[{request_id}] Request content-type is not application/json")
+        return jsonify({"error": "Content-type must be application/json"}), 400
 
-    model = request_data.get("model", "dall-e-2").strip()
-    logger.info(f"[{request_id}] Using model: {model}")
-
-    # Преобразование параметров OpenAI в формат 1min.ai
-    prompt = request_data.get("prompt", "")
-    logger.debug(f"[{request_id}] Image prompt: {prompt[:100]}..." if len(prompt) > 100 else f"[{request_id}] Image prompt: {prompt}")
+    # Получаем необходимые параметры из запроса
+    model = request_data.get("model", "dall-e-3").strip()
+    prompt = request_data.get("prompt", "").strip()
     
+    # Определим наличие негативного промпта (если есть)
+    negative_prompt = None
+    no_match = re.search(r'(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)', prompt)
+    if no_match:
+        negative_prompt = no_match.group(2).strip()
+        # Удаляем негативный промпт из основного текста
+        prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
+
+    # Обрабатываем соотношение сторон и размер
+    prompt, aspect_ratio, size, ar_error = parse_aspect_ratio(prompt, model, request_data, request_id)
+    
+    # Если была ошибка в обработке соотношения сторон, возвращаем её пользователю
+    if ar_error:
+        return jsonify({"error": ar_error}), 400
+
+    # Проверка наличия промпта
     if not prompt:
         # Проверяем, есть ли промпт в сообщениях
         messages = request_data.get("messages", [])
@@ -1456,46 +1512,51 @@ def generate_image():
         if prompt:
             logger.debug(f"[{request_id}] Found prompt in messages: {prompt[:100]}..." if len(prompt) > 100 else f"[{request_id}] Found prompt in messages: {prompt}")
         else:
-            logger.warning(f"[{request_id}] No prompt found for image generation")
-            # Устанавливаем дефолтный промпт, чтобы не отправлять пустые запросы
-            prompt = "a beautiful image"
-            logger.debug(f"[{request_id}] Using default prompt: {prompt}")
+            logger.error(f"[{request_id}] No prompt provided")
+            return jsonify({"error": "A prompt is required to generate an image"}), 400
 
-    if model == "dall-e-3":
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "dall-e-3",
-            "promptObject": {
-                "prompt": prompt,
-                "n": request_data.get("n", 1),
-                "size": request_data.get("size", "1024x1024"),
-                "quality": request_data.get("quality", "hd"),
-                "style": request_data.get("style", "vivid"),
-            },
-        }
-    elif model == "dall-e-2":
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "dall-e-2",
-            "promptObject": {
-                "prompt": prompt,
-                "n": request_data.get("n", 1),
-                "size": request_data.get("size", "1024x1024"),
-            },
-        }
-    elif model == "stable-diffusion-xl-1024-v1-0":
-        try:
-            # Добавляем более подробное логирование
-            logger.debug(f"[{request_id}] Creating payload for stable-diffusion-xl-1024-v1-0")
-            logger.debug(f"[{request_id}] Prompt value: '{prompt}', type: {type(prompt)}")
-            
+    logger.info(f"[{request_id}] Using model: {model}, prompt: '{prompt}'")
+
+    try:
+        # Определяем URL для разных моделей
+        api_url = f"{ONE_MIN_API_URL}/generator"
+        if model in ["midjourney", "midjourney_6_1"]:
+            api_url = f"{ONE_MIN_API_URL}/generator/imagine"
+        
+        # Таймаут 15 минут для всех моделей генерации изображений
+        timeout = MIDJOURNEY_TIMEOUT
+        
+        # Формируем payload для запроса в зависимости от модели
+        if model == "dall-e-3":
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "dall-e-3",
+                "promptObject": {
+                    "prompt": prompt,
+                    "n": request_data.get("n", 1),
+                    "size": size or request_data.get("size", "1024x1024"),
+                    "quality": request_data.get("quality", "standard"),
+                    "style": request_data.get("style", "vivid"),
+                },
+            }
+        elif model == "dall-e-2":
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "dall-e-2",
+                "promptObject": {
+                    "prompt": prompt,
+                    "n": request_data.get("n", 1),
+                    "size": size or request_data.get("size", "1024x1024"),
+                },
+            }
+        elif model == "stable-diffusion-xl-1024-v1-0":
             payload = {
                 "type": "IMAGE_GENERATOR",
                 "model": "stable-diffusion-xl-1024-v1-0",
                 "promptObject": {
                     "prompt": prompt,
                     "samples": request_data.get("n", 1),
-                    "size": request_data.get("size", "1024x1024"),
+                    "size": size or request_data.get("size", "1024x1024"),
                     "cfg_scale": request_data.get("cfg_scale", 7),
                     "clip_guidance_preset": request_data.get(
                         "clip_guidance_preset", "NONE"
@@ -1504,191 +1565,7 @@ def generate_image():
                     "steps": request_data.get("steps", 30),
                 },
             }
-            logger.debug(f"[{request_id}] Successfully created payload for stable-diffusion-xl-1024-v1-0")
-        except Exception as e:
-            logger.error(f"[{request_id}] Error creating payload for stable-diffusion-xl-1024-v1-0: {str(e)}")
-            # Отправляем пользователю сообщение об ошибке
-            return jsonify({
-                "error": {
-                    "message": f"Ошибка при создании запроса для модели {model}: {str(e)}",
-                    "type": "server_error",
-                    "code": "payload_creation_failed"
-                }
-            }), 500
-    elif model == "midjourney":
-        # Допустимые соотношения сторон для Midjourney
-        allowed_aspect_ratios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:5", "5:4"]
-        
-        # Значения по умолчанию
-        aspect_width = 1
-        aspect_height = 1
-        negative_prompt = ""
-        no_param = ""
-        
-        # Обработка параметра --no для негативного промпта
-        if "--no" in prompt:
-            parts = prompt.split("--no")
-            prompt = parts[0].strip()
-            if len(parts) > 1:
-                negative_prompt = parts[1].strip()
-                no_param = negative_prompt.split(" ")[0] if negative_prompt else ""
-                
-        # Обработка параметра --ar для соотношения сторон
-        if "--ar" in prompt:
-            ar_pattern = r"--ar\s+(\d+):(\d+)"
-            ar_matches = re.search(ar_pattern, prompt)
-            if ar_matches:
-                aspect_width = int(ar_matches.group(1))
-                aspect_height = int(ar_matches.group(2))
-                # Удаляем параметр --ar из промпта
-                prompt = re.sub(ar_pattern, "", prompt).strip()
-                
-                # Проверяем, допустимо ли указанное соотношение сторон
-                entered_ratio = f"{aspect_width}:{aspect_height}"
-                if entered_ratio not in allowed_aspect_ratios:
-                    return jsonify({
-                        "error": {
-                            "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
-                            "type": "invalid_request_error",
-                            "param": "aspect_ratio",
-                            "code": "parameter_invalid"
-                        }
-                    }), 400
-        # Если --ar не указан, проверяем параметр size
-        else:
-            # Получаем соотношение сторон из запроса или используем дефолтное
-            aspect_ratio = request_data.get("size", "1:1")
-            if ":" not in aspect_ratio:  # Если формат не соответствует "x:y"
-                aspect_ratio = "1:1"
-                
-            # Проверяем, что соотношение сторон допустимо
-            if aspect_ratio not in allowed_aspect_ratios:
-                return jsonify({
-                    "error": {
-                        "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
-                        "type": "invalid_request_error",
-                        "param": "aspect_ratio",
-                        "code": "parameter_invalid"
-                    }
-                }), 400
-                
-            # Разбиваем соотношение сторон на width и height
-            ar_parts = aspect_ratio.split(":")
-            aspect_width = int(ar_parts[0])
-            aspect_height = int(ar_parts[1])
-            
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "midjourney",
-            "promptObject": {
-                "prompt": prompt,
-                "mode": request_data.get("mode", "relax"),
-                "n": 4,  # Midjourney всегда генерирует 4 изображения
-                "aspect_width": aspect_width,
-                "aspect_height": aspect_height,
-                "isNiji6": request_data.get("isNiji6", False),
-                "maintainModeration": request_data.get("maintainModeration", True),
-                "negativePrompt": request_data.get("negativePrompt", negative_prompt),
-                "no": request_data.get("no", no_param),
-                "image_weight": request_data.get("image_weight", 1),
-                "weird": request_data.get("weird", 0),
-            },
-        }
-        # Если не задан negativePrompt или no, удаляем эти поля
-        if not payload["promptObject"]["negativePrompt"]:
-            del payload["promptObject"]["negativePrompt"]
-        if not payload["promptObject"]["no"]:
-            del payload["promptObject"]["no"]
-    elif model == "midjourney_6_1" or model == "midjourney-6.1":
-        # Допустимые соотношения сторон для Midjourney
-        allowed_aspect_ratios = ["1:1", "16:9", "9:16", "3:2", "2:3", "4:5", "5:4"]
-        
-        # Значения по умолчанию
-        aspect_width = 1
-        aspect_height = 1
-        negative_prompt = ""
-        no_param = ""
-        
-        # Обработка параметра --no для негативного промпта
-        if "--no" in prompt:
-            parts = prompt.split("--no")
-            prompt = parts[0].strip()
-            if len(parts) > 1:
-                negative_prompt = parts[1].strip()
-                no_param = negative_prompt.split(" ")[0] if negative_prompt else ""
-                
-        # Обработка параметра --ar для соотношения сторон
-        if "--ar" in prompt:
-            ar_pattern = r"--ar\s+(\d+):(\d+)"
-            ar_matches = re.search(ar_pattern, prompt)
-            if ar_matches:
-                aspect_width = int(ar_matches.group(1))
-                aspect_height = int(ar_matches.group(2))
-                # Удаляем параметр --ar из промпта
-                prompt = re.sub(ar_pattern, "", prompt).strip()
-                
-                # Проверяем, допустимо ли указанное соотношение сторон
-                entered_ratio = f"{aspect_width}:{aspect_height}"
-                if entered_ratio not in allowed_aspect_ratios:
-                    return jsonify({
-                        "error": {
-                            "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
-                            "type": "invalid_request_error",
-                            "param": "aspect_ratio",
-                            "code": "parameter_invalid"
-                        }
-                    }), 400
-        # Если --ar не указан, проверяем параметр size
-        else:
-            # Получаем соотношение сторон из запроса или используем дефолтное
-            aspect_ratio = request_data.get("size", "1:1")
-            if ":" not in aspect_ratio:  # Если формат не соответствует "x:y"
-                aspect_ratio = "1:1"
-                
-            # Проверяем, что соотношение сторон допустимо
-            if aspect_ratio not in allowed_aspect_ratios:
-                return jsonify({
-                    "error": {
-                        "message": f"Неверное соотношение сторон. Допустимые варианты: {', '.join(allowed_aspect_ratios)}",
-                        "type": "invalid_request_error",
-                        "param": "aspect_ratio",
-                        "code": "parameter_invalid"
-                    }
-                }), 400
-                
-            # Разбиваем соотношение сторон на width и height
-            ar_parts = aspect_ratio.split(":")
-            aspect_width = int(ar_parts[0])
-            aspect_height = int(ar_parts[1])
-        
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "midjourney_6_1",
-            "promptObject": {
-                "prompt": prompt,
-                "mode": request_data.get("mode", "relax"),
-                "n": 4,  # Midjourney всегда генерирует 4 изображения
-                "isNiji6": request_data.get("isNiji6", False),
-                "maintainModeration": request_data.get("maintainModeration", True),
-                "negativePrompt": request_data.get("negativePrompt", negative_prompt),
-                "aspect_height": request_data.get("aspect_height", aspect_height),
-                "aspect_width": request_data.get("aspect_width", aspect_width),
-                "no": request_data.get("no", no_param),
-                "image_weight": request_data.get("image_weight", 1),
-                "weird": request_data.get("weird", 0),
-            },
-        }
-        # Если не задан negativePrompt или no, удаляем эти поля
-        if not payload["promptObject"]["negativePrompt"]:
-            del payload["promptObject"]["negativePrompt"]
-        if not payload["promptObject"]["no"]:
-            del payload["promptObject"]["no"]
-    elif model == "stable-diffusion-v1-6":
-        try:
-            # Добавляем более подробное логирование
-            logger.debug(f"[{request_id}] Creating payload for stable-diffusion-v1-6")
-            logger.debug(f"[{request_id}] Prompt value: '{prompt}', type: {type(prompt)}")
-            
+        elif model == "stable-diffusion-v1-6":
             payload = {
                 "type": "IMAGE_GENERATOR",
                 "model": "stable-diffusion-v1-6",
@@ -1705,199 +1582,222 @@ def generate_image():
                     "steps": request_data.get("steps", 30),
                 },
             }
-            logger.debug(f"[{request_id}] Successfully created payload for stable-diffusion-v1-6")
-        except Exception as e:
-            logger.error(f"[{request_id}] Error creating payload for stable-diffusion-v1-6: {str(e)}")
-            # Отправляем пользователю сообщение об ошибке
-            return jsonify({
-                "error": {
-                    "message": f"Ошибка при создании запроса для модели {model}: {str(e)}",
-                    "type": "server_error",
-                    "code": "payload_creation_failed"
-                }
-            }), 500
-    elif model in ["black-forest-labs/flux-schnell", "flux-schnell"]:
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "black-forest-labs/flux-schnell",
-            "promptObject": {
-                "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "aspect_ratio": request_data.get("aspect_ratio", "1:1"),
-                "output_format": request_data.get("output_format", "webp"),
-            },
-        }
-    elif model in ["black-forest-labs/flux-dev", "flux-dev"]:
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "black-forest-labs/flux-dev",
-            "promptObject": {
-                "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "aspect_ratio": request_data.get("aspect_ratio", "1:1"),
-                "output_format": request_data.get("output_format", "webp"),
-            },
-        }
-    elif model in ["black-forest-labs/flux-pro", "flux-pro"]:
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "black-forest-labs/flux-pro",
-            "promptObject": {
-                "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "aspect_ratio": request_data.get("aspect_ratio", "1:1"),
-                "output_format": request_data.get("output_format", "webp"),
-            },
-        }
-    elif model in ["black-forest-labs/flux-1.1-pro", "flux-1.1-pro"]:
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "black-forest-labs/flux-1.1-pro",
-            "promptObject": {
-                "prompt": prompt,
-                "num_outputs": request_data.get("n", 1),
-                "aspect_ratio": request_data.get("aspect_ratio", "1:1"),
-                "output_format": request_data.get("output_format", "webp"),
-            },
-        }
-    elif model in [
-        "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
-        "phoenix",
-    ]:  # Leonardo.ai - Phoenix
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
-            "promptObject": {
-                "prompt": prompt,
-                "n": request_data.get("n", 1),
-                "size": request_data.get("size", "1024x1024"),
-                "negativePrompt": request_data.get("negativePrompt", ""),
-            },
-        }
-        # Удаляем пустые параметры
-        if not payload["promptObject"]["negativePrompt"]:
-            del payload["promptObject"]["negativePrompt"]
-    elif model in [
-        "b24e16ff-06e3-43eb-8d33-4416c2d75876",
-        "lightning-xl",
-    ]:  # Leonardo.ai - Lightning XL
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "b24e16ff-06e3-43eb-8d33-4416c2d75876",
-            "promptObject": {
-                "prompt": prompt,
-                "n": request_data.get("n", 1),
-                "size": request_data.get("size", "1024x1024"),
-                "negativePrompt": request_data.get("negativePrompt", ""),
-            },
-        }
-        # Удаляем пустые параметры
-        if not payload["promptObject"]["negativePrompt"]:
-            del payload["promptObject"]["negativePrompt"]
-    elif model in [
-        "5c232a9e-9061-4777-980a-ddc8e65647c6",
-        "vision-xl",
-    ]:  # Leonardo.ai - Vision XL
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "5c232a9e-9061-4777-980a-ddc8e65647c6",
-            "promptObject": {
-                "prompt": prompt,
-                "n": request_data.get("n", 1),
-                "size": request_data.get("size", "1024x1024"),
-                "negativePrompt": request_data.get("negativePrompt", ""),
-            },
-        }
-        # Удаляем пустые параметры
-        if not payload["promptObject"]["negativePrompt"]:
-            del payload["promptObject"]["negativePrompt"]
-    elif model in [
-        "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
-        "anime-xl",
-    ]:  # Leonardo.ai - Anime XL
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
-            "promptObject": {
-                "prompt": prompt,
-                "n": request_data.get("n", 1),
-                "size": request_data.get("size", "1024x1024"),
-                "negativePrompt": request_data.get("negativePrompt", ""),
-            },
-        }
-        # Удаляем пустые параметры
-        if not payload["promptObject"]["negativePrompt"]:
-            del payload["promptObject"]["negativePrompt"]
-    elif model in [
-        "1e60896f-3c26-4296-8ecc-53e2afecc132",
-        "diffusion-xl",
-    ]:  # Leonardo.ai - Diffusion XL
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "1e60896f-3c26-4296-8ecc-53e2afecc132",
-            "promptObject": {
-                "prompt": prompt,
-                "n": request_data.get("n", 1),
-                "size": request_data.get("size", "1024x1024"),
-                "negativePrompt": request_data.get("negativePrompt", ""),
-            },
-        }
-        # Удаляем пустые параметры
-        if not payload["promptObject"]["negativePrompt"]:
-            del payload["promptObject"]["negativePrompt"]
-    elif model in [
-        "aa77f04e-3eec-4034-9c07-d0f619684628",
-        "kino-xl",
-    ]:  # Leonardo.ai - Kino XL
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "aa77f04e-3eec-4034-9c07-d0f619684628",
-            "promptObject": {
-                "prompt": prompt,
-                "n": request_data.get("n", 1),
-                "size": request_data.get("size", "1024x1024"),
-                "negativePrompt": request_data.get("negativePrompt", ""),
-            },
-        }
-        # Удаляем пустые параметры
-        if not payload["promptObject"]["negativePrompt"]:
-            del payload["promptObject"]["negativePrompt"]
-    elif model in [
-        "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
-        "albedo-base-xl",
-    ]:  # Leonardo.ai - Albedo Base XL
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
-            "promptObject": {
-                "prompt": prompt,
-                "n": request_data.get("n", 1),
-                "size": request_data.get("size", "512x512"),
-                "negativePrompt": request_data.get("negativePrompt", ""),
-            },
-        }
-        # Удаляем пустые параметры
-        if not payload["promptObject"]["negativePrompt"]:
-            del payload["promptObject"]["negativePrompt"]
+        elif model in ["midjourney", "midjourney_6_1"]:
+            # Допустимые соотношения сторон для Midjourney
+            
+            # Значения по умолчанию
+            aspect_width = 1
+            aspect_height = 1
+            no_param = ""
+            
+            # Если указано соотношение сторон
+            if aspect_ratio:
+                # Разбиваем соотношение сторон на width и height
+                ar_parts = aspect_ratio.split(":")
+                aspect_width = int(ar_parts[0])
+                aspect_height = int(ar_parts[1])
+            
+            model_name = "midjourney" if model == "midjourney" else "midjourney_6_1"
+            
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": model_name,
+                "promptObject": {
+                    "prompt": prompt,
+                    "mode": request_data.get("mode", "relax"),
+                    "n": 4,  # Midjourney всегда генерирует 4 изображения
+                    "aspect_width": aspect_width,
+                    "aspect_height": aspect_height,
+                    "isNiji6": request_data.get("isNiji6", False),
+                    "maintainModeration": request_data.get("maintainModeration", True),
+                    "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                    "no": request_data.get("no", no_param),
+                    "image_weight": request_data.get("image_weight", 1),
+                    "weird": request_data.get("weird", 0),
+                },
+            }
+            # Если не задан negativePrompt или no, удаляем эти поля
+            if not payload["promptObject"]["negativePrompt"]:
+                del payload["promptObject"]["negativePrompt"]
+            if not payload["promptObject"]["no"]:
+                del payload["promptObject"]["no"]
+        elif model in ["black-forest-labs/flux-schnell", "flux-schnell"]:
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "black-forest-labs/flux-schnell",
+                "promptObject": {
+                    "prompt": prompt,
+                    "num_outputs": request_data.get("n", 1),
+                    "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
+                    "output_format": request_data.get("output_format", "webp"),
+                },
+            }
+        elif model in ["black-forest-labs/flux-dev", "flux-dev"]:
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "black-forest-labs/flux-dev",
+                "promptObject": {
+                    "prompt": prompt,
+                    "num_outputs": request_data.get("n", 1),
+                    "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
+                    "output_format": request_data.get("output_format", "webp"),
+                },
+            }
+        elif model in ["black-forest-labs/flux-pro", "flux-pro"]:
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "black-forest-labs/flux-pro",
+                "promptObject": {
+                    "prompt": prompt,
+                    "num_outputs": request_data.get("n", 1),
+                    "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
+                    "output_format": request_data.get("output_format", "webp"),
+                },
+            }
+        elif model in ["black-forest-labs/flux-1.1-pro", "flux-1.1-pro"]:
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "black-forest-labs/flux-1.1-pro",
+                "promptObject": {
+                    "prompt": prompt,
+                    "num_outputs": request_data.get("n", 1),
+                    "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
+                    "output_format": request_data.get("output_format", "webp"),
+                },
+            }
+        elif model in [
+            "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
+            "phoenix",
+        ]:  # Leonardo.ai - Phoenix
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
+                "promptObject": {
+                    "prompt": prompt,
+                    "n": request_data.get("n", 1),
+                    "size": size or request_data.get("size", "1024x1024"),
+                    "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                },
+            }
+            # Удаляем пустые параметры
+            if not payload["promptObject"]["negativePrompt"]:
+                del payload["promptObject"]["negativePrompt"]
+        elif model in [
+            "b24e16ff-06e3-43eb-8d33-4416c2d75876",
+            "lightning-xl",
+        ]:  # Leonardo.ai - Lightning XL
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "b24e16ff-06e3-43eb-8d33-4416c2d75876",
+                "promptObject": {
+                    "prompt": prompt,
+                    "n": request_data.get("n", 1),
+                    "size": size or request_data.get("size", "1024x1024"),
+                    "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                },
+            }
+            # Удаляем пустые параметры
+            if not payload["promptObject"]["negativePrompt"]:
+                del payload["promptObject"]["negativePrompt"]
+        elif model in [
+            "5c232a9e-9061-4777-980a-ddc8e65647c6",
+            "vision-xl",
+        ]:  # Leonardo.ai - Vision XL
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "5c232a9e-9061-4777-980a-ddc8e65647c6",
+                "promptObject": {
+                    "prompt": prompt,
+                    "n": request_data.get("n", 1),
+                    "size": size or request_data.get("size", "1024x1024"),
+                    "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                },
+            }
+            # Удаляем пустые параметры
+            if not payload["promptObject"]["negativePrompt"]:
+                del payload["promptObject"]["negativePrompt"]
+        elif model in [
+            "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
+            "anime-xl",
+        ]:  # Leonardo.ai - Anime XL
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
+                "promptObject": {
+                    "prompt": prompt,
+                    "n": request_data.get("n", 1),
+                    "size": size or request_data.get("size", "1024x1024"),
+                    "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                },
+            }
+            # Удаляем пустые параметры
+            if not payload["promptObject"]["negativePrompt"]:
+                del payload["promptObject"]["negativePrompt"]
+        elif model in [
+            "1e60896f-3c26-4296-8ecc-53e2afecc132",
+            "diffusion-xl",
+        ]:  # Leonardo.ai - Diffusion XL
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "1e60896f-3c26-4296-8ecc-53e2afecc132",
+                "promptObject": {
+                    "prompt": prompt,
+                    "n": request_data.get("n", 1),
+                    "size": size or request_data.get("size", "1024x1024"),
+                    "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                },
+            }
+            # Удаляем пустые параметры
+            if not payload["promptObject"]["negativePrompt"]:
+                del payload["promptObject"]["negativePrompt"]
+        elif model in [
+            "aa77f04e-3eec-4034-9c07-d0f619684628",
+            "kino-xl",
+        ]:  # Leonardo.ai - Kino XL
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "aa77f04e-3eec-4034-9c07-d0f619684628",
+                "promptObject": {
+                    "prompt": prompt,
+                    "n": request_data.get("n", 1),
+                    "size": size or request_data.get("size", "1024x1024"),
+                    "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                },
+            }
+            # Удаляем пустые параметры
+            if not payload["promptObject"]["negativePrompt"]:
+                del payload["promptObject"]["negativePrompt"]
+        elif model in [
+            "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
+            "albedo-base-xl",
+        ]:  # Leonardo.ai - Albedo Base XL
+            payload = {
+                "type": "IMAGE_GENERATOR",
+                "model": "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
+                "promptObject": {
+                    "prompt": prompt,
+                    "n": request_data.get("n", 1),
+                    "size": size or request_data.get("size", "512x512"),
+                    "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
+                },
+            }
+            # Удаляем пустые параметры
+            if not payload["promptObject"]["negativePrompt"]:
+                del payload["promptObject"]["negativePrompt"]
+        else:
+            logger.error(f"[{request_id}] Invalid model: {model}")
+            return ERROR_HANDLER(1002, model)
 
-    else:
-        logger.error(f"[{request_id}] Invalid model: {model}")
-        return ERROR_HANDLER(1002, model)
+        logger.debug(f"[{request_id}] Sending request to 1min.ai API: {api_url}")
+        logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:500]}")
 
-    try:
-        logger.debug(
-            f"[{request_id}] Sending image generation request to {ONE_MIN_API_URL}"
-        )
-        logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:200]}...")
-
-        # Внедряем повторные попытки с экспоненциальной задержкой
-        max_retries = 5
+        # Задаем параметры для повторных попыток
+        max_retries = 3
         retry_count = 0
-        retry_delay = 1
-        error_response = None
+        retry_delay = 5  # Начинаем с 5 секунд между повторами
 
-        # Для моделей Midjourney и Leonardo не делаем повторных запросов, так как они все равно выполняются
-        if model.startswith("midjourney") or model in [
+        # Для моделей Midjourney и Leonardo не делаем повторных запросов, так как они выполняются дольше
+        if model.startswith("midjourney") or model.startswith("dall-e") or model.startswith("flux") or model.startswith("stable-diffusion") or model in [
             "6b645e3a-d64f-4341-a6d8-7a3690fbf042", "phoenix",  # Leonardo.ai - Phoenix
             "b24e16ff-06e3-43eb-8d33-4416c2d75876", "lightning-xl",  # Leonardo.ai - Lightning XL
             "5c232a9e-9061-4777-980a-ddc8e65647c6", "vision-xl",  # Leonardo.ai - Vision XL
@@ -1907,14 +1807,21 @@ def generate_image():
             "2067ae52-33fd-4a82-bb92-c2c55e7d2786", "albedo-base-xl"  # Leonardo.ai - Albedo Base XL
         ]:
             max_retries = 1  # Для этих моделей делаем только одну попытку
-            
+
         while retry_count < max_retries:
             try:
-                response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
-                logger.debug(
-                    f"[{request_id}] Image generation response status code: {response.status_code}"
+                # Отправляем запрос с таймаутом
+                response = api_request(
+                    "POST", 
+                    api_url, 
+                    headers=headers, 
+                    json=payload, 
+                    timeout=timeout,
+                    stream=False
                 )
-
+                
+                logger.debug(f"[{request_id}] Response status code: {response.status_code}")
+                
                 # Если получен успешный ответ, обрабатываем его
                 if response.status_code == 200:
                     break
@@ -1936,13 +1843,11 @@ def generate_image():
                 # Если ошибка 429 (Rate Limit) или 500 (Server Error), повторяем запрос
                 elif response.status_code in [429, 500, 502, 503, 504]:
                     retry_count += 1
-                    error_response = response
                     logger.warning(
                         f"[{request_id}] Received {response.status_code} error, retry {retry_count}/{max_retries}"
                     )
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Увеличиваем время ожидания экспоненциально
-                    
                     continue
                     
                 # Для других ошибок возвращаем ответ сразу
@@ -1962,7 +1867,6 @@ def generate_image():
                     )
             except Exception as e:
                 retry_count += 1
-                error_response = f"Exception: {str(e)}"
                 logger.warning(
                     f"[{request_id}] Exception during API request: {str(e)}, retry {retry_count}/{max_retries}"
                 )
@@ -2036,10 +1940,24 @@ def generate_image():
                     
                 full_image_urls.append(full_url)
             
-            # Формируем ответ в формате OpenAI
+            # Формируем ответ в формате OpenAI с командами для вариаций
             openai_data = []
             for url in full_image_urls:
-                openai_data.append({"url": url})
+                # Создаем короткий идентификатор для изображения
+                image_id = str(uuid.uuid4())[:8]
+                
+                # Добавляем команды для вариаций только если модель поддерживает вариации
+                if model in IMAGE_VARIATION_MODELS:
+                    variation_commands = {
+                        "url": url,
+                        "revised_prompt": prompt,
+                        "variation_commands": {
+                            "variation": f"/v {url}",  # Команда для создания вариации
+                        }
+                    }
+                    openai_data.append(variation_commands)
+                else:
+                    openai_data.append({"url": url, "revised_prompt": prompt})
                 
             openai_response = {
                 "created": int(time.time()),
@@ -2109,6 +2027,12 @@ def image_variations():
     size = request.form.get("size", "1024x1024")
 
     logger.debug(f"[{request_id}] Using model: {model} for image variations")
+    
+    # Проверяем, поддерживает ли модель вариации
+    if model not in IMAGE_VARIATION_MODELS:
+        error_msg = f"Model {model} does not support image variations. Supported models: {', '.join(IMAGE_VARIATION_MODELS)}"
+        logger.error(f"[{request_id}] {error_msg}")
+        return jsonify({"error": error_msg}), 400
 
     try:
         # Создаем новую сессию для загрузки изображения
@@ -2128,283 +2052,162 @@ def image_variations():
 
             if asset_response.status_code != 200:
                 session.close()
+                logger.error(
+                    f"[{request_id}] Failed to upload image: {asset_response.status_code} - {asset_response.text}"
+                )
                 return (
                     jsonify(
-                        {
-                            "error": asset_response.json().get(
-                                "error", "Failed to upload image"
-                            )
-                        }
+                        {"error": "Failed to upload image for variation processing"}
                     ),
                     asset_response.status_code,
                 )
 
-            image_path = asset_response.json()["fileContent"]["path"]
-            logger.debug(f"[{request_id}] Successfully uploaded image: {image_path}")
-        finally:
-            session.close()
+            # Извлекаем ID загруженного изображения
+            asset_data = asset_response.json()
+            logger.debug(f"[{request_id}] Asset upload response: {asset_data}")
 
-        # Создание вариации в зависимости от модели
-        if model == "dall-e-2":
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "dall-e-2",
-                "promptObject": {"imageUrl": image_path, "n": int(n), "size": size},
-            }
-        elif model == "dall-e-3":
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "dall-e-3",
-                "promptObject": {
-                    "imageUrl": image_path,
-                    "n": int(n),
-                    "size": size,
-                    "style": request.form.get("style", "vivid"),
-                    "quality": request.form.get("quality", "hd"),
-                },
-            }
-        elif model == "midjourney":
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "midjourney",
-                "promptObject": {
-                    "imageUrl": image_path,
-                    "mode": request.form.get("mode", "fast"),
-                    "n": int(n),
-                    "isNiji6": request.form.get("isNiji6", "false").lower() == "true",
-                    "aspect_width": int(request.form.get("aspect_width", 1)),
-                    "aspect_height": int(request.form.get("aspect_height", 1)),
-                    "maintainModeration": request.form.get(
-                        "maintainModeration", "true"
-                    ).lower()
-                    == "true",
-                },
-            }
-        elif model == "midjourney_6_1" or model == "midjourney-6.1":
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "midjourney_6_1",
-                "promptObject": {
-                    "imageUrl": image_path,
-                    "mode": request.form.get("mode", "fast"),
-                    "n": int(n),
-                    "isNiji6": request.form.get("isNiji6", "false").lower() == "true",
-                    "aspect_width": int(request.form.get("aspect_width", 1)),
-                    "aspect_height": int(request.form.get("aspect_height", 1)),
-                    "maintainModeration": request.form.get(
-                        "maintainModeration", "true"
-                    ).lower()
-                    == "true",
-                    "custom_zoom": request.form.get("custom_zoom"),
-                    "style": request.form.get("style"),
-                },
-            }
-            # Удаляем None параметры
-            payload["promptObject"] = {
-                k: v for k, v in payload["promptObject"].items() if v is not None
-            }
-        elif model in [
-            "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
-            "phoenix",
-        ]:  # Leonardo.ai - Phoenix
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
-                "promptObject": {
-                    "imageUrl": image_path,
-                    "n": int(n),
-                    "width": int(request.form.get("width", 1024)),
-                    "height": int(request.form.get("height", 1024)),
-                    "negative_prompt": request.form.get("negative_prompt", ""),
-                },
-            }
-            # Удаляем пустые параметры
-            if not payload["promptObject"]["negative_prompt"]:
-                del payload["promptObject"]["negative_prompt"]
-        elif model in [
-            "b24e16ff-06e3-43eb-8d33-4416c2d75876",
-            "lightning-xl",
-        ]:  # Leonardo.ai - Lightning XL
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "b24e16ff-06e3-43eb-8d33-4416c2d75876",
-                "promptObject": {
-                    "imageUrl": image_path,
-                    "n": int(n),
-                    "width": int(request.form.get("width", 1024)),
-                    "height": int(request.form.get("height", 1024)),
-                    "negative_prompt": request.form.get("negative_prompt", ""),
-                },
-            }
-            # Удаляем пустые параметры
-            if not payload["promptObject"]["negative_prompt"]:
-                del payload["promptObject"]["negative_prompt"]
-        elif model in [
-            "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
-            "anime-xl",
-        ]:  # Leonardo.ai - Anime XL
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
-                "promptObject": {
-                    "imageUrl": image_path,
-                    "n": int(n),
-                    "width": int(request.form.get("width", 1024)),
-                    "height": int(request.form.get("height", 1024)),
-                    "negative_prompt": request.form.get("negative_prompt", ""),
-                },
-            }
-            # Удаляем пустые параметры
-            if not payload["promptObject"]["negative_prompt"]:
-                del payload["promptObject"]["negative_prompt"]
-        elif model in [
-            "1e60896f-3c26-4296-8ecc-53e2afecc132",
-            "diffusion-xl",
-        ]:  # Leonardo.ai - Diffusion XL
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "1e60896f-3c26-4296-8ecc-53e2afecc132",
-                "promptObject": {
-                    "imageUrl": image_path,
-                    "n": int(n),
-                    "width": int(request.form.get("width", 1024)),
-                    "height": int(request.form.get("height", 1024)),
-                    "negative_prompt": request.form.get("negative_prompt", ""),
-                },
-            }
-            # Удаляем пустые параметры
-            if not payload["promptObject"]["negative_prompt"]:
-                del payload["promptObject"]["negative_prompt"]
-        elif model in [
-            "aa77f04e-3eec-4034-9c07-d0f619684628",
-            "kino-xl",
-        ]:  # Leonardo.ai - Kino XL
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "aa77f04e-3eec-4034-9c07-d0f619684628",
-                "promptObject": {
-                    "imageUrl": image_path,
-                    "n": int(n),
-                    "width": int(request.form.get("width", 1024)),
-                    "height": int(request.form.get("height", 1024)),
-                    "negative_prompt": request.form.get("negative_prompt", ""),
-                },
-            }
-            # Удаляем пустые параметры
-            if not payload["promptObject"]["negative_prompt"]:
-                del payload["promptObject"]["negative_prompt"]
-        elif model in [
-            "5c232a9e-9061-4777-980a-ddc8e65647c6",
-            "vision-xl",
-        ]:  # Leonardo.ai - Vision XL
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "5c232a9e-9061-4777-980a-ddc8e65647c6",
-                "promptObject": {
-                    "imageUrl": image_path,
-                    "n": int(n),
-                    "width": int(request.form.get("width", 1024)),
-                    "height": int(request.form.get("height", 1024)),
-                    "negative_prompt": request.form.get("negative_prompt", ""),
-                },
-            }
-            # Удаляем пустые параметры
-            if not payload["promptObject"]["negative_prompt"]:
-                del payload["promptObject"]["negative_prompt"]
-        elif model in [
-            "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
-            "albedo-base-xl",
-        ]:  # Leonardo.ai - Albedo Base XL
-            payload = {
-                "type": "IMAGE_VARIATOR",
-                "model": "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
-                "promptObject": {
-                    "imageUrl": image_path,
-                    "n": int(n),
-                    "width": int(request.form.get("width", 1024)),
-                    "height": int(request.form.get("height", 1024)),
-                    "negative_prompt": request.form.get("negative_prompt", ""),
-                },
-            }
-            # Удаляем пустые параметры
-            if not payload["promptObject"]["negative_prompt"]:
-                del payload["promptObject"]["negative_prompt"]
-        else:
-            logger.error(f"[{request_id}] Invalid model for variations: {model}")
-            return ERROR_HANDLER(1002, model)
+            # Получаем URL или ID изображения
+            image_id = None
+            image_url = None
 
-        headers["Content-Type"] = "application/json"
-        logger.debug(
-            f"[{request_id}] Sending image variation request with payload: {json.dumps(payload)[:200]}..."
-        )
+            # Ищем ID в разных местах структуры ответа
+            if "id" in asset_data:
+                image_id = asset_data["id"]
+            elif "fileContent" in asset_data and "id" in asset_data["fileContent"]:
+                image_id = asset_data["fileContent"]["id"]
+            elif "fileContent" in asset_data and "uuid" in asset_data["fileContent"]:
+                image_id = asset_data["fileContent"]["uuid"]
+            
+            # Если есть path, используем его как URL изображения
+            if "fileContent" in asset_data and "path" in asset_data["fileContent"]:
+                image_url = asset_data["fileContent"]["path"]
+                # Добавляем хост, если путь относительный
+                if not image_url.startswith("http"):
+                    image_url = f"https://asset.1min.ai{image_url if image_url.startswith('/') else '/' + image_url}"
 
-        response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
-        logger.debug(
-            f"[{request_id}] Image variation response status code: {response.status_code}"
-        )
+            if not image_id and not image_url:
+                session.close()
+                logger.error(f"[{request_id}] Failed to extract image ID from response")
+                return jsonify({"error": "Failed to process uploaded image"}), 500
 
-        if response.status_code != 200:
-            if response.status_code == 401:
-                return ERROR_HANDLER(1020, key=api_key)
-            logger.error(
-                f"[{request_id}] Error in variation response: {response.text[:200]}"
-            )
-            return (
-                jsonify({"error": response.json().get("error", "Unknown error")}),
-                response.status_code,
+            # Формируем payload для вариации изображения
+            payload = {
+                "type": "IMAGE_VARIATION",
+                "model": model,
+                "promptObject": {
+                    "n": int(n),
+                    "size": size
+                }
+            }
+
+            # Добавляем image_id или image_url в зависимости от того, что нашли
+            if image_id:
+                payload["promptObject"]["image_id"] = image_id
+            elif image_url:
+                payload["promptObject"]["image_url"] = image_url
+
+            # Дополнительные параметры для специфических моделей
+            if model in ["dall-e-2", "dall-e-3"]:
+                # Для DALL-E добавляем дополнительные параметры
+                pass
+            elif model in ["midjourney", "midjourney_6_1"]:
+                # Для Midjourney добавляем специфические параметры
+                pass
+
+            # Использование timeout для всех моделей (15 минут)
+            timeout = MIDJOURNEY_TIMEOUT
+                
+            logger.debug(f"[{request_id}] Sending variation request with payload: {payload}")
+
+            # Отправляем запрос на создание вариации
+            variation_response = api_request(
+                "POST",
+                f"{ONE_MIN_API_URL}/generator/variations",
+                headers={"API-KEY": api_key, "Content-Type": "application/json"},
+                json=payload,
+                timeout=timeout
             )
 
-        one_min_response = response.json()
-
-        # Преобразование ответа 1min.ai в формат OpenAI
-        try:
-            # Безопасное извлечение URL изображения
-            image_url = (
-                one_min_response.get("aiRecord", {})
-                .get("aiRecordDetail", {})
-                .get("resultObject", [""])[0]
-            )
-
-            if not image_url:
-                # Попробуем другие пути извлечения URL
-                if "resultObject" in one_min_response:
-                    image_url = (
-                        one_min_response["resultObject"][0]
-                        if isinstance(one_min_response["resultObject"], list)
-                        else one_min_response["resultObject"]
-                    )
-
-            if not image_url:
+            if variation_response.status_code != 200:
+                session.close()
                 logger.error(
-                    f"[{request_id}] Could not extract variation image URL from API response"
+                    f"[{request_id}] Variation request failed: {variation_response.status_code} - {variation_response.text}"
                 )
                 return (
-                    jsonify({"error": "Could not extract image URL from API response"}),
-                    500,
+                    jsonify({"error": "Failed to create image variations"}),
+                    variation_response.status_code,
                 )
 
-            logger.debug(
-                f"[{request_id}] Successfully generated image variation: {image_url[:50]}..."
-            )
+            # Обрабатываем ответ и формируем результат
+            variation_data = variation_response.json()
+            logger.debug(f"[{request_id}] Variation response: {variation_data}")
+
+            # Извлекаем URL вариаций
+            variation_urls = []
+            
+            # Пытаемся найти URL вариаций в ответе
+            if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
+                record_detail = variation_data["aiRecord"]["aiRecordDetail"]
+                if "resultObject" in record_detail:
+                    result = record_detail["resultObject"]
+                    if isinstance(result, list):
+                        variation_urls = result
+                    elif isinstance(result, str):
+                        variation_urls = [result]
+            
+            # Альтернативный путь поиска
+            if not variation_urls and "resultObject" in variation_data:
+                result = variation_data["resultObject"]
+                if isinstance(result, list):
+                    variation_urls = result
+                elif isinstance(result, str):
+                    variation_urls = [result]
+
+            if not variation_urls:
+                session.close()
+                logger.error(f"[{request_id}] No variation URLs found in response")
+                return jsonify({"error": "No variations were generated"}), 500
+
+            # Формируем полные URL для вариаций
+            full_variation_urls = []
+            asset_host = "https://asset.1min.ai"
+            
+            for url in variation_urls:
+                if not url:
+                    continue
+                    
+                # Если URL не полный, добавляем хост
+                if not url.startswith("http"):
+                    if url.startswith("/"):
+                        full_url = f"{asset_host}{url}"
+                    else:
+                        full_url = f"{asset_host}/{url}"
+                else:
+                    full_url = url
+                    
+                full_variation_urls.append(full_url)
+
+            # Формируем ответ в формате OpenAI
+            openai_data = []
+            for url in full_variation_urls:
+                openai_data.append({"url": url})
 
             openai_response = {
                 "created": int(time.time()),
-                "data": [{"url": image_url}],
+                "data": openai_data,
             }
 
-            response = make_response(jsonify(openai_response))
-            set_response_headers(response)
-            return response, 200
+            session.close()
+            logger.info(f"[{request_id}] Successfully generated {len(openai_data)} image variations")
+            return jsonify(openai_response), 200
+
         except Exception as e:
-            logger.error(
-                f"[{request_id}] Error processing image variation response: {str(e)}"
-            )
+            session.close()
+            logger.error(f"[{request_id}] Exception during variation request: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
     except Exception as e:
-        logger.error(
-            f"[{request_id}] Exception during image variation request: {str(e)}"
-        )
+        logger.error(f"[{request_id}] Exception during image variation processing: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
