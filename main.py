@@ -34,6 +34,8 @@ from waitress import serve
 import memcache
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
+import io
+import imghdr
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
@@ -945,40 +947,58 @@ def conversation():
             
             # Если найден моноширинный формат, проверяем, есть ли в истории диалога URL
             if mono_variation_match and request_data.get("messages"):
-                variation_number = mono_variation_match.group(1)
+                variation_number = int(mono_variation_match.group(1))
                 logger.debug(f"[{request_id}] Found monospace format variation command: {variation_number}")
                 
-                # Ищем URL в предыдущих сообщениях ассистента
+                # Ищем нужный URL в предыдущих сообщениях ассистента
                 image_url = None
                 for msg in reversed(request_data.get("messages", [])):
                     if msg.get("role") == "assistant" and msg.get("content"):
-                        # Ищем URL изображения в контенте сообщения ассистента
-                        url_match = re.search(r'!\[.*?\]\((https?://[^\s)]+)', msg.get("content", ""))
-                        if url_match:
-                            # Берем первый найденный URL
-                            image_url = url_match.group(1)
-                            logger.debug(f"[{request_id}] Found image URL in assistant message: {image_url}")
-                            break
+                        # Ищем все URL изображений в контенте сообщения ассистента
+                        content = msg.get("content", "")
+                        url_matches = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
+                        
+                        if url_matches:
+                            # Проверяем количество найденных URL
+                            if len(url_matches) >= variation_number:
+                                # Берем URL, соответствующий запрошенному номеру
+                                image_url = url_matches[variation_number - 1]
+                                logger.debug(f"[{request_id}] Found image URL #{variation_number} in assistant message: {image_url}")
+                                break
+                            else:
+                                # Недостаточно URL для запрошенного номера, берем первый
+                                image_url = url_matches[0]
+                                logger.warning(f"[{request_id}] Requested variation #{variation_number} but only found {len(url_matches)} URLs. Using first URL: {image_url}")
+                                break
                 
                 if image_url:
                     variation_match = mono_variation_match
                     logger.info(f"[{request_id}] Detected monospace variation command: {variation_number} for URL: {image_url}")
             # Если найден формат с квадратными скобками, проверяем, есть ли в истории диалога URL
             elif square_variation_match and request_data.get("messages"):
-                variation_number = square_variation_match.group(1)
+                variation_number = int(square_variation_match.group(1))
                 logger.debug(f"[{request_id}] Found square bracket format variation command: {variation_number}")
                 
-                # Ищем URL в предыдущих сообщениях ассистента
+                # Ищем нужный URL в предыдущих сообщениях ассистента
                 image_url = None
                 for msg in reversed(request_data.get("messages", [])):
                     if msg.get("role") == "assistant" and msg.get("content"):
-                        # Ищем URL изображения в контенте сообщения ассистента
-                        url_match = re.search(r'!\[.*?\]\((https?://[^\s)]+)', msg.get("content", ""))
-                        if url_match:
-                            # Берем первый найденный URL
-                            image_url = url_match.group(1)
-                            logger.debug(f"[{request_id}] Found image URL in assistant message: {image_url}")
-                            break
+                        # Ищем все URL изображений в контенте сообщения ассистента
+                        content = msg.get("content", "")
+                        url_matches = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
+                        
+                        if url_matches:
+                            # Проверяем количество найденных URL
+                            if len(url_matches) >= variation_number:
+                                # Берем URL, соответствующий запрошенному номеру
+                                image_url = url_matches[variation_number - 1]
+                                logger.debug(f"[{request_id}] Found image URL #{variation_number} in assistant message: {image_url}")
+                                break
+                            else:
+                                # Недостаточно URL для запрошенного номера, берем первый
+                                image_url = url_matches[0]
+                                logger.warning(f"[{request_id}] Requested variation #{variation_number} but only found {len(url_matches)} URLs. Using first URL: {image_url}")
+                                break
                 
                 if image_url:
                     variation_match = square_variation_match
@@ -4318,3 +4338,210 @@ def split_text_for_streaming(text, chunk_size=6):
         return [text]
     
     return chunks
+
+def image_variations(request_id, image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None):
+    """
+    Создает вариации на основе исходного изображения.
+    """
+    # Инициализируем список URL перед циклом
+    variation_urls = []
+    current_model = None
+
+    # Определяем список моделей для вариаций
+    variation_models = []
+    
+    # Если пользовательская модель поддерживает вариации, сначала пробуем её
+    if user_model in VARIATION_SUPPORTED_MODELS:
+        variation_models.append(user_model)
+    
+    # Добавляем резервные модели
+    variation_models.extend([
+        "midjourney_6_1",
+        "midjourney",
+        "clipdrop",
+        "dall-e-2"
+    ])
+    
+    # Удаляем дубликаты и сохраняем порядок
+    variation_models = list(dict.fromkeys(variation_models))
+    
+    logger.info(f"[{request_id}] Starting image variations with models: {variation_models}")
+
+    # Создаем сессию для загрузки изображения
+    upload_session = requests.Session()
+    
+    try:
+        # Загружаем изображение
+        image_response = upload_session.get(image_url, stream=True, timeout=60)
+        if image_response.status_code != 200:
+            logger.error(f"[{request_id}] Failed to download image: {image_response.status_code}")
+            return []
+
+        image_response.raw.decode_content = True
+        temp_file = io.BytesIO(image_response.content)
+            
+        # Определяем тип файла по контенту
+        image_format = imghdr.what(None, h=temp_file.getvalue())
+        
+        if not image_format:
+            logger.error(f"[{request_id}] Unable to determine image format")
+            return []
+            
+        file_name = f"variation_{request_id}.{image_format}"
+        
+        # Пробуем каждую модель по очереди
+        for model in variation_models:
+            current_model = model
+            logger.info(f"[{request_id}] Trying image variation with model: {model}")
+            
+            try:
+                # Создаем файл для загрузки
+                temp_file.seek(0)
+                files = {
+                    'file': (file_name, temp_file, f'image/{image_format}')
+                }
+                
+                # Загружаем файл на 1min.ai
+                upload_url = f"{BASE_URL}/uploads/{TEAM_ID}"
+                upload_response = upload_session.post(
+                    upload_url,
+                    files=files,
+                    timeout=60
+                )
+                
+                logger.debug(f"[{request_id}] Upload response status: {upload_response.status_code}")
+                
+                if upload_response.status_code != 200:
+                    logger.error(f"[{request_id}] Failed to upload image: {upload_response.status_code}, {upload_response.text}")
+                    continue
+
+                upload_data = upload_response.json()
+                
+                # Проверяем, что загрузка прошла успешно
+                if not upload_data.get("success"):
+                    logger.error(f"[{request_id}] Upload failed: {upload_data}")
+                    continue
+
+                # Получаем asset_data
+                asset_data = upload_data.get("asset", {})
+                
+                # Проверяем наличие id и fileContent/location в данных
+                if not asset_data.get("id") or (not asset_data.get("fileContent") and not asset_data.get("location")):
+                    logger.error(f"[{request_id}] Invalid asset data: {asset_data}")
+                    continue
+
+                # Получаем идентификатор загруженного файла
+                asset_id = asset_data.get("id")
+                
+                # Определяем URL изображения
+                image_content_url = asset_data.get("fileContent") or asset_data.get("location")
+                
+                if not image_content_url:
+                    logger.error(f"[{request_id}] No image URL found in asset data: {asset_data}")
+                    continue
+
+                # Формируем запрос для вариации изображения в зависимости от модели
+                variation_payload = {
+                    "model": model,
+                    "n": n,
+                }
+                
+                # Добавляем размеры, если они указаны
+                if aspect_width and aspect_height:
+                    variation_payload["aspect_width"] = aspect_width
+                    variation_payload["aspect_height"] = aspect_height
+                
+                # Добавляем режим, если он указан
+                if mode:
+                    variation_payload["mode"] = mode
+                
+                # Особая обработка для DALL-E 2
+                if model == "dall-e-2":
+                    # DALL-E 2 использует 'image' вместо 'imageUrl'
+                    variation_payload["image"] = asset_id
+                    
+                    # Удаляем несовместимые параметры
+                    if "aspect_width" in variation_payload:
+                        del variation_payload["aspect_width"]
+                    if "aspect_height" in variation_payload:
+                        del variation_payload["aspect_height"]
+                    if "mode" in variation_payload:
+                        del variation_payload["mode"]
+                else:
+                    # Другие модели используют imageUrl
+                    variation_payload["imageUrl"] = image_content_url
+                
+                logger.debug(f"[{request_id}] Variation payload: {variation_payload}")
+                
+                # Создаем сессию для запроса вариации
+                variation_session = requests.Session()
+                
+                # URL для запроса вариации
+                variation_url = f"{BASE_URL}/image/variations/{TEAM_ID}"
+                
+                # Отправляем запрос на создание вариации
+                variation_response = variation_session.post(
+                    variation_url,
+                    json=variation_payload,
+                    timeout=900  # 15 минут таймаут
+                )
+                
+                logger.debug(f"[{request_id}] Variation response status: {variation_response.status_code}")
+                
+                if variation_response.status_code != 200:
+                    logger.error(f"[{request_id}] Failed to create image variation with model {model}: {variation_response.status_code}, {variation_response.text}")
+                    continue
+                
+                # Пытаемся получить вариации из ответа
+                variation_data = variation_response.json()
+                
+                logger.debug(f"[{request_id}] Variation data: {variation_data}")
+                
+                # Находим URL вариаций в ответе в зависимости от модели
+                if model == "dall-e-2":
+                    # DALL-E 2 возвращает данные в другом формате
+                    dall_e_data = variation_data.get("data", [])
+                    if dall_e_data and isinstance(dall_e_data, list):
+                        # Извлекаем URL из ответа DALL-E 2
+                        for item in dall_e_data:
+                            if item.get("url"):
+                                variation_urls.append(item.get("url"))
+                else:
+                    # Другие модели
+                    urls = []
+                    
+                    # Попробуем найти URL в разных структурах ответа
+                    if "images" in variation_data and isinstance(variation_data["images"], list):
+                        for img in variation_data["images"]:
+                            if isinstance(img, dict) and img.get("url"):
+                                urls.append(img.get("url"))
+                    elif "data" in variation_data and isinstance(variation_data["data"], list):
+                        for item in variation_data["data"]:
+                            if isinstance(item, dict) and item.get("url"):
+                                urls.append(item.get("url"))
+                    
+                    # Если нашли URL, добавляем их в результат
+                    if urls:
+                        variation_urls.extend(urls)
+                
+                # Если удалось получить URL вариаций, прерываем цикл
+                if variation_urls:
+                    logger.info(f"[{request_id}] Successfully created {len(variation_urls)} image variations with model {model}")
+                    break
+                else:
+                    logger.error(f"[{request_id}] No variation URLs found in response for model {model}")
+            
+            except Exception as e:
+                logger.error(f"[{request_id}] Error while creating image variation with model {model}: {str(e)}")
+                logger.error(traceback.format_exc())
+                continue
+    
+    except Exception as e:
+        logger.error(f"[{request_id}] Error while processing image for variations: {str(e)}")
+        logger.error(traceback.format_exc())
+    
+    # Возвращаем URL вариаций или пустой список в случае ошибки
+    if not variation_urls:
+        logger.error(f"[{request_id}] Failed to create image variations with all models")
+        
+    return variation_urls
