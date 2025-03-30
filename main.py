@@ -2207,13 +2207,13 @@ def generate_image():
             
             # Формируем markdown-текст с кнопками вариаций
             if len(full_image_urls) == 1:
-                text_response = f"![Image]({full_image_urls[0]}) `V1`"
+                text_response = f"![Image]({full_image_urls[0]}) [_V1_]"
             else:
                 # Формируем текст с изображениями и кнопками вариаций на одной строке
                 image_lines = []
                 
                 for i, url in enumerate(full_image_urls):
-                    image_lines.append(f"![Image {i+1}]({url}) `V{i+1}`")
+                    image_lines.append(f"![Image {i+1}]({url}) [_V{i+1}_]")
                 
                 # Объединяем строки с новой строкой между ними
                 text_response = "\n".join(image_lines)
@@ -2310,13 +2310,14 @@ def image_variations():
                     asset_response.status_code,
                 )
 
-            # Извлекаем ID загруженного изображения
+            # Извлекаем ID загруженного изображения и полный URL
             asset_data = asset_response.json()
             logger.debug(f"[{request_id}] Asset upload response: {asset_data}")
 
             # Получаем URL или ID изображения
             image_id = None
             image_url = None
+            image_location = None
 
             # Ищем ID в разных местах структуры ответа
             if "id" in asset_data:
@@ -2326,6 +2327,10 @@ def image_variations():
             elif "fileContent" in asset_data and "uuid" in asset_data["fileContent"]:
                 image_id = asset_data["fileContent"]["uuid"]
             
+            # Ищем абсолютный URL (location) для изображения
+            if "asset" in asset_data and "location" in asset_data["asset"]:
+                image_location = asset_data["asset"]["location"]
+            
             # Если есть path, используем его как URL изображения
             if "fileContent" in asset_data and "path" in asset_data["fileContent"]:
                 image_url = asset_data["fileContent"]["path"]
@@ -2333,9 +2338,9 @@ def image_variations():
                 if not image_url.startswith("http"):
                     image_url = f"https://asset.1min.ai{image_url if image_url.startswith('/') else '/' + image_url}"
 
-            if not image_id and not image_url:
+            if not (image_id or image_url or image_location):
                 session.close()
-                logger.error(f"[{request_id}] Failed to extract image ID from response")
+                logger.error(f"[{request_id}] Failed to extract image information from response")
                 return jsonify({"error": "Failed to process uploaded image"}), 500
 
             # Формируем payload для вариации изображения
@@ -2355,11 +2360,20 @@ def image_variations():
             if api_key.startswith("vip-"):
                 payload["credits"] = 90000  # Стандартное количество кредитов для VIP
 
-            # Добавляем image_id или image_url в зависимости от того, что нашли
-            if image_id:
-                payload["promptObject"]["image_id"] = image_id
+            # Приоритет использования: 1) image_location (абсолютный URL) 2) image_url 3) image_id
+            if image_location:
+                payload["promptObject"]["imageUrl"] = image_location
+                logger.debug(f"[{request_id}] Using absolute URL for variation: {image_location}")
             elif image_url:
                 payload["promptObject"]["imageUrl"] = image_url
+                logger.debug(f"[{request_id}] Using path URL for variation: {image_url}")
+            elif image_id:
+                payload["promptObject"]["image_id"] = image_id
+                logger.debug(f"[{request_id}] Using image ID for variation: {image_id}")
+            else:
+                session.close()
+                logger.error(f"[{request_id}] No valid image reference found")
+                return jsonify({"error": "Failed to extract valid image reference"}), 500
 
             # Добавляем значения для aspect_ratio если они есть
             aspect_width = 1
@@ -2461,13 +2475,13 @@ def image_variations():
             # Добавляем текст с кнопками вариаций для markdown-отображения
             markdown_text = ""
             if len(full_variation_urls) == 1:
-                markdown_text = f"![Variation]({full_variation_urls[0]}) `V1`"
+                markdown_text = f"![Variation]({full_variation_urls[0]}) [_V1_]"
             else:
                 # Формируем текст с изображениями и кнопками вариаций на одной строке
                 image_lines = []
                 
                 for i, url in enumerate(full_variation_urls):
-                    image_lines.append(f"![Variation {i+1}]({url}) `V{i+1}`")
+                    image_lines.append(f"![Variation {i+1}]({url}) [_V{i+1}_]")
                 
                 # Объединяем строки с новой строкой между ними
                 markdown_text = "\n".join(image_lines)
