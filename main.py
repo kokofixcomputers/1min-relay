@@ -1024,27 +1024,8 @@ def conversation():
                 
                 logger.info(f"[{request_id}] Processing variation for image: {image_url}")
                 
-                # Вызываем специальную функцию create_image_variations чтобы создать вариации 
-                # и попробовать все доступные модели
-                variation_count = request_data.get("n", 1)
-                variation_urls = create_image_variations(
-                    image_url, 
-                    model, 
-                    variation_count,
-                    request_id=request_id
-                )
-                
-                if variation_urls:
-                    # Формируем ответ в формате OpenAI API
-                    response_data = {
-                        "created": int(time.time()),
-                        "data": [{"url": url} for url in variation_urls]
-                    }
-                    return jsonify(response_data)
-                
-                # Если не удалось получить вариации, используем традиционный метод через эндпоинт
-                
-                # Скачиваем изображение во временный файл
+                # Скачиваем изображение во временный файл и отправим перенаправление
+                # на маршрут /v1/images/variations по аналогии с /v1/images/generations
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                 img_response = requests.get(image_url, stream=True)
                 
@@ -1055,46 +1036,21 @@ def conversation():
                     for chunk in img_response.iter_content(chunk_size=8192):
                         f.write(chunk)
                 
-                # Создаем файл для отправки
-                files = {"image": (os.path.basename(temp_file.name), open(temp_file.name, 'rb'), "image/png")}
+                # Сохраняем путь к временному файлу в памяти для использования в маршруте /v1/images/variations
+                if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+                    variation_key = f"variation:{request_id}"
+                    variation_data = {
+                        "temp_file": temp_file.name,
+                        "model": model,
+                        "n": request_data.get("n", 1)
+                    }
+                    safe_memcached_operation('set', variation_key, json.dumps(variation_data), time=300)  # Хранить 5 минут
+                    logger.debug(f"[{request_id}] Saved variation data to memcached with key: {variation_key}")
                 
-                # Формируем форм-данные для запроса вариации
-                form_data = {
-                    "model": model,  # Используем текущую модель
-                    "n": request_data.get("n", 1)
-                }
-                
-                # Проверяем, поддерживает ли модель вариации
-                if model not in IMAGE_VARIATION_MODELS:
-                    # Если модель не поддерживает вариации, используем последовательно fallback модели
-                    logger.warning(f"[{request_id}] Model {model} does not support image variations. Will try fallback models")
-                    # Будем использовать внутренний маршрут /v1/images/variations, который уже имеет логику fallback
-                else:
-                    logger.debug(f"[{request_id}] Model {model} supports image variations")
-                
-                # Отправляем запрос на вариацию изображения через внутренний маршрут
-                variation_headers = {"Authorization": f"Bearer {api_key}"}
-                variation_response = requests.post(
-                    f"http://localhost:{PORT}/v1/images/variations", 
-                    files=files, 
-                    data=form_data,
-                    headers=variation_headers
-                )
-                
-                # Очищаем временный файл
-                temp_file.close()
-                try:
-                    os.unlink(temp_file.name)
-                except:
-                    pass
-                
-                if variation_response.status_code != 200:
-                    logger.error(f"[{request_id}] Variation request failed: {variation_response.status_code}")
-                    return jsonify({"error": "Failed to create image variation"}), 500
-                
-                # Возвращаем ответ с вариациями напрямую
-                return variation_response.text, 200, {"Content-Type": "application/json"}
-                
+                # Перенаправляем на маршрут /v1/images/variations
+                logger.info(f"[{request_id}] Redirecting to /v1/images/variations with model {model}")
+                return redirect(url_for('image_variations', request_id=request_id), code=307)
+            
             except Exception as e:
                 logger.error(f"[{request_id}] Error processing variation command: {str(e)}")
                 return jsonify({"error": f"Failed to process variation command: {str(e)}"}), 500
@@ -2404,8 +2360,45 @@ def image_variations():
     if not auth_header or not auth_header.startswith("Bearer "):
         logger.error(f"[{request_id}] Invalid Authentication")
         return ERROR_HANDLER(1021)
-
     api_key = auth_header.split(" ")[1]
+
+    # Проверяем, пришел ли запрос с параметром request_id (перенаправление из /v1/chat/completions)
+    if 'request_id' in request.args and 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+        # Получаем данные о вариации из memcached
+        redirect_request_id = request.args.get('request_id')
+        variation_key = f"variation:{redirect_request_id}"
+        variation_data_json = safe_memcached_operation('get', variation_key)
+        
+        if variation_data_json:
+            try:
+                if isinstance(variation_data_json, str):
+                    variation_data = json.loads(variation_data_json)
+                elif isinstance(variation_data_json, bytes):
+                    variation_data = json.loads(variation_data_json.decode('utf-8'))
+                else:
+                    variation_data = variation_data_json
+                
+                # Получаем путь к временному файлу, модель и количество вариаций
+                temp_file_path = variation_data.get("temp_file")
+                model = variation_data.get("model")
+                n = variation_data.get("n", 1)
+                
+                logger.debug(f"[{request_id}] Retrieved variation data from memcached: model={model}, n={n}, temp_file={temp_file_path}")
+                
+                # Проверяем, что файл существует
+                if os.path.exists(temp_file_path):
+                    # Создаем файл для запроса
+                    with open(temp_file_path, 'rb') as f:
+                        request.files = {"image": f}
+                        request.form = {"model": model, "n": n}
+                        # Продолжаем выполнение с использованием стандартного кода ниже
+                        logger.info(f"[{request_id}] Using file from memcached for image variations")
+                else:
+                    logger.error(f"[{request_id}] Temporary file not found: {temp_file_path}")
+                    return jsonify({"error": "Image file not found"}), 400
+            except Exception as e:
+                logger.error(f"[{request_id}] Error processing variation data: {str(e)}")
+                return jsonify({"error": f"Error processing variation request: {str(e)}"}), 500
 
     # Получение файла изображения
     if "image" not in request.files:
@@ -4761,3 +4754,4 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         logger.error(f"[{request_id}] Failed to create image variations with all models")
         
     return variation_urls
+
