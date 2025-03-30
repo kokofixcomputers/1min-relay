@@ -2416,9 +2416,14 @@ def image_variations():
             aspect_height = int(ar_match.group(2))
             logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_width}:{aspect_height}")
     
+    # Инициализируем переменную для вариаций перед циклом
+    variation_urls = []
+    current_model = None
+    
     # Пробуем каждую модель по очереди
     for model in models_to_try:
         logger.info(f"[{request_id}] Trying model: {model} for image variations")
+        current_model = model
         
         try:
             # Загрузка изображения в 1min.ai
@@ -2489,19 +2494,34 @@ def image_variations():
                 if api_key.startswith("vip-"):
                     payload["credits"] = 90000  # Стандартное количество кредитов для VIP
 
-                # Приоритет использования: 1) image_location (абсолютный URL) 2) image_url 3) image_id
-                if image_location:
-                    payload["promptObject"]["imageUrl"] = image_location
-                    logger.debug(f"[{request_id}] Using absolute URL for variation: {image_location}")
-                elif image_url:
-                    payload["promptObject"]["imageUrl"] = image_url
-                    logger.debug(f"[{request_id}] Using path URL for variation: {image_url}")
-                elif image_id:
-                    payload["promptObject"]["image_id"] = image_id
-                    logger.debug(f"[{request_id}] Using image ID for variation: {image_id}")
+                # Специальная обработка для разных моделей
+                if model == "dall-e-2":
+                    # Для DALL-E 2 нужно использовать параметр "image", а не "imageUrl"
+                    if image_location:
+                        payload["promptObject"]["image"] = image_location
+                        logger.debug(f"[{request_id}] Using absolute URL as image for DALL-E 2: {image_location}")
+                    elif image_url:
+                        payload["promptObject"]["image"] = image_url
+                        logger.debug(f"[{request_id}] Using path URL as image for DALL-E 2: {image_url}")
+                    # Удаляем несовместимые параметры
+                    if "aspect_width" in payload["promptObject"]:
+                        del payload["promptObject"]["aspect_width"]
+                    if "aspect_height" in payload["promptObject"]:
+                        del payload["promptObject"]["aspect_height"]
                 else:
-                    logger.error(f"[{request_id}] No valid image reference found")
-                    continue  # Пробуем следующую модель
+                    # Приоритет использования: 1) image_location (абсолютный URL) 2) image_url 3) image_id
+                    if image_location:
+                        payload["promptObject"]["imageUrl"] = image_location
+                        logger.debug(f"[{request_id}] Using absolute URL for variation: {image_location}")
+                    elif image_url:
+                        payload["promptObject"]["imageUrl"] = image_url
+                        logger.debug(f"[{request_id}] Using path URL for variation: {image_url}")
+                    elif image_id:
+                        payload["promptObject"]["image_id"] = image_id
+                        logger.debug(f"[{request_id}] Using image ID for variation: {image_id}")
+                    else:
+                        logger.error(f"[{request_id}] No valid image reference found")
+                        continue  # Пробуем следующую модель
 
                 # Использование timeout для всех моделей (15 минут)
                 timeout = MIDJOURNEY_TIMEOUT
@@ -2527,10 +2547,10 @@ def image_variations():
                 variation_data = variation_response.json()
                 logger.debug(f"[{request_id}] Variation response: {variation_data}")
 
-                # Извлекаем URL вариаций
+                # Извлекаем URL вариаций - инициализируем пустым массивом перед поиском
                 variation_urls = []
                 
-                # Пытаемся найти URL вариаций в ответе
+                # Пытаемся найти URL вариаций в ответе - различные структуры для разных моделей
                 if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                     record_detail = variation_data["aiRecord"]["aiRecordDetail"]
                     if "resultObject" in record_detail:
@@ -2547,6 +2567,12 @@ def image_variations():
                         variation_urls = result
                     elif isinstance(result, str):
                         variation_urls = [result]
+                        
+                # Поиск в data.url для DALL-E 2
+                if not variation_urls and "data" in variation_data and isinstance(variation_data["data"], list):
+                    for item in variation_data["data"]:
+                        if "url" in item:
+                            variation_urls.append(item["url"])
 
                 if not variation_urls:
                     logger.error(f"[{request_id}] No variation URLs found in response with model {model}")
@@ -2627,7 +2653,7 @@ def image_variations():
     ]
 
     session.close()
-    logger.info(f"[{request_id}] Successfully generated {len(openai_data)} image variations using model {model}")
+    logger.info(f"[{request_id}] Successfully generated {len(openai_data)} image variations using model {current_model}")
     return jsonify(openai_response), 200
 
 
