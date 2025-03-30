@@ -2517,17 +2517,35 @@ def image_variations():
                 # Специальная обработка для разных моделей
                 if model == "dall-e-2":
                     # Для DALL-E 2 нужно использовать параметр "image", а не "imageUrl"
-                    if image_location:
-                        payload["promptObject"]["image"] = image_location
-                        logger.debug(f"[{request_id}] Using absolute URL as image for DALL-E 2: {image_location}")
-                    elif image_url:
-                        payload["promptObject"]["image"] = image_url
-                        logger.debug(f"[{request_id}] Using path URL as image for DALL-E 2: {image_url}")
+                    # DALL-E 2 требует ID актива, а не URL
+                    if "asset" in asset_data and "id" in asset_data["asset"]:
+                        asset_id = asset_data["asset"]["id"]
+                        logger.debug(f"[{request_id}] Using asset ID for DALL-E 2: {asset_id}")
+                        payload["promptObject"]["image"] = asset_id
+                    elif "fileContent" in asset_data and "uuid" in asset_data["fileContent"]:
+                        asset_id = asset_data["fileContent"]["uuid"]
+                        logger.debug(f"[{request_id}] Using fileContent UUID for DALL-E 2: {asset_id}")
+                        payload["promptObject"]["image"] = asset_id
+                    elif "asset" in asset_data:
+                        # Если не можем найти ID, пробуем использовать весь объект актива
+                        logger.debug(f"[{request_id}] Using full asset object for DALL-E 2")
+                        payload["promptObject"]["image"] = asset_data["asset"]
+                    else:
+                        logger.error(f"[{request_id}] Could not find valid asset ID for DALL-E 2")
+                        continue  # Переходим к следующей модели
+
                     # Удаляем несовместимые параметры
                     if "aspect_width" in payload["promptObject"]:
                         del payload["promptObject"]["aspect_width"]
                     if "aspect_height" in payload["promptObject"]:
                         del payload["promptObject"]["aspect_height"]
+                    # Удаляем дополнительные несовместимые параметры
+                    if "mode" in payload["promptObject"]:
+                        del payload["promptObject"]["mode"]
+                    if "isNiji6" in payload["promptObject"]:
+                        del payload["promptObject"]["isNiji6"]
+                    if "maintainModeration" in payload["promptObject"]:
+                        del payload["promptObject"]["maintainModeration"]
                 else:
                     # Приоритет использования: 1) image_location (абсолютный URL) 2) image_url 3) image_id
                     if image_location:
