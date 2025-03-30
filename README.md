@@ -1,6 +1,23 @@
 # 1min-Relay
 Relay 1min AI API to OpenAI Structure in 1 minute.
+---
+## NEW
 
+- support of almost all models in 1minAI API
+- support of voice models (TTS and STT)
+- support of IMAGE_GENERATOR models (also works from `/v1/chat/conversations` route)
+- support of IMAGE_VARIATOR models
+- support of files (assets) upload
+- support of webSearch and function_callings
+- support of CHAT_WITH_IMAGE and CHAT_WITH_PDF
+---
+##TO DO
+- IMAGE_UPSCALE / IMAGE_EDIT / IMAGE_EXTEND
+- MUSIC_GENERATOR / VIDEO_GENERATOR
+- all other models
+- code intrpreter / advanced data analysis
+- fixing errors
+---
 Don't forget to star this repository if you like it! 
 
 Oh and by the way, join our discord server for support and updates!
