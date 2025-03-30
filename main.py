@@ -1024,13 +1024,14 @@ def conversation():
                 
                 logger.info(f"[{request_id}] Processing variation for image: {image_url}")
                 
-                # Вызываем специальную функцию image_variations чтобы создать вариации 
+                # Вызываем специальную функцию create_image_variations чтобы создать вариации 
                 # и попробовать все доступные модели
                 variation_count = request_data.get("n", 1)
-                variation_urls = image_variations(
+                variation_urls = create_image_variations(
                     image_url, 
                     model, 
-                    variation_count
+                    variation_count,
+                    request_id=request_id
                 )
                 
                 if variation_urls:
@@ -4481,7 +4482,7 @@ def split_text_for_streaming(text, chunk_size=6):
     
     return chunks
 
-def image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
+def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
     """
     Создает вариации на основе исходного изображения.
     """
