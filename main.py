@@ -33,6 +33,7 @@ from pymemcache.client.base import Client
 from waitress import serve
 import memcache
 from dotenv import load_dotenv
+from werkzeug.utils import secure_filename
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
@@ -893,6 +894,65 @@ def conversation():
                             prompt_text += item["text"] + " "
                     prompt_text = prompt_text.strip()
         
+        # Проверяем, содержит ли запрос команду вариации изображения
+        variation_match = None
+        if prompt_text:
+            variation_match = re.search(r'/v([1-4])\s+(https?://[^\s]+)', prompt_text)
+            
+        if variation_match:
+            # Обрабатываем команду вариации изображения
+            variation_number = variation_match.group(1)
+            image_url = variation_match.group(2)
+            logger.info(f"[{request_id}] Detected image variation command: {variation_number} for URL: {image_url}")
+            
+            try:
+                # Скачиваем изображение во временный файл
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+                img_response = requests.get(image_url, stream=True)
+                
+                if img_response.status_code != 200:
+                    return jsonify({"error": f"Failed to download image from URL. Status code: {img_response.status_code}"}), 400
+                    
+                with open(temp_file.name, 'wb') as f:
+                    for chunk in img_response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                # Создаем файл для отправки
+                files = {"image": (os.path.basename(temp_file.name), open(temp_file.name, 'rb'), "image/png")}
+                
+                # Формируем форм-данные для запроса вариации
+                form_data = {
+                    "model": model or "midjourney_6_1",  # По умолчанию используем Midjourney
+                    "n": request_data.get("n", 1)
+                }
+                
+                # Отправляем запрос на вариацию изображения через внутренний маршрут
+                variation_headers = {"Authorization": f"Bearer {api_key}"}
+                variation_response = requests.post(
+                    f"http://localhost:{PORT}/v1/images/variations", 
+                    files=files, 
+                    data=form_data,
+                    headers=variation_headers
+                )
+                
+                # Очищаем временный файл
+                temp_file.close()
+                try:
+                    os.unlink(temp_file.name)
+                except:
+                    pass
+                
+                if variation_response.status_code != 200:
+                    logger.error(f"[{request_id}] Variation request failed: {variation_response.status_code}")
+                    return jsonify({"error": "Failed to create image variation"}), 500
+                
+                # Возвращаем ответ с вариациями напрямую
+                return variation_response.text, 200, {"Content-Type": "application/json"}
+                
+            except Exception as e:
+                logger.error(f"[{request_id}] Error processing variation command: {str(e)}")
+                return jsonify({"error": f"Failed to process variation command: {str(e)}"}), 500
+        
         # Логируем извлеченный промпт для отладки
         logger.debug(f"[{request_id}] Extracted prompt text: {prompt_text[:100]}..." if len(prompt_text) > 100 else f"[{request_id}] Extracted prompt text: {prompt_text}")
         
@@ -913,7 +973,7 @@ def conversation():
             if model == "dall-e-3":
                 image_request["quality"] = request_data.get("quality", "standard")
                 image_request["style"] = request_data.get("style", "vivid")
-            
+
             # Проверяем наличие специальных параметров в промпте для моделей типа midjourney
             if model.startswith("midjourney"):
                 # Добавляем проверки и параметры для midjourney моделей
@@ -1444,6 +1504,96 @@ def conversation():
         )
 
 
+def parse_aspect_ratio(prompt, model, request_data, request_id=None):
+    """
+    Извлекает соотношение сторон из запроса или промпта и проверяет его валидность
+    
+    Args:
+        prompt (str): Текст запроса
+        model (str): Имя модели генерации изображения
+        request_data (dict): Данные запроса
+        request_id (str, optional): ID запроса для логирования
+        
+    Returns:
+        tuple: (модифицированный промпт, соотношение сторон, размер изображения, сообщение об ошибке)
+    """
+    # Значения по умолчанию
+    aspect_ratio = None
+    size = request_data.get("size", "1024x1024")
+    ar_error = None
+    
+    # Пытаемся извлечь соотношение сторон из промпта
+    ar_match = re.search(r'(--|\u2014)ar\s+(\d+):(\d+)', prompt)
+    if ar_match:
+        width = int(ar_match.group(2))
+        height = int(ar_match.group(3))
+        
+        # Проверяем, что соотношение не превышает 2:1 или 1:2
+        if max(width, height) / min(width, height) > 2:
+            ar_error = "Aspect ratio cannot exceed 2:1 or 1:2"
+            logger.error(f"[{request_id}] Invalid aspect ratio: {width}:{height} - {ar_error}")
+            return prompt, None, size, ar_error
+        
+        # Проверяем, что значения в допустимом диапазоне
+        if width < 1 or width > 10000 or height < 1 or height > 10000:
+            ar_error = "Aspect ratio values must be between 1 and 10000"
+            logger.error(f"[{request_id}] Invalid aspect ratio values: {width}:{height} - {ar_error}")
+            return prompt, None, size, ar_error
+        
+        # Устанавливаем соотношение сторон
+        aspect_ratio = f"{width}:{height}"
+        
+        # Удаляем параметр из промпта
+        prompt = re.sub(r'(--|\u2014)ar\s+\d+:\d+\s*', '', prompt).strip()
+        
+        logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_ratio}")
+    
+    # Если соотношения нет в промпте, проверяем в запросе
+    elif "aspect_ratio" in request_data:
+        aspect_ratio = request_data.get("aspect_ratio")
+        
+        # Проверяем, что соотношение в правильном формате
+        if not re.match(r'^\d+:\d+$', aspect_ratio):
+            ar_error = "Aspect ratio must be in format width:height"
+            logger.error(f"[{request_id}] Invalid aspect ratio format: {aspect_ratio} - {ar_error}")
+            return prompt, None, size, ar_error
+        
+        width, height = map(int, aspect_ratio.split(':'))
+        
+        # Проверяем, что соотношение не превышает 2:1 или 1:2
+        if max(width, height) / min(width, height) > 2:
+            ar_error = "Aspect ratio cannot exceed 2:1 or 1:2"
+            logger.error(f"[{request_id}] Invalid aspect ratio: {width}:{height} - {ar_error}")
+            return prompt, None, size, ar_error
+        
+        # Проверяем, что значения в допустимом диапазоне
+        if width < 1 or width > 10000 or height < 1 or height > 10000:
+            ar_error = "Aspect ratio values must be between 1 and 10000"
+            logger.error(f"[{request_id}] Invalid aspect ratio values: {width}:{height} - {ar_error}")
+            return prompt, None, size, ar_error
+            
+        logger.debug(f"[{request_id}] Using aspect ratio from request: {aspect_ratio}")
+    
+    # Для моделей DALL-E 3 устанавливаем соответствующие размеры
+    if model == "dall-e-3" and aspect_ratio:
+        width, height = map(int, aspect_ratio.split(':'))
+        
+        # Округляем до ближайшего допустимого соотношения для DALL-E 3
+        if abs(width/height - 1) < 0.1:  # квадрат
+            size = "1024x1024"
+            aspect_ratio = "square"
+        elif width > height:  # альбомная ориентация
+            size = "1792x1024"
+            aspect_ratio = "landscape"
+        else:  # портретная ориентация
+            size = "1024x1792"
+            aspect_ratio = "portrait"
+            
+        logger.debug(f"[{request_id}] Adjusted size for DALL-E 3: {size}, aspect_ratio: {aspect_ratio}")
+    
+    return prompt, aspect_ratio, size, ar_error
+
+
 @app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
 @limiter.limit("500 per minute")
 def generate_image():
@@ -1942,7 +2092,7 @@ def generate_image():
             
             # Формируем ответ в формате OpenAI с командами для вариаций
             openai_data = []
-            for url in full_image_urls:
+            for i, url in enumerate(full_image_urls):
                 # Создаем короткий идентификатор для изображения
                 image_id = str(uuid.uuid4())[:8]
                 
@@ -1952,7 +2102,7 @@ def generate_image():
                         "url": url,
                         "revised_prompt": prompt,
                         "variation_commands": {
-                            "variation": f"/v {url}",  # Команда для создания вариации
+                            "variation": f"/v{i+1} {url}",  # Команда для создания вариации с номером
                         }
                     }
                     openai_data.append(variation_commands)
@@ -1966,10 +2116,12 @@ def generate_image():
 
             # Для совместимости с форматом текстовых ответов, добавляем structure_output
             structured_output = {"type": "image", "image_urls": full_image_urls}
+            
+            # Формируем markdown-текст с кнопками вариаций
             if len(full_image_urls) == 1:
-                text_response = f"![Image]({full_image_urls[0]})"
+                text_response = f"![Image]({full_image_urls[0]}) - [ /v1 {full_image_urls[0]} ]"
             else:
-                text_response = "\n".join([f"![Image {i+1}]({url})" for i, url in enumerate(full_image_urls)])
+                text_response = "\n".join([f"![Image {i+1}]({url}) - [ /v{i+1} {url} ]" for i, url in enumerate(full_image_urls)])
                 
             openai_response["choices"] = [
                 {
@@ -2196,6 +2348,25 @@ def image_variations():
                 "created": int(time.time()),
                 "data": openai_data,
             }
+
+            # Добавляем текст с кнопками вариаций для markdown-отображения
+            markdown_text = ""
+            if len(full_variation_urls) == 1:
+                markdown_text = f"![Variation]({full_variation_urls[0]}) - [ /v1 {full_variation_urls[0]} ]"
+            else:
+                markdown_text = "\n".join([f"![Variation {i+1}]({url}) - [ /v{i+1} {url} ]" for i, url in enumerate(full_variation_urls)])
+            
+            # Добавляем текстовый контент в ответ
+            openai_response["choices"] = [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": markdown_text
+                    },
+                    "index": 0,
+                    "finish_reason": "stop"
+                }
+            ]
 
             session.close()
             logger.info(f"[{request_id}] Successfully generated {len(openai_data)} image variations")
