@@ -1028,9 +1028,9 @@ def conversation():
                 # и попробовать все доступные модели
                 variation_count = request_data.get("n", 1)
                 variation_urls = image_variations(
-                    imageUrl=image_url, 
-                    user_model=model, 
-                    n=variation_count,
+                    image_url, 
+                    model, 
+                    variation_count,
                     request_id=request_id
                 )
                 
@@ -4482,7 +4482,7 @@ def split_text_for_streaming(text, chunk_size=6):
     
     return chunks
 
-def image_variations(imageUrl, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
+def image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
     """
     Создает вариации на основе исходного изображения.
     """
@@ -4519,7 +4519,7 @@ def image_variations(imageUrl, user_model, n, aspect_width=None, aspect_height=N
     
     try:
         # Загружаем изображение
-        image_response = upload_session.get(imageUrl, stream=True, timeout=60)
+        image_response = upload_session.get(image_url, stream=True, timeout=60)
         if image_response.status_code != 200:
             logger.error(f"[{request_id}] Failed to download image: {image_response.status_code}")
             return []
