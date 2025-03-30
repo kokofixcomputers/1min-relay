@@ -902,13 +902,15 @@ def conversation():
         if prompt_text:
             # Ищем формат старых команд /v1-/v4
             old_variation_match = re.search(r'/v([1-4])\s+(https?://[^\s]+)', prompt_text)
-            # Ищем новый формат [_V1_]-[_V4_]
-            new_variation_match = re.search(r'\[_V([1-4])_\]', prompt_text)
+            # Ищем формат с квадратными скобками [_V1_]-[_V4_]
+            square_variation_match = re.search(r'\[_V([1-4])_\]', prompt_text)
+            # Ищем новый формат с моноширинным текстом `V1`-`V4`
+            mono_variation_match = re.search(r'`V([1-4])`', prompt_text)
             
-            # Если найден новый формат, проверяем, есть ли в истории диалога URL
-            if new_variation_match and request_data.get("messages"):
-                variation_number = new_variation_match.group(1)
-                logger.debug(f"[{request_id}] Found new format variation command: {variation_number}")
+            # Если найден моноширинный формат, проверяем, есть ли в истории диалога URL
+            if mono_variation_match and request_data.get("messages"):
+                variation_number = mono_variation_match.group(1)
+                logger.debug(f"[{request_id}] Found monospace format variation command: {variation_number}")
                 
                 # Ищем URL в предыдущих сообщениях ассистента
                 image_url = None
@@ -923,8 +925,28 @@ def conversation():
                             break
                 
                 if image_url:
-                    variation_match = new_variation_match
-                    logger.info(f"[{request_id}] Detected variation command: {variation_number} for URL: {image_url}")
+                    variation_match = mono_variation_match
+                    logger.info(f"[{request_id}] Detected monospace variation command: {variation_number} for URL: {image_url}")
+            # Если найден формат с квадратными скобками, проверяем, есть ли в истории диалога URL
+            elif square_variation_match and request_data.get("messages"):
+                variation_number = square_variation_match.group(1)
+                logger.debug(f"[{request_id}] Found square bracket format variation command: {variation_number}")
+                
+                # Ищем URL в предыдущих сообщениях ассистента
+                image_url = None
+                for msg in reversed(request_data.get("messages", [])):
+                    if msg.get("role") == "assistant" and msg.get("content"):
+                        # Ищем URL изображения в контенте сообщения ассистента
+                        url_match = re.search(r'!\[.*?\]\((https?://[^\s)]+)', msg.get("content", ""))
+                        if url_match:
+                            # Берем первый найденный URL
+                            image_url = url_match.group(1)
+                            logger.debug(f"[{request_id}] Found image URL in assistant message: {image_url}")
+                            break
+                
+                if image_url:
+                    variation_match = square_variation_match
+                    logger.info(f"[{request_id}] Detected square bracket variation command: {variation_number} for URL: {image_url}")
             # Если найден старый формат, используем его
             elif old_variation_match:
                 variation_match = old_variation_match
@@ -935,10 +957,10 @@ def conversation():
         if variation_match:
             # Обрабатываем команду вариации изображения
             try:
-                # Если это новый формат, мы уже нашли URL в коде выше
-                if variation_match == new_variation_match:
-                    # image_url уже получен выше
-                    pass
+                # Проверяем, какой тип вариации был обнаружен
+                if variation_match == mono_variation_match or variation_match == square_variation_match:
+                    # URL уже получен выше в процессе поиска
+                    variation_number = variation_match.group(1)
                 else:
                     # Для старого формата извлекаем URL прямо из команды
                     variation_number = variation_match.group(1)
@@ -2185,13 +2207,13 @@ def generate_image():
             
             # Формируем markdown-текст с кнопками вариаций
             if len(full_image_urls) == 1:
-                text_response = f"![Image]({full_image_urls[0]}) [_V1_]"
+                text_response = f"![Image]({full_image_urls[0]}) `V1`"
             else:
                 # Формируем текст с изображениями и кнопками вариаций на одной строке
                 image_lines = []
                 
                 for i, url in enumerate(full_image_urls):
-                    image_lines.append(f"![Image {i+1}]({url}) [_V{i+1}_]")
+                    image_lines.append(f"![Image {i+1}]({url}) `V{i+1}`")
                 
                 # Объединяем строки с новой строкой между ними
                 text_response = "\n".join(image_lines)
@@ -2250,6 +2272,7 @@ def image_variations():
     model = request.form.get("model", "dall-e-2").strip()
     n = request.form.get("n", 1)
     size = request.form.get("size", "1024x1024")
+    prompt_text = request.form.get("prompt", "")  # Извлекаем промпт из запроса если он есть
 
     logger.debug(f"[{request_id}] Using model: {model} for image variations")
     
@@ -2317,27 +2340,40 @@ def image_variations():
 
             # Формируем payload для вариации изображения
             payload = {
-                "type": "IMAGE_VARIATION",
+                "type": "IMAGE_VARIATOR",
                 "model": model,
                 "promptObject": {
                     "n": int(n),
-                    "size": size
+                    "size": size,
+                    "mode": "relax",
+                    "isNiji6": False,
+                    "maintainModeration": True
                 }
             }
+
+            # Для VIP-пользователей добавляем credit в запрос
+            if api_key.startswith("vip-"):
+                payload["credits"] = 90000  # Стандартное количество кредитов для VIP
 
             # Добавляем image_id или image_url в зависимости от того, что нашли
             if image_id:
                 payload["promptObject"]["image_id"] = image_id
             elif image_url:
-                payload["promptObject"]["image_url"] = image_url
+                payload["promptObject"]["imageUrl"] = image_url
 
-            # Дополнительные параметры для специфических моделей
-            if model in ["dall-e-2", "dall-e-3"]:
-                # Для DALL-E добавляем дополнительные параметры
-                pass
-            elif model in ["midjourney", "midjourney_6_1"]:
-                # Для Midjourney добавляем специфические параметры
-                pass
+            # Добавляем значения для aspect_ratio если они есть
+            aspect_width = 1
+            aspect_height = 1
+            
+            # Извлекаем соотношение сторон из промпта если оно есть
+            if "--ar" in prompt_text:
+                ar_match = re.search(r'--ar\s+(\d+):(\d+)', prompt_text)
+                if ar_match:
+                    aspect_width = int(ar_match.group(1))
+                    aspect_height = int(ar_match.group(2))
+            
+            payload["promptObject"]["aspect_width"] = aspect_width
+            payload["promptObject"]["aspect_height"] = aspect_height
 
             # Использование timeout для всех моделей (15 минут)
             timeout = MIDJOURNEY_TIMEOUT
@@ -2425,13 +2461,13 @@ def image_variations():
             # Добавляем текст с кнопками вариаций для markdown-отображения
             markdown_text = ""
             if len(full_variation_urls) == 1:
-                markdown_text = f"![Variation]({full_variation_urls[0]}) [_V1_]"
+                markdown_text = f"![Variation]({full_variation_urls[0]}) `V1`"
             else:
                 # Формируем текст с изображениями и кнопками вариаций на одной строке
                 image_lines = []
                 
                 for i, url in enumerate(full_variation_urls):
-                    image_lines.append(f"![Variation {i+1}]({url}) [_V{i+1}_]")
+                    image_lines.append(f"![Variation {i+1}]({url}) `V{i+1}`")
                 
                 # Объединяем строки с новой строкой между ними
                 markdown_text = "\n".join(image_lines)
