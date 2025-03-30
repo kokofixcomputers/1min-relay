@@ -1025,10 +1025,29 @@ def conversation():
                 
                 logger.info(f"[{request_id}] Processing variation for image: {image_url}")
                 
+                # Преобразуем полный URL в относительный путь, если он соответствует формату asset.1min.ai
+                image_path = None
+                if "asset.1min.ai" in image_url:
+                    # Извлекаем часть пути /images/...
+                    path_match = re.search(r'(?:asset\.1min\.ai)(/images/[^?#]+)', image_url)
+                    if path_match:
+                        image_path = path_match.group(1)
+                    else:
+                        # Пробуем извлечь путь из URL в целом
+                        path_match = re.search(r'/images/[^?#]+', image_url)
+                        if path_match:
+                            image_path = path_match.group(0)
+                        
+                # Если нашли относительный путь, используем его вместо полного URL
+                download_url = image_url
+                if image_path:
+                    logger.debug(f"[{request_id}] Extracted relative path from image URL: {image_path}")
+                    # Для загрузки используем полный URL, но сохраняем относительный путь
+                
                 # Скачиваем изображение во временный файл и отправим перенаправление
                 # на маршрут /v1/images/variations по аналогии с /v1/images/generations
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                img_response = requests.get(image_url, stream=True)
+                img_response = requests.get(download_url, stream=True)
                 
                 if img_response.status_code != 200:
                     return jsonify({"error": f"Failed to download image from URL. Status code: {img_response.status_code}"}), 400
@@ -1043,7 +1062,8 @@ def conversation():
                     variation_data = {
                         "temp_file": temp_file.name,
                         "model": model,
-                        "n": request_data.get("n", 1)
+                        "n": request_data.get("n", 1),
+                        "image_path": image_path  # Сохраняем относительный путь, если он есть
                     }
                     safe_memcached_operation('set', variation_key, json.dumps(variation_data), expire=300)  # Хранить 5 минут
                     logger.debug(f"[{request_id}] Saved variation data to memcached with key: {variation_key}")
@@ -2383,8 +2403,12 @@ def image_variations():
                 temp_file_path = variation_data.get("temp_file")
                 model = variation_data.get("model")
                 n = variation_data.get("n", 1)
+                # Получаем относительный путь из данных, если он был сохранен
+                image_path = variation_data.get("image_path")
                 
                 logger.debug(f"[{request_id}] Retrieved variation data from memcached: model={model}, n={n}, temp_file={temp_file_path}")
+                if image_path:
+                    logger.debug(f"[{request_id}] Retrieved image path from memcached: {image_path}")
                 
                 # Проверяем, что файл существует
                 if os.path.exists(temp_file_path):
@@ -2412,7 +2436,15 @@ def image_variations():
                         
                         # Обрабатываем запрос с новым временным файлом
                         request.files = {"image": file_storage}
-                        request.form = MultiDict([("model", model), ("n", str(n))])
+                        
+                        # Создаем форму с необходимыми параметрами
+                        form_data = [("model", model), ("n", str(n))]
+                        
+                        # Если есть относительный путь, добавляем его в форму
+                        if image_path:
+                            form_data.append(("image_path", image_path))
+                            
+                        request.form = MultiDict(form_data)
                         
                         logger.info(f"[{request_id}] Using file from memcached for image variations")
                         
@@ -2446,6 +2478,11 @@ def image_variations():
     size = request.form.get("size", "1024x1024")
     prompt_text = request.form.get("prompt", "")  # Извлекаем промпт из запроса если он есть
     mode = request.form.get("mode", "relax")  # Получаем режим из запроса
+    
+    # Проверяем, передан ли относительный путь к изображению в form-данных
+    relative_image_path = request.form.get("image_path")
+    if relative_image_path:
+        logger.debug(f"[{request_id}] Using relative image path from form: {relative_image_path}")
 
     logger.debug(f"[{request_id}] Original model requested: {original_model} for image variations")
     
@@ -4698,6 +4735,18 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                     logger.error(f"[{request_id}] No image URL found in asset data: {asset_data}")
                     continue
 
+                # Используем относительный путь из формы, если он был передан
+                image_path = relative_image_path
+                
+                # Если нет относительного пути в форме, извлекаем из ответа API
+                if not image_path:
+                    # Извлекаем относительный путь /images/... для imageUrl
+                    if "fileContent" in asset_data and "path" in asset_data["fileContent"]:
+                        image_path = asset_data["fileContent"]["path"]
+                        # Убедимся, что путь начинается с /
+                        if not image_path.startswith("/"):
+                            image_path = "/" + image_path
+                
                 # Формируем запрос для вариации изображения в зависимости от модели
                 variation_payload = {
                     "model": model,
@@ -4720,12 +4769,20 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                     variation_payload["aspect_width"] = aspect_width if aspect_width else 1
                     variation_payload["aspect_height"] = aspect_height if aspect_height else 1
                     
-                    # Другие модели используют imageUrl
-                    variation_payload["imageUrl"] = image_content_url
+                    # Для Midjourney используем относительный путь, если он есть
+                    if image_path:
+                        variation_payload["imageUrl"] = image_path
+                    else:
+                        # Если нет относительного пути, используем полный URL
+                        variation_payload["imageUrl"] = image_content_url
                 else:
                     # Для Stable Diffusion и других моделей - минимальные параметры
                     variation_payload["n"] = int(n)
-                    variation_payload["imageUrl"] = image_content_url
+                    # Для других моделей также используем относительный путь, если он есть
+                    if image_path:
+                        variation_payload["imageUrl"] = image_path
+                    else:
+                        variation_payload["imageUrl"] = image_content_url
                 
                 logger.debug(f"[{request_id}] Variation payload: {variation_payload}")
                 
@@ -4809,4 +4866,3 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
     }
     
     return jsonify(response_data)
-
