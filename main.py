@@ -1669,9 +1669,7 @@ def generate_image():
 
     try:
         # Определяем URL для разных моделей
-        api_url = f"{ONE_MIN_API_URL}/generator"
-        if model in ["midjourney", "midjourney_6_1"]:
-            api_url = f"{ONE_MIN_API_URL}/generator/imagine"
+        api_url = f"{ONE_MIN_API_URL}"
         
         # Таймаут 15 минут для всех моделей генерации изображений
         timeout = MIDJOURNEY_TIMEOUT
@@ -2274,7 +2272,7 @@ def image_variations():
             # Отправляем запрос на создание вариации
             variation_response = api_request(
                 "POST",
-                f"{ONE_MIN_API_URL}/generator/variations",
+                f"{ONE_MIN_API_URL}",
                 headers={"API-KEY": api_key, "Content-Type": "application/json"},
                 json=payload,
                 timeout=timeout
