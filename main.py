@@ -2753,53 +2753,23 @@ def image_variations():
 
                 # Специальная обработка для разных моделей
                 if model == "dall-e-2":
-                    # Для DALL-E 2 нужны минимальные параметры - только n и size
-                    payload["promptObject"] = {
-                        "n": 1,  # DALL-E 2 всегда использует 1
-                        "size": "1024x1024"  # DALL-E 2 всегда использует 1024x1024
+                    payload = {
+                        "type": "IMAGE_VARIATOR",
+                        "model": model,
+                        "promptObject": {
+                            "imageUrl": image_path,
+                            "n": 1,
+                            "size": "1024x1024"
+                        }
                     }
-                    
-                    # Для DALL-E 2 нужно использовать параметр "image", а не "imageUrl"
-                    # DALL-E 2 требует ID актива, а не URL
-                    if "asset" in asset_data and "id" in asset_data["asset"]:
-                        asset_id = asset_data["asset"]["id"]
-                        logger.debug(f"[{request_id}] Using asset ID for DALL-E 2: {asset_id}")
-                        payload["promptObject"]["image"] = asset_id
-                    elif "fileContent" in asset_data and "uuid" in asset_data["fileContent"]:
-                        asset_id = asset_data["fileContent"]["uuid"]
-                        logger.debug(f"[{request_id}] Using fileContent UUID for DALL-E 2: {asset_id}")
-                        payload["promptObject"]["image"] = asset_id
-                    elif "asset" in asset_data:
-                        # Если не можем найти ID, пробуем использовать весь объект актива
-                        logger.debug(f"[{request_id}] Using full asset object for DALL-E 2")
-                        payload["promptObject"]["image"] = asset_data["asset"]
-                    else:
-                        logger.error(f"[{request_id}] Could not find valid asset ID for DALL-E 2")
-                        continue  # Переходим к следующей модели
-                elif model == "midjourney" or model == "midjourney_6_1":
-                    # Для Midjourney нужны все обязательные параметры
-                    payload["promptObject"] = {
-                        "n": int(n),
-                        "mode": mode,
-                        "isNiji6": False,
-                        "maintainModeration": True,
-                        "aspect_width": aspect_width if aspect_width else 1,
-                        "aspect_height": aspect_height if aspect_height else 1
+                elif model == "clipdrop":
+                    payload = {
+                        "type": "IMAGE_VARIATOR",
+                        "model": model,
+                        "promptObject": {
+                            "imageUrl": image_path
+                        }
                     }
-                    
-                    # Приоритет использования: 1) image_location (абсолютный URL) 2) image_url 3) image_id
-                    if image_location:
-                        payload["promptObject"]["imageUrl"] = image_location
-                        logger.debug(f"[{request_id}] Using absolute URL for variation: {image_location}")
-                    elif image_url:
-                        payload["promptObject"]["imageUrl"] = image_url
-                        logger.debug(f"[{request_id}] Using path URL for variation: {image_url}")
-                    elif image_id:
-                        payload["promptObject"]["image_id"] = image_id
-                        logger.debug(f"[{request_id}] Using image ID for variation: {image_id}")
-                    else:
-                        logger.error(f"[{request_id}] No valid image reference found")
-                        continue  # Пробуем следующую модель
                 else:
                     # Для всех остальных моделей (SD, Clipdrop) используем минимальные параметры
                     payload["promptObject"] = {
@@ -4732,24 +4702,16 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 logger.debug(f"[{request_id}] Asset upload response: {upload_data}")
 
                 # Получаем путь к загруженному изображению
+                image_path = None
                 if "fileContent" in upload_data and "path" in upload_data["fileContent"]:
                     image_path = upload_data["fileContent"]["path"]
+                    logger.debug(f"[{request_id}] Using relative path for variation: {image_path}")
                 else:
                     logger.error(f"[{request_id}] Could not extract image path from upload response")
                     continue
 
-                # Получаем URL для загруженного изображения
-                if "asset" in upload_data and "location" in upload_data["asset"]:
-                    image_content_url = upload_data["asset"]["location"]
-                else:
-                    logger.error(f"[{request_id}] Could not extract image URL from upload response")
-                    continue
-
-                logger.debug(f"[{request_id}] Using absolute URL for variation: {image_content_url}")
-
                 # Формируем payload в зависимости от модели
                 if model in ["midjourney_6_1", "midjourney"]:
-                    # Для Midjourney
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": model,
@@ -4758,9 +4720,9 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                             "mode": mode or "relax",
                             "n": 4,
                             "isNiji6": False,
+                            "maintainModeration": True,
                             "aspect_width": aspect_width or 1,
-                            "aspect_height": aspect_height or 1,
-                            "maintainModeration": True
+                            "aspect_height": aspect_height or 1
                         }
                     }
                     logger.info(f"[{request_id}] Midjourney variation payload: {json.dumps(payload, indent=2)}")
@@ -4776,16 +4738,89 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         }
                     }
                     logger.info(f"[{request_id}] DALL-E 2 variation payload: {json.dumps(payload, indent=2)}")
+                    
+                    # Отправляем запрос через основной API URL
+                    variation_response = api_request(
+                        "POST",
+                        ONE_MIN_API_URL,
+                        headers=headers,
+                        json=payload,
+                        timeout=300
+                    )
+                    
+                    if variation_response.status_code != 200:
+                        logger.error(f"[{request_id}] DALL-E 2 variation failed: {variation_response.status_code}, {variation_response.text}")
+                        continue
+                        
+                    # Обрабатываем ответ
+                    variation_data = variation_response.json()
+                    
+                    # Извлекаем URL из ответа
+                    if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
+                        result_object = variation_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
+                        if isinstance(result_object, list):
+                            variation_urls.extend(result_object)
+                        elif isinstance(result_object, str):
+                            variation_urls.append(result_object)
+                    elif "resultObject" in variation_data:
+                        result_object = variation_data["resultObject"]
+                        if isinstance(result_object, list):
+                            variation_urls.extend(result_object)
+                        elif isinstance(result_object, str):
+                            variation_urls.append(result_object)
+                            
+                    if variation_urls:
+                        logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2")
+                        break
+                    else:
+                        logger.warning(f"[{request_id}] No variation URLs found in DALL-E 2 response")
                 elif model == "clipdrop":
                     # Для Clipdrop
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": "clipdrop",
                         "promptObject": {
-                            "imageUrl": image_path
+                            "imageUrl": image_path,
+                            "n": n
                         }
                     }
                     logger.info(f"[{request_id}] Clipdrop variation payload: {json.dumps(payload, indent=2)}")
+                    
+                    # Отправляем запрос через основной API URL
+                    variation_response = api_request(
+                        "POST",
+                        ONE_MIN_API_URL,
+                        headers=headers,
+                        json=payload,
+                        timeout=300
+                    )
+                    
+                    if variation_response.status_code != 200:
+                        logger.error(f"[{request_id}] Clipdrop variation failed: {variation_response.status_code}, {variation_response.text}")
+                        continue
+                        
+                    # Обрабатываем ответ
+                    variation_data = variation_response.json()
+                    
+                    # Извлекаем URL из ответа
+                    if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
+                        result_object = variation_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
+                        if isinstance(result_object, list):
+                            variation_urls.extend(result_object)
+                        elif isinstance(result_object, str):
+                            variation_urls.append(result_object)
+                    elif "resultObject" in variation_data:
+                        result_object = variation_data["resultObject"]
+                        if isinstance(result_object, list):
+                            variation_urls.extend(result_object)
+                        elif isinstance(result_object, str):
+                            variation_urls.append(result_object)
+                            
+                    if variation_urls:
+                        logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with Clipdrop")
+                        break
+                    else:
+                        logger.warning(f"[{request_id}] No variation URLs found in Clipdrop response")
 
                 logger.debug(f"[{request_id}] Sending variation request to URL: {ONE_MIN_API_URL}")
                 logger.debug(f"[{request_id}] Using headers: {json.dumps(headers)}")
@@ -4878,3 +4913,4 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         return jsonify({"error": str(e)}), 500
     finally:
         session.close()
+
