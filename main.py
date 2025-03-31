@@ -4563,7 +4563,7 @@ def split_text_for_streaming(text, chunk_size=6):
 
 def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
     """
-    Создает вариации на основе исходного изображения.
+    Создает вариации на основе исходного изображения с учетом специфики каждой модели.
     """
     # Инициализируем список URL перед циклом
     variation_urls = []
@@ -4573,296 +4573,233 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
     if request_id is None:
         request_id = str(uuid.uuid4())
 
+    # Получаем сохраненные параметры генерации
+    generation_params = None
+    if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+        try:
+            gen_key = f"gen_params:{request_id}"
+            params_json = safe_memcached_operation('get', gen_key)
+            if params_json:
+                if isinstance(params_json, str):
+                    generation_params = json.loads(params_json)
+                elif isinstance(params_json, bytes):
+                    generation_params = json.loads(params_json.decode('utf-8'))
+                logger.debug(f"[{request_id}] Retrieved generation parameters from memcached: {generation_params}")
+        except Exception as e:
+            logger.error(f"[{request_id}] Error retrieving generation parameters: {str(e)}")
+
+    # Используем сохраненные параметры, если они доступны
+    if generation_params:
+        # Берем aspect_width и aspect_height из сохраненных параметров, если они есть
+        if "aspect_width" in generation_params and "aspect_height" in generation_params:
+            aspect_width = generation_params.get("aspect_width")
+            aspect_height = generation_params.get("aspect_height")
+            logger.debug(f"[{request_id}] Using saved aspect ratio: {aspect_width}:{aspect_height}")
+        
+        # Берем режим из сохраненных параметров, если он есть
+        if "mode" in generation_params:
+            mode = generation_params.get("mode")
+            logger.debug(f"[{request_id}] Using saved mode: {mode}")
+
     # Определяем список моделей для вариаций
     variation_models = []
-    
-    # Если пользовательская модель поддерживает вариации, сначала пробуем её
     if user_model in VARIATION_SUPPORTED_MODELS:
         variation_models.append(user_model)
-    
-    # Добавляем резервные модели
-    variation_models.extend([
-        "midjourney_6_1",
-        "midjourney",
-        "clipdrop",
-        "dall-e-2"
-    ])
-    
-    # Удаляем дубликаты и сохраняем порядок
+    variation_models.extend([m for m in ["midjourney_6_1", "midjourney", "clipdrop", "dall-e-2"] if m != user_model])
     variation_models = list(dict.fromkeys(variation_models))
     
-    logger.info(f"[{request_id}] Starting image variations with models: {variation_models}")
+    logger.info(f"[{request_id}] Trying image variations with models: {variation_models}")
 
     # Создаем сессию для загрузки изображения
-    upload_session = requests.Session()
-    
+    session = create_session()
+
     try:
         # Загружаем изображение
-        image_response = upload_session.get(image_url, stream=True, timeout=60)
+        image_response = session.get(image_url, stream=True, timeout=60)
         if image_response.status_code != 200:
             logger.error(f"[{request_id}] Failed to download image: {image_response.status_code}")
-            return []
+            return jsonify({"error": "Failed to download image"}), 500
 
-        image_response.raw.decode_content = True
-        temp_file = io.BytesIO(image_response.content)
-            
-        # Определяем тип файла по контенту
-        image_format = imghdr.what(None, h=temp_file.getvalue())
-        
-        if not image_format:
-            logger.error(f"[{request_id}] Unable to determine image format")
-            return []
-            
-        file_name = f"variation_{request_id}.{image_format}"
-        
-        # Сначала пробуем DALL-E 2 через OpenAI API напрямую, если доступно
-        if "dall-e-2" in variation_models and os.environ.get("OPENAI_API_KEY"):
-            openai_api_key = os.environ.get("OPENAI_API_KEY")
-            openai_headers = {"Authorization": f"Bearer {openai_api_key}"}
-            openai_url = "https://api.openai.com/v1/images/variations"
-            
-            # Сохраняем временный файл на диск для OpenAI API
-            temp_path = tempfile.NamedTemporaryFile(delete=False, suffix=f".{image_format}")
-            temp_path.write(temp_file.getvalue())
-            temp_path.close()
-            
-            try:
-                logger.info(f"[{request_id}] Trying DALL-E 2 via direct OpenAI API")
-                
-                # Открываем файл для отправки в OpenAI
-                with open(temp_path.name, 'rb') as img_file:
-                    # OpenAI ожидает файл напрямую в form-data
-                    dalle_files = {
-                        'image': (os.path.basename(temp_path.name), img_file, f'image/{image_format}')
-                    }
-                    
-                    # Параметры запроса
-                    dalle_form_data = {
-                        'n': n,
-                        'size': "1024x1024",
-                        'model': 'dall-e-2'
-                    }
-                    
-                    # Отправляем запрос к OpenAI
-                    variation_response = requests.post(
-                        openai_url,
-                        files=dalle_files,
-                        data=dalle_form_data,
-                        headers=openai_headers,
-                        timeout=300
-                    )
-                    
-                    if variation_response.status_code == 200:
-                        logger.info(f"[{request_id}] DALL-E 2 variation via direct OpenAI API successful")
-                        variation_data = variation_response.json()
-                        
-                        # Извлекаем URL из ответа
-                        if "data" in variation_data and isinstance(variation_data["data"], list):
-                            for item in variation_data["data"]:
-                                if "url" in item:
-                                    variation_urls.append(item["url"])
-                        
-                        # Если успешно получили URL, возвращаем результат
-                        if variation_urls:
-                            logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations using DALL-E 2 via OpenAI API")
-                            # Удаляем временный файл
-                            try:
-                                os.unlink(temp_path.name)
-                            except:
-                                pass
-                            return variation_urls
-                    else:
-                        logger.error(f"[{request_id}] DALL-E 2 via OpenAI API failed: {variation_response.status_code}, {variation_response.text}")
-            
-            except Exception as e:
-                logger.error(f"[{request_id}] Error with OpenAI API for DALL-E 2: {str(e)}")
-                logger.error(traceback.format_exc())
-            
-            # Удаляем временный файл если он все еще существует
-            try:
-                os.unlink(temp_path.name)
-            except:
-                pass
-        
-        # Пробуем каждую модель по очереди через 1min.ai API
+        # Пробуем каждую модель по очереди
         for model in variation_models:
             current_model = model
-            logger.info(f"[{request_id}] Trying image variation with model: {model}")
-            
+            logger.info(f"[{request_id}] Trying model: {model} for image variations")
+
             try:
-                # Создаем файл для загрузки
-                temp_file.seek(0)
-                files = {
-                    'file': (file_name, temp_file, f'image/{image_format}')
-                }
+                # Определяем MIME-тип изображения на основе содержимого или URL
+                content_type = "image/png"  # По умолчанию
+                if "content-type" in image_response.headers:
+                    content_type = image_response.headers["content-type"]
+                elif image_url.lower().endswith(".webp"):
+                    content_type = "image/webp"
+                elif image_url.lower().endswith(".jpg") or image_url.lower().endswith(".jpeg"):
+                    content_type = "image/jpeg"
+                elif image_url.lower().endswith(".gif"):
+                    content_type = "image/gif"
                 
-                # Загружаем файл на 1min.ai
-                upload_url = f"{BASE_URL}/uploads/{TEAM_ID}"
-                upload_response = upload_session.post(
-                    upload_url,
-                    files=files,
-                    timeout=60
-                )
+                # Определяем подходящее расширение для файла
+                ext = "png"
+                if "webp" in content_type:
+                    ext = "webp"
+                elif "jpeg" in content_type or "jpg" in content_type:
+                    ext = "jpg" 
+                elif "gif" in content_type:
+                    ext = "gif"
                 
-                logger.debug(f"[{request_id}] Upload response status: {upload_response.status_code}")
+                logger.debug(f"[{request_id}] Detected image type: {content_type}, extension: {ext}")
                 
+                # Загружаем изображение на сервер с корректным MIME-типом
+                files = {"asset": (f"variation.{ext}", image_response.content, content_type)}
+                upload_response = session.post(ONE_MIN_ASSET_URL, files=files, headers=headers)
+
                 if upload_response.status_code != 200:
-                    logger.error(f"[{request_id}] Failed to upload image: {upload_response.status_code}, {upload_response.text}")
+                    logger.error(f"[{request_id}] Image upload failed: {upload_response.status_code}")
                     continue
 
                 upload_data = upload_response.json()
-                
-                # Проверяем, что загрузка прошла успешно
-                if not upload_data.get("success"):
-                    logger.error(f"[{request_id}] Upload failed: {upload_data}")
-                    continue
+                logger.debug(f"[{request_id}] Asset upload response: {upload_data}")
 
-                # Получаем asset_data
-                asset_data = upload_data.get("asset", {})
-                
-                # Проверяем наличие id и fileContent/location в данных
-                if not asset_data.get("id") or (not asset_data.get("fileContent") and not asset_data.get("location")):
-                    logger.error(f"[{request_id}] Invalid asset data: {asset_data}")
-                    continue
-
-                # Получаем идентификатор загруженного файла
-                asset_id = asset_data.get("id")
-                
-                # Определяем URL изображения
-                image_content_url = asset_data.get("fileContent") or asset_data.get("location")
-                
-                if not image_content_url:
-                    logger.error(f"[{request_id}] No image URL found in asset data: {asset_data}")
-                    continue
-
-                # Используем относительный путь из формы, если он был передан
-                image_path = relative_image_path
-                
-                # Если нет относительного пути в форме, извлекаем из ответа API
-                if not image_path:
-                    # Извлекаем относительный путь /images/... для imageUrl
-                    if "fileContent" in asset_data and "path" in asset_data["fileContent"]:
-                        image_path = asset_data["fileContent"]["path"]
-                        # Убедимся, что путь начинается с /
-                        if not image_path.startswith("/"):
-                            image_path = "/" + image_path
-                
-                # Формируем запрос для вариации изображения в зависимости от модели
-                variation_payload = {
-                    "model": model,
-                }
-                
-                # Особая обработка для разных моделей
-                if model == "dall-e-2":
-                    # DALL-E 2 используем минимальные параметры
-                    variation_payload["n"] = 1  # DALL-E 2 всегда использует 1
-                    # DALL-E 2 использует 'image' вместо 'imageUrl'
-                    variation_payload["image"] = asset_id
-                elif model == "midjourney" or model == "midjourney_6_1":
-                    # Для Midjourney нужны все обязательные параметры
-                    variation_payload["n"] = int(n)
-                    variation_payload["mode"] = mode if mode else "relax"
-                    variation_payload["isNiji6"] = False
-                    variation_payload["maintainModeration"] = True
-                    
-                    # Добавляем размеры, если они указаны
-                    variation_payload["aspect_width"] = aspect_width if aspect_width else 1
-                    variation_payload["aspect_height"] = aspect_height if aspect_height else 1
-                    
-                    # Для Midjourney используем относительный путь, если он есть
-                    if image_path:
-                        variation_payload["imageUrl"] = image_path
-                    else:
-                        # Если нет относительного пути, используем полный URL
-                        variation_payload["imageUrl"] = image_content_url
+                # Получаем путь к загруженному изображению
+                if "fileContent" in upload_data and "path" in upload_data["fileContent"]:
+                    image_path = upload_data["fileContent"]["path"]
                 else:
-                    # Для Stable Diffusion и других моделей - минимальные параметры
-                    variation_payload["n"] = int(n)
-                    # Для других моделей также используем относительный путь, если он есть
-                    if image_path:
-                        variation_payload["imageUrl"] = image_path
-                    else:
-                        variation_payload["imageUrl"] = image_content_url
-                
-                logger.debug(f"[{request_id}] Variation payload: {variation_payload}")
-                
-                # Создаем сессию для запроса вариации
-                variation_session = requests.Session()
-                
-                # URL для запроса вариации
-                variation_url = f"{BASE_URL}/image/variations/{TEAM_ID}"
-                
-                # Отправляем запрос на создание вариации
-                variation_response = variation_session.post(
-                    variation_url,
-                    json=variation_payload,
-                    timeout=900  # 15 минут таймаут
-                )
-                
-                logger.debug(f"[{request_id}] Variation response status: {variation_response.status_code}")
-                
-                if variation_response.status_code != 200:
-                    logger.error(f"[{request_id}] Failed to create image variation with model {model}: {variation_response.status_code}, {variation_response.text}")
+                    logger.error(f"[{request_id}] Could not extract image path from upload response")
                     continue
+
+                # Получаем URL для загруженного изображения
+                if "asset" in upload_data and "location" in upload_data["asset"]:
+                    image_content_url = upload_data["asset"]["location"]
+                else:
+                    logger.error(f"[{request_id}] Could not extract image URL from upload response")
+                    continue
+
+                logger.debug(f"[{request_id}] Using absolute URL for variation: {image_content_url}")
+
+                # Формируем payload в зависимости от модели
+                if model in ["midjourney_6_1", "midjourney"]:
+                    # Для Midjourney
+                    payload = {
+                        "type": "IMAGE_VARIATOR",
+                        "model": model,
+                        "promptObject": {
+                            "imageUrl": image_path,
+                            "mode": "relax",
+                            "n": 4,  # Всегда 4 для Midjourney
+                            "isNiji6": False,
+                            "maintainModeration": True,
+                            "aspect_width": aspect_width or 1,
+                            "aspect_height": aspect_height or 1
+                        }
+                    }
+                elif model == "dall-e-2":
+                    # Для DALL-E 2
+                    payload = {
+                        "type": "IMAGE_VARIATOR",
+                        "model": "dall-e-2",
+                        "promptObject": {
+                            "imageUrl": image_path,
+                            "n": 1,  # Всегда 1 для DALL-E 2
+                            "size": "1024x1024"
+                        }
+                    }
+                elif model == "clipdrop":
+                    # Для Clipdrop (без n)
+                    payload = {
+                        "type": "IMAGE_VARIATOR",
+                        "model": "clipdrop",
+                        "promptObject": {
+                            "imageUrl": image_path
+                        }
+                    }
+
+                logger.debug(f"[{request_id}] Sending variation request with payload: {payload}")
+
+                # Отправляем запрос на создание вариации
+                timeout = MIDJOURNEY_TIMEOUT if model.startswith("midjourney") else DEFAULT_TIMEOUT
+                logger.debug(f"Using extended timeout for Midjourney: {timeout}s")
                 
-                # Пытаемся получить вариации из ответа
+                variation_response = api_request(
+                    "POST",
+                    ONE_MIN_API_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=timeout
+                )
+
+                if variation_response.status_code != 200:
+                    logger.error(f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
+                    continue
+
+                # Обрабатываем ответ
                 variation_data = variation_response.json()
                 
-                logger.debug(f"[{request_id}] Variation data: {variation_data}")
-                
-                # Находим URL вариаций в ответе в зависимости от модели
-                if model == "dall-e-2":
-                    # DALL-E 2 возвращает данные в другом формате
-                    dall_e_data = variation_data.get("data", [])
-                    if dall_e_data and isinstance(dall_e_data, list):
-                        # Извлекаем URL из ответа DALL-E 2
-                        for item in dall_e_data:
-                            if item.get("url"):
-                                variation_urls.append(item.get("url"))
-                else:
-                    # Другие модели
-                    urls = []
-                    
-                    # Попробуем найти URL в разных структурах ответа
-                    if "images" in variation_data and isinstance(variation_data["images"], list):
-                        for img in variation_data["images"]:
-                            if isinstance(img, dict) and img.get("url"):
-                                urls.append(img.get("url"))
-                    elif "data" in variation_data and isinstance(variation_data["data"], list):
-                        for item in variation_data["data"]:
-                            if isinstance(item, dict) and item.get("url"):
-                                urls.append(item.get("url"))
-                    
-                    # Если нашли URL, добавляем их в результат
-                    if urls:
-                        variation_urls.extend(urls)
-                
-                # Если удалось получить URL вариаций, прерываем цикл
+                # Извлекаем URL вариаций из ответа
+                if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
+                    result_object = variation_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
+                    if isinstance(result_object, list):
+                        variation_urls.extend(result_object)
+                    elif isinstance(result_object, str):
+                        variation_urls.append(result_object)
+                elif "resultObject" in variation_data:
+                    result_object = variation_data["resultObject"]
+                    if isinstance(result_object, list):
+                        variation_urls.extend(result_object)
+                    elif isinstance(result_object, str):
+                        variation_urls.append(result_object)
+
                 if variation_urls:
-                    logger.info(f"[{request_id}] Successfully created {len(variation_urls)} image variations with model {model}")
+                    logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with {model}")
                     break
                 else:
-                    logger.error(f"[{request_id}] No variation URLs found in response for model {model}")
-            
+                    logger.warning(f"[{request_id}] No variation URLs found in response for model {model}")
+
             except Exception as e:
-                logger.error(f"[{request_id}] Error while creating image variation with model {model}: {str(e)}")
-                logger.error(traceback.format_exc())
+                logger.error(f"[{request_id}] Error with model {model}: {str(e)}")
                 continue
-    
-    except Exception as e:
-        logger.error(f"[{request_id}] Error while processing image for variations: {str(e)}")
-        logger.error(traceback.format_exc())
-        return jsonify({"error": f"Failed to create image variations: {str(e)}"}), 500
-    
-    # Возвращаем URL вариаций или ошибку, если список пустой
-    if not variation_urls:
-        logger.error(f"[{request_id}] Failed to create image variations with all models")
-        return jsonify({"error": f"Failed to create image variations with model {current_model} or any fallback models"}), 500
+
+        # Если не удалось создать вариации ни с одной моделью
+        if not variation_urls:
+            logger.error(f"[{request_id}] Failed to create variations with any available model")
+            return jsonify({"error": "Failed to create image variations with any available model"}), 500
+
+        # Формируем ответ
+        openai_response = {
+            "created": int(time.time()),
+            "data": []
+        }
         
-    # Формируем и возвращаем ответ в формате OpenAI API
-    response_data = {
-        "created": int(time.time()),
-        "data": [{"url": url} for url in variation_urls]
-    }
-    
-    return jsonify(response_data)
+        for url in variation_urls:
+            openai_data = {
+                "url": url
+            }
+            openai_response["data"].append(openai_data)
+        
+        # Формируем markdown-текст с подсказкой
+        text_lines = []
+        for i, url in enumerate(variation_urls, 1):
+            text_lines.append(f"Image {i} ({url}) [_V{i}_]")
+        text_lines.append("\nTo generate Variants of Image - tap (copy) [_V1_] - [_V4_] and send it (paste) in next prompt")
+        
+        text_response = "\n".join(text_lines)
+        
+        openai_response["choices"] = [{
+            "message": {
+                "role": "assistant",
+                "content": text_response
+            },
+            "index": 0,
+            "finish_reason": "stop"
+        }]
+        
+        logger.info(f"[{request_id}] Returning {len(variation_urls)} variation URLs to client")
+        
+        response = jsonify(openai_response)
+        return set_response_headers(response)
+
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception during image variation: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+    finally:
+        session.close()
+
