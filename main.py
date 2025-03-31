@@ -2391,7 +2391,7 @@ def generate_image():
             if len(full_image_urls) == 1:
                 text_response = f"![Image]({full_image_urls[0]}) `[_V1_]`"
                 # Add a hint about the creation of variations
-                text_response += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
+                text_response += "\n\n>To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
             else:
                 # We form a text with images and buttons of variations on one line
                 image_lines = []
@@ -2403,7 +2403,7 @@ def generate_image():
                 text_response = "\n".join(image_lines)
                 
                 # Add a hint about the creation of variations
-                text_response += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
+                text_response += "\n\n>To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
                 
             openai_response["choices"] = [
                 {
@@ -2925,7 +2925,7 @@ def image_variations():
     if len(full_variation_urls) == 1:
         markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
         # Add a hint to create variations
-        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
+        markdown_text += "\n\n>To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
     else:
         # We form a text with images and buttons of variations on one line
         image_lines = []
@@ -2936,7 +2936,7 @@ def image_variations():
         # Combine lines with a new line between them
         markdown_text = "\n".join(image_lines)
         # Add a hint to create variations
-        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
+        markdown_text += "\n\n>To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
     
     openai_response["choices"] = [
         {
@@ -4553,34 +4553,6 @@ def delete_all_files_task():
     cleanup_timer.start()
     logger.info(f"[{request_id}] Scheduled next cleanup in 1 hour")
 
-# Run the task at the start of the server
-if __name__ == "__main__":
-    # Launch the task of deleting files
-    delete_all_files_task()
-    
-    # Run the application
-    internal_ip = socket.gethostbyname(socket.gethostname())
-    try:
-        response = requests.get("https://api.ipify.org")
-        public_ip = response.text
-    except:
-        public_ip = "Не удалось определить"
-        
-    logger.info(
-        f"""{printedcolors.Color.fg.lightcyan}  
-Server is ready to serve at:
-Internal IP: {internal_ip}:{PORT}
-Public IP: {public_ip} (only if you've setup port forwarding on your router.)
-Enter this url to OpenAI clients supporting custom endpoint:
-{internal_ip}:{PORT}/v1
-If does not work, try:
-{internal_ip}:{PORT}/v1/chat/completions
-{printedcolors.Color.reset}"""
-    )
-    
-    serve(
-        app, host="0.0.0.0", port=PORT, threads=6
-    )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
 
 def split_text_for_streaming(text, chunk_size=6):
     """
@@ -4917,7 +4889,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         text_lines = []
         for i, url in enumerate(variation_urls, 1):
             text_lines.append(f"Image {i} ({url}) [_V{i}_]")
-        text_lines.append("\n> To generate **variants** of **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**")
+        text_lines.append("\n>To generate **variants** of **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**")
         
         text_response = "\n".join(text_lines)
         
@@ -4941,3 +4913,33 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         return jsonify({"error": str(e)}), 500
     finally:
         session.close()
+
+
+# Run the task at the start of the server
+if __name__ == "__main__":
+    # Launch the task of deleting files
+    delete_all_files_task()
+    
+    # Run the application
+    internal_ip = socket.gethostbyname(socket.gethostname())
+    try:
+        response = requests.get("https://api.ipify.org")
+        public_ip = response.text
+    except:
+        public_ip = "Не удалось определить"
+        
+    logger.info(
+        f"""{printedcolors.Color.fg.lightcyan}  
+Server is ready to serve at:
+Internal IP: {internal_ip}:{PORT}
+Public IP: {public_ip} (only if you've setup port forwarding on your router.)
+Enter this url to OpenAI clients supporting custom endpoint:
+{internal_ip}:{PORT}/v1
+If does not work, try:
+{internal_ip}:{PORT}/v1/chat/completions
+{printedcolors.Color.reset}"""
+    )
+    
+    serve(
+        app, host="0.0.0.0", port=PORT, threads=6
+    )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
