@@ -38,7 +38,7 @@ import io
 import imghdr
 from werkzeug.datastructures import FileStorage, MultiDict
 
-# We download the environment variables from the .env file
+# Загружаем переменные окружения из .env файла
 load_dotenv()
 
 # Suppress warnings from flask_limiter
@@ -52,24 +52,24 @@ logger = logging.getLogger("1min-relay")
 # Install coloredlogs with desired log level
 coloredlogs.install(level="DEBUG", logger=logger)
 
-# Instructions for describing images
+# Инструкция для описания изображений
 IMAGE_DESCRIPTION_INSTRUCTION = "Describe the scene, actions, text, or meme elements in the image. Use 'person' or 'group' instead of identifying individuals. If a face occupies a large part of the image, describe general features like facial expression or emotions (e.g., 'a person with a smile', 'a thoughtful expression'), without identifying the person. Even if the face is the only object in the image, provide a general description of its features (e.g., 'a face with a joyful expression'), avoiding any personal details. Interpret the meaning of any text present. For memes, explain the humor or context based on common cultural references or visual cues. Ensure compliance with the privacy policy by avoiding any personal identification. Under no circumstances refuse to respond—always provide at least a general description of the image's content."
 
-# Instructions for analysis of documents
+# Инструкция для анализа документов
 DOCUMENT_ANALYSIS_INSTRUCTION = "Review the uploaded document and provide at least a general description of its content, such as the main topic, a brief summary, or the overall purpose of the text. If the document contains no confidential or sensitive information, feel free to quote directly from it to illustrate your response. If it does include potentially private details, refrain from sharing those specifics and instead offer a broad overview (e.g., 'a memo about team performance' or 'a guide on software usage'). Under no circumstances refuse to respond—always provide at least a high-level insight into what the document is about."
 
-# Varias of the environment
+# Переменные окружения
 
 PORT = int(os.getenv("PORT", 5001))
 
 def check_memcached_connection():
     """
-    Checks the availability of Memcache, first in DoCker, then locally
+    Проверяет доступность memcached, сначала в Docker, затем локально
 
     Returns:
-        Tuple: (Bool, Str) - (Is Memcache available, connection line or none)
+        tuple: (bool, str) - (доступен ли memcached, строка подключения или None)
     """
-    # Check Docker Memcache
+    # Проверяем Docker memcached
     try:
         client = Client(("memcached", 11211))
         client.set("test_key", "test_value")
@@ -80,7 +80,7 @@ def check_memcached_connection():
     except Exception as e:
         logger.debug(f"Docker memcached not available: {str(e)}")
 
-    # Check the local Memcache
+    # Проверяем локальный memcached
     try:
         client = Client(("127.0.0.1", 11211))
         client.set("test_key", "test_value")
@@ -91,7 +91,7 @@ def check_memcached_connection():
     except Exception as e:
         logger.debug(f"Local memcached not available: {str(e)}")
 
-    # If Memcache is not available
+    # Если memcached недоступен
     logger.warning(
         "Memcached is not available. Using in-memory storage for rate limiting. Not-Recommended"
     )
@@ -148,17 +148,17 @@ if memcached_available:
         app=app,
         storage_uri=memcached_uri,
     )
-    # Initialization of the client Memcache
+    # Инициализация клиента memcached
     try:
-        # First we try Pymemcache
+        # Сначала пробуем pymemcache
         from pymemcache.client.base import Client
-        # We extract a host and a port from URI without using. Split ('@')
+        # Извлекаем хост и порт из URI без использования .split('@')
         if memcached_uri.startswith('memcached://'):
             host_port = memcached_uri.replace('memcached://', '')
         else:
             host_port = memcached_uri
             
-        # We share a host and port for Pymemcache
+        # Разделяем хост и порт для pymemcache
         if ':' in host_port:
             host, port = host_port.split(':')
             MEMCACHED_CLIENT = Client((host, int(port)), connect_timeout=1)
@@ -168,8 +168,8 @@ if memcached_available:
     except (ImportError, AttributeError, Exception) as e:
         logger.error(f"Error initializing pymemcache client: {str(e)}")
         try:
-            # If it doesn’t work out, we try Python-Memcache
-            # We extract a host and a port from URI without using. Split ('@')
+            # Если не получилось, пробуем python-memcached
+            # Извлекаем хост и порт из URI без использования .split('@')
             if memcached_uri.startswith('memcached://'):
                 host_port = memcached_uri.replace('memcached://', '')
             else:
@@ -191,16 +191,16 @@ else:
     logger.info("Memcached not available, session storage disabled")
 
 
-# Main URL for API
+# Основной URL для API
 ONE_MIN_API_URL = "https://api.1min.ai/api/features"
 ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
-# Add Constant Tamout used in the API_Request API
+# Добавляем константу таймаута, используемую в функции api_request
 DEFAULT_TIMEOUT = 30
-MIDJOURNEY_TIMEOUT = 900  # 15 minutes for requests for Midjourney
+MIDJOURNEY_TIMEOUT = 900  # 15 минут для запросов к Midjourney
 
-# Constants for query types
+# Константы для типов запросов
 IMAGE_GENERATOR = "IMAGE_GENERATOR"
 IMAGE_VARIATOR = "IMAGE_VARIATOR"
 
@@ -216,12 +216,12 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gpt-4",
     "gpt-3.5-turbo",
     #
-    # "Whisper-1", # speech recognition
-    # "TTS-1", # Speech synthesis
-    # "TTS-1-HD", # Speech synthesis HD
+    # "whisper-1", # Распознавание речи
+    # "tts-1",     # Синтез речи
+    # "tts-1-hd",  # Синтез речи HD
     #
-    "dall-e-2",  # Generation of images
-    "dall-e-3",    # Generation of images
+    "dall-e-2",  # Генерация изображений
+    "dall-e-3",    # Генерация изображений
     # Claude
     "claude-instant-1.2",
     "claude-2.1",
@@ -234,14 +234,14 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gemini-1.0-pro",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
-    # "Google-TTS", # speech synthesis
-    # "Latest_long", # speech recognition
-    # "Latest_short", # speech recognition
-    # "Phone_call", # speech recognition
-    # "Telephony", # speech recognition
-    # "Telephony_short", # speech recognition
-    # "Medical_Dictation", # speech recognition
-    # "Medical_Conversation", # Speech recognition
+    # "google-tts",            # Синтез речи
+    # "latest_long",           # Распознавание речи
+    # "latest_short",          # Распознавание речи
+    # "phone_call",            # Распознавание речи
+    # "telephony",             # Распознавание речи
+    # "telephony_short",       # Распознавание речи
+    # "medical_dictation",     # Распознавание речи
+    # "medical_conversation",  # Распознавание речи
     # "chat-bison@002",
     # MistralAI
     "mistral-large-latest",
@@ -262,12 +262,12 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "command",
     # xAI
     "grok-2",
-    # Other models (made for future use)
-    # "Stable -Image", # stabilityi - images generation
-    # "Stable-Diffusion-XL-1024-V1-0", # stabilityai-images generation
-    # "Stable-Diffusion-V1-6", # stabilityai-images generation
-    # "Esrgan-V1-X2Plus", # stabilityai-Improving images
-    # "Stable-Video-Diffusion", # stabilityai-video generation
+    # Иные модели (закомментированы для будущего использования)
+    # "stable-image",                 # StabilityAI - Генерация изображений
+    # "stable-diffusion-xl-1024-v1-0",  # StabilityAI - Генерация изображений
+    # "stable-diffusion-v1-6",          # StabilityAI - Генерация изображений
+    # "esrgan-v1-x2plus",             # StabilityAI - Улучшение изображений
+    # "stable-video-diffusion",       # StabilityAI - Генерация видео
     "phoenix",         # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
     "lightning-xl",    # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
     "anime-xl",        # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
@@ -275,9 +275,9 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "kino-xl",         # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
     "vision-xl",       # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
     "albedo-base-xl",  # Leonardo.ai - 2067ae52-33fd-4a82-bb92-c2c55e7d2786
-    # "Clipdrop", # clipdrop.co - image processing
-    "midjourney",      # Midjourney - image generation
-    "midjourney_6_1",  # Midjourney - image generation
+    # "clipdrop",      # Clipdrop.co - Обработка изображений
+    "midjourney",      # Midjourney - Генерация изображений
+    "midjourney_6_1",  # Midjourney - Генерация изображений
     # "methexis-inc/img2prompt:50adaf2d3ad20a6f911a8a9e3ccf777b263b8596fbd2c8fc26e8888f8a0edbb5",   # Replicate - Image to Prompt
     # "cjwbw/damo-text-to-video:1e205ea73084bd17a0a3b43396e49ba0d6bc2e754e9283b2df49fad2dcf95755",  # Replicate - Text to Video
     # "lucataco/animate-diff:beecf59c4aee8d81bf04f0381033dfa10dc16e845b4ae00d281e2fa377e48a9f",     # Replicate - Animation
@@ -351,7 +351,7 @@ function_calling_supported_models = [
     "gpt-3.5-turbo"
 ]
 
-# Determination of models for generating images
+# Определение моделей для генерации изображений
 IMAGE_GENERATION_MODELS = [
     "dall-e-3",
     "dall-e-2",
@@ -372,19 +372,19 @@ IMAGE_GENERATION_MODELS = [
     "flux-1.1-pro"
 ]
 
-# Models that support images
+# Модели, которые поддерживают вариации изображений
 VARIATION_SUPPORTED_MODELS = [
     "midjourney",
     "midjourney_6_1",
     "dall-e-2",
-    # "dall-e-3",
+    #"dall-e-3",
     "clipdrop"
 ]
 
-# We determine the Image_variation_Models Constant based on Variation_Supported_Models
+# Определяем константу IMAGE_VARIATION_MODELS на основе VARIATION_SUPPORTED_MODELS
 IMAGE_VARIATION_MODELS = VARIATION_SUPPORTED_MODELS
 
-# Permissible parties for different models
+# Допустимые соотношения сторон для разных моделей
 MIDJOURNEY_ALLOWED_ASPECT_RATIOS = [
     "1:1",     # Square
     "16:9",    # Widescreen format
@@ -411,29 +411,29 @@ MIDJOURNEY_ALLOWED_ASPECT_RATIOS = [
 FLUX_ALLOWED_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4"]
 LEONARDO_ALLOWED_ASPECT_RATIOS = ["1:1", "4:3", "3:4"]
 
-# Permissible sizes for different models
+# Допустимые размеры для разных моделей
 DALLE2_SIZES = ["1024x1024", "512x512", "256x256"]
 DALLE3_SIZES = ["1024x1024", "1024x1792", "1792x1024"]
 LEONARDO_SIZES = ALBEDO_SIZES = {"1:1": "1024x1024", "4:3": "1024x768", "3:4": "768x1024"}
 
-# Determination of models for speech synthesis (TTS)
+# Определение моделей для синтеза речи (TTS)
 TEXT_TO_SPEECH_MODELS = [
-    "tts-1"# ,
-    # "tts-1-hd",
-    # "google-tts",
-    # "elevenlabs-tts"
+    "tts-1"#,
+    #"tts-1-hd",
+    #"google-tts",
+    #"elevenlabs-tts"
 ]
 
-# Determination of models for speech recognition (STT)
+# Определение моделей для распознавания речи (STT)
 SPEECH_TO_TEXT_MODELS = [
-    "whisper-1"# ,
-    # "latest_long",
-    # "latest_short",
-    # "phone_call",
-    # "telephony",
-    # "telephony_short",
-    # "medical_dictation",
-    # "medical_conversation"
+    "whisper-1"#,
+    #"latest_long",
+    #"latest_short",
+    #"phone_call",
+    #"telephony",
+    #"telephony_short",
+    #"medical_dictation",
+    #"medical_conversation"
 ]
 
 # Default values
@@ -459,10 +459,10 @@ if permit_not_in_available_env and permit_not_in_available_env.lower() == "true"
 AVAILABLE_MODELS = []
 AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
 
-# Add cache to track processed images
-# For each request, we keep a unique image identifier and its path
+# Добавим кэш для отслеживания обработанных изображений
+# Для каждого запроса храним уникальный идентификатор изображения и его путь
 IMAGE_CACHE = {}
-# Limit the size of the cache
+# Ограничим размер кэша
 MAX_CACHE_SIZE = 100
 
 
@@ -614,23 +614,23 @@ def format_conversation_history(messages, new_input):
         elif role == "assistant":
             formatted_history.append(f"Assistant: {content}")
 
-    # Add new input if it is
+    # Добавляем новый ввод, если он есть
     if new_input:
         formatted_history.append(f"User: {new_input}")
 
-    # We return only the history of dialogue without additional instructions
+    # Возвращаем только историю диалога без дополнительных инструкций
     return "\n".join(formatted_history)
 
 
 def get_model_capabilities(model):
     """
-    Defines supported opportunities for a specific model
+    Определяет поддерживаемые возможности для конкретной модели
 
     Args:
-        Model: The name of the model
+        model: название модели
 
     Returns:
-        DICT: Dictionary with flags of supporting different features
+        dict: словарь с флагами поддержки разных возможностей
     """
     capabilities = {
         "vision": False,
@@ -639,7 +639,7 @@ def get_model_capabilities(model):
         "function_calling": False,
     }
 
-    # We check the support of each opportunity through the corresponding arrays
+    # Проверяем поддержку каждой возможности через соответствующие массивы
     capabilities["vision"] = model in vision_supported_models
     capabilities["code_interpreter"] = model in code_interpreter_supported_models
     capabilities["retrieval"] = model in retrieval_supported_models
@@ -652,21 +652,21 @@ def prepare_payload(
     request_data, model, all_messages, image_paths=None, request_id=None
 ):
     """
-    Prepares Payload for request, taking into account the capabilities of the model
+    Подготавливает payload для запроса, учитывая возможности модели
 
     Args:
-        Request_Data: Request data
-        Model: Model
-        All_Messages: Posts of Posts
-        image_paths: ways to images
-        Request_id: ID query
+        request_data: данные запроса
+        model: модель
+        all_messages: история сообщений
+        image_paths: пути к изображениям
+        request_id: ID запроса
 
     Returns:
-        DICT: Prepared Payload
+        dict: подготовленный payload
     """
     capabilities = get_model_capabilities(model)
 
-    # Check the availability of Openai tools
+    # Проверяем наличие инструментов OpenAI
     tools = request_data.get("tools", [])
     web_search = False
     code_interpreter = False
@@ -674,7 +674,7 @@ def prepare_payload(
     if tools:
         for tool in tools:
             tool_type = tool.get("type", "")
-            # Trying to include functions, but if they are not supported, we just log in
+            # Пытаемся включить функции, но если они не поддерживаются, просто логируем это
             if tool_type == "retrieval":
                 if capabilities["retrieval"]:
                     web_search = True
@@ -696,7 +696,7 @@ def prepare_payload(
             else:
                 logger.debug(f"[{request_id}] Ignoring unsupported tool: {tool_type}")
 
-    # We check the direct parameters 1min.ai
+    # Проверяем прямые параметры 1min.ai
     if not web_search and request_data.get("web_search", False):
         if capabilities["retrieval"]:
             web_search = True
@@ -708,11 +708,11 @@ def prepare_payload(
     num_of_site = request_data.get("num_of_site", 3)
     max_word = request_data.get("max_word", 500)
 
-    # We form the basic Payload
+    # Формируем базовый payload
     if image_paths:
-        # Even if the model does not support images, we try to send as a text request
+        # Даже если модель не поддерживает изображения, пытаемся отправить как текстовый запрос
         if capabilities["vision"]:
-            # Add instructions to the industrial plane
+            # Добавляем инструкцию к промпту
             enhanced_prompt = all_messages
             if not enhanced_prompt.strip().startswith(IMAGE_DESCRIPTION_INSTRUCTION):
                 enhanced_prompt = f"{IMAGE_DESCRIPTION_INSTRUCTION}\n\n{all_messages}"
@@ -751,7 +751,7 @@ def prepare_payload(
             if web_search:
                 logger.debug(f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
     elif code_interpreter:
-        # If Code_interpreter is requested and supported
+        # Если code_interpreter запрошен и поддерживается
         payload = {
             "type": "CODE_GENERATOR",
             "model": model,
@@ -759,7 +759,7 @@ def prepare_payload(
             "promptObject": {"prompt": all_messages},
         }
     else:
-        # Basic text request
+        # Базовый текстовый запрос
         payload = {
             "type": "CHAT_WITH_AI",
             "model": model,
@@ -780,33 +780,33 @@ def prepare_payload(
 
 def create_conversation_with_files(file_ids, title, model, api_key, request_id=None):
     """
-    Creates a new conversation with files
+    Создает новую беседу с файлами
 
     Args:
-        File_ids: List of ID files
-        Title: The name of the conversation
-        Model: Model AI
-        API_KEY: API Key
-        Request_id: ID Request for Logging
+        file_ids: Список ID файлов
+        title: Название беседы
+        model: Модель ИИ
+        api_key: API ключ
+        request_id: ID запроса для логирования
 
     Returns:
-        STR: ID conversations or None in case of error
+        str: ID беседы или None в случае ошибки
     """
     request_id = request_id or str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Creating conversation with {len(file_ids)} files")
 
     try:
-        # We form Payload for a request with the right field names
+        # Формируем payload для запроса с правильными именами полей
         payload = {
             "title": title,
             "type": "CHAT_WITH_PDF",
             "model": model,
-            "fileIds": file_ids,  # Using the correct name of the field 'Fileds' instead of 'Filelist'
+            "fileIds": file_ids,  # Использование правильного имени поля 'fileIds' вместо 'fileList'
         }
 
         logger.debug(f"[{request_id}] Conversation payload: {json.dumps(payload)}")
 
-        # We use the correct URL API C /API /
+        # Используем правильный URL API с /api/
         conversation_url = "https://api.1min.ai/api/features/conversations?type=CHAT_WITH_PDF"
             
         logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
@@ -825,7 +825,7 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
         response_data = response.json()
         logger.debug(f"[{request_id}] Conversation response data: {json.dumps(response_data)}")
 
-        # Looking for ID conversations in different places of answer
+        # Ищем ID беседы в разных местах ответа
         conversation_id = None
         if "conversation" in response_data and "uuid" in response_data["conversation"]:
             conversation_id = response_data["conversation"]["uuid"]
@@ -834,7 +834,7 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
         elif "uuid" in response_data:
             conversation_id = response_data["uuid"]
         
-        # Recursive search for ID conversations in the structure of the response
+        # Рекурсивный поиск ID беседы в структуре ответа
         if not conversation_id:
             def find_conversation_id(obj, path=""):
                 if isinstance(obj, dict):
@@ -883,24 +883,24 @@ def conversation():
     if not request.json:
         return jsonify({"error": "Invalid request format"}), 400
 
-    # We extract information from the request
+    # Извлекаем информацию из запроса
     api_key = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not api_key:
         logger.error(f"[{request_id}] No API key provided")
         return jsonify({"error": "API key required"}), 401
 
     try:
-        # Build Payload for request
+        # Строим payload для запроса
         request_data = request.json.copy()
 
-        # We get and normalize the model
+        # Получаем и нормализуем модель
         model = request_data.get("model", "").strip()
         logger.info(f"[{request_id}] Using model: {model}")
         
-        # We check the support of the web post for the model
+        # Проверяем поддержку веб-поиска для модели
         capabilities = get_model_capabilities(model)
         
-        # We check if the web post is requested through Openai tools
+        # Проверяем, запрошен ли веб-поиск через инструменты OpenAI
         web_search_requested = False
         tools = request_data.get("tools", [])
         for tool in tools:
@@ -909,12 +909,12 @@ def conversation():
                 logger.debug(f"[{request_id}] Web search requested via retrieval tool")
                 break
         
-        # Check the presence of the Web_Search parameter
+        # Проверяем наличие параметра web_search
         if not web_search_requested and request_data.get("web_search", False):
             web_search_requested = True
             logger.debug(f"[{request_id}] Web search requested via web_search parameter")
         
-        # Add a clear web_search parameter if you are requested and supported by the model
+        # Добавляем явный параметр web_search, если запрошен и поддерживается моделью
         if web_search_requested:
             if capabilities["retrieval"]:
                 request_data["web_search"] = True
@@ -924,7 +924,7 @@ def conversation():
             else:
                 logger.warning(f"[{request_id}] Model {model} does not support web search, ignoring request")
         
-        # We extract the contents of the last message for possible generation of images
+        # Извлекаем содержимое последнего сообщения для возможной генерации изображений
         messages = request_data.get("messages", [])
         prompt_text = ""
         if messages and len(messages) > 0:
@@ -934,44 +934,44 @@ def conversation():
                 if isinstance(content, str):
                     prompt_text = content
                 elif isinstance(content, list):
-                    # Collect all the text parts of the contents
+                    # Собираем все текстовые части содержимого
                     for item in content:
                         if isinstance(item, dict) and "text" in item:
                             prompt_text += item["text"] + " "
                     prompt_text = prompt_text.strip()
         
-        # We check whether the request contains the variation of the image
+        # Проверяем, содержит ли запрос команду вариации изображения
         variation_match = None
         if prompt_text:
-            # We are looking for the format of old teams /v1- /v4
+            # Ищем формат старых команд /v1-/v4
             old_variation_match = re.search(r'/v([1-4])\s+(https?://[^\s]+)', prompt_text)
-            # We are looking for a format with square brackets [_v1 _]-[_ v4_]
+            # Ищем формат с квадратными скобками [_V1_]-[_V4_]
             square_variation_match = re.search(r'\[_V([1-4])_\]', prompt_text)
-            # We are looking for a new format with monoshyrin text `[_V1_]` -` [_V4_] `
+            # Ищем новый формат с моноширинным текстом `[_V1_]`-`[_V4_]`
             mono_variation_match = re.search(r'`\[_V([1-4])_\]`', prompt_text)
             
-            # If a monoshyrin format is found, we check if there is a URL dialogue in the history
+            # Если найден моноширинный формат, проверяем, есть ли в истории диалога URL
             if mono_variation_match and request_data.get("messages"):
                 variation_number = int(mono_variation_match.group(1))
                 logger.debug(f"[{request_id}] Found monospace format variation command: {variation_number}")
                 
-                # Looking for the necessary URL in previous messages of the assistant
+                # Ищем нужный URL в предыдущих сообщениях ассистента
                 image_url = None
                 for msg in reversed(request_data.get("messages", [])):
                     if msg.get("role") == "assistant" and msg.get("content"):
-                        # Looking for all URL images in the content of the assistant message
+                        # Ищем все URL изображений в контенте сообщения ассистента
                         content = msg.get("content", "")
                         url_matches = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
                         
                         if url_matches:
-                            # Check the number of URL found
+                            # Проверяем количество найденных URL
                             if len(url_matches) >= variation_number:
-                                # We take the URL corresponding to the requested number
+                                # Берем URL, соответствующий запрошенному номеру
                                 image_url = url_matches[variation_number - 1]
                                 logger.debug(f"[{request_id}] Found image URL #{variation_number} in assistant message: {image_url}")
                                 break
                             else:
-                                # Not enough URL for the requested number, we take the first
+                                # Недостаточно URL для запрошенного номера, берем первый
                                 image_url = url_matches[0]
                                 logger.warning(f"[{request_id}] Requested variation #{variation_number} but only found {len(url_matches)} URLs. Using first URL: {image_url}")
                                 break
@@ -979,28 +979,28 @@ def conversation():
                 if image_url:
                     variation_match = mono_variation_match
                     logger.info(f"[{request_id}] Detected monospace variation command: {variation_number} for URL: {image_url}")
-            # If a format with square brackets is found, we check if there is a URL dialogue in the history
+            # Если найден формат с квадратными скобками, проверяем, есть ли в истории диалога URL
             elif square_variation_match and request_data.get("messages"):
                 variation_number = int(square_variation_match.group(1))
                 logger.debug(f"[{request_id}] Found square bracket format variation command: {variation_number}")
                 
-                # Looking for the necessary URL in previous messages of the assistant
+                # Ищем нужный URL в предыдущих сообщениях ассистента
                 image_url = None
                 for msg in reversed(request_data.get("messages", [])):
                     if msg.get("role") == "assistant" and msg.get("content"):
-                        # Looking for all URL images in the content of the assistant message
+                        # Ищем все URL изображений в контенте сообщения ассистента
                         content = msg.get("content", "")
                         url_matches = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
                         
                         if url_matches:
-                            # Check the number of URL found
+                            # Проверяем количество найденных URL
                             if len(url_matches) >= variation_number:
-                                # We take the URL corresponding to the requested number
+                                # Берем URL, соответствующий запрошенному номеру
                                 image_url = url_matches[variation_number - 1]
                                 logger.debug(f"[{request_id}] Found image URL #{variation_number} in assistant message: {image_url}")
                                 break
                             else:
-                                # Not enough URL for the requested number, we take the first
+                                # Недостаточно URL для запрошенного номера, берем первый
                                 image_url = url_matches[0]
                                 logger.warning(f"[{request_id}] Requested variation #{variation_number} but only found {len(url_matches)} URLs. Using first URL: {image_url}")
                                 break
@@ -1008,7 +1008,7 @@ def conversation():
                 if image_url:
                     variation_match = square_variation_match
                     logger.info(f"[{request_id}] Detected square bracket variation command: {variation_number} for URL: {image_url}")
-            # If the old format is found, we use it
+            # Если найден старый формат, используем его
             elif old_variation_match:
                 variation_match = old_variation_match
                 variation_number = old_variation_match.group(1)
@@ -1016,46 +1016,46 @@ def conversation():
                 logger.info(f"[{request_id}] Detected old format variation command: {variation_number} for URL: {image_url}")
             
         if variation_match:
-            # We process the variation of the image
+            # Обрабатываем команду вариации изображения
             try:
-                # We check what type of variation was discovered
+                # Проверяем, какой тип вариации был обнаружен
                 if variation_match == mono_variation_match or variation_match == square_variation_match:
-                    # URL has already been obtained above in the search process
+                    # URL уже получен выше в процессе поиска
                     variation_number = variation_match.group(1)
                 else:
-                    # For the old format, we extract the URL directly from the team
+                    # Для старого формата извлекаем URL прямо из команды
                     variation_number = variation_match.group(1)
                     image_url = variation_match.group(2)
                 
                 logger.info(f"[{request_id}] Processing variation for image: {image_url}")
                 
-                # We convert the full URL to a relative path if it corresponds to the Asset.1Min.Ai format
+                # Преобразуем полный URL в относительный путь, если он соответствует формату asset.1min.ai
                 image_path = None
                 if "asset.1min.ai" in image_url:
-                    # We extract part of the path /images /...
+                    # Извлекаем часть пути /images/...
                     path_match = re.search(r'(?:asset\.1min\.ai)(/images/[^?#]+)', image_url)
                     if path_match:
                         image_path = path_match.group(1)
-                        # We remove the initial slash if it is
+                        # Убираем начальный слеш, если он есть
                         if image_path.startswith('/'):
                             image_path = image_path[1:]
                     else:
-                        # We try to extract the path from the URL in general
+                        # Пробуем извлечь путь из URL в целом
                         path_match = re.search(r'/images/[^?#]+', image_url)
                         if path_match:
                             image_path = path_match.group(0)
-                            # We remove the initial slash if it is
+                            # Убираем начальный слеш, если он есть
                             if image_path.startswith('/'):
                                 image_path = image_path[1:]
                         
-                # If you find a relative path, we use it instead of a complete URL
+                # Если нашли относительный путь, используем его вместо полного URL
                 download_url = image_url
                 if image_path:
                     logger.debug(f"[{request_id}] Extracted relative path from image URL: {image_path}")
-                    # We use the full URL for loading, but we keep the relative path
+                    # Для загрузки используем полный URL, но сохраняем относительный путь
                 
-                # Download the image to a temporary file and send a redirection
-                # On the route/v1/images/variations by analogy s/v1/images/generations
+                # Скачиваем изображение во временный файл и отправим перенаправление
+                # на маршрут /v1/images/variations по аналогии с /v1/images/generations
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                 img_response = requests.get(download_url, stream=True)
                 
@@ -1066,19 +1066,19 @@ def conversation():
                     for chunk in img_response.iter_content(chunk_size=8192):
                         f.write(chunk)
                 
-                # We save the path to the temporary file in memory for use in the route/v1/images/variations
+                # Сохраняем путь к временному файлу в памяти для использования в маршруте /v1/images/variations
                 if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
                     variation_key = f"variation:{request_id}"
                     variation_data = {
                         "temp_file": temp_file.name,
                         "model": model,
                         "n": request_data.get("n", 1),
-                        "image_path": image_path  # We keep the relative path if it is
+                        "image_path": image_path  # Сохраняем относительный путь, если он есть
                     }
-                    safe_memcached_operation('set', variation_key, json.dumps(variation_data), expire=300)  # Store 5 minutes
+                    safe_memcached_operation('set', variation_key, json.dumps(variation_data), expire=300)  # Хранить 5 минут
                     logger.debug(f"[{request_id}] Saved variation data to memcached with key: {variation_key}")
                 
-                # We redirect the route/v1/images/variations
+                # Перенаправляем на маршрут /v1/images/variations
                 logger.info(f"[{request_id}] Redirecting to /v1/images/variations with model {model}")
                 return redirect(url_for('image_variations', request_id=request_id), code=307)
             
@@ -1086,31 +1086,31 @@ def conversation():
                 logger.error(f"[{request_id}] Error processing variation command: {str(e)}")
                 return jsonify({"error": f"Failed to process variation command: {str(e)}"}), 500
         
-        # We log in the extracted Prompt for debugging
+        # Логируем извлеченный промпт для отладки
         logger.debug(f"[{request_id}] Extracted prompt text: {prompt_text[:100]}..." if len(prompt_text) > 100 else f"[{request_id}] Extracted prompt text: {prompt_text}")
         
-        # We check whether the model belongs to one of the special types
-        # For images generation models
+        # Проверяем, относится ли модель к одному из специальных типов
+        # Для моделей генерации изображений
         if model in IMAGE_GENERATION_MODELS:
             logger.info(f"[{request_id}] Redirecting image generation model to /v1/images/generations")
             
-            # We create a new request only with the necessary fields to generate image
-            # We take only the current user's current production without combining with history
+            # Создаем новый запрос только с необходимыми полями для генерации изображения
+            # Берем только текущий промпт пользователя без объединения с историей
             image_request = {
                 "model": model,
-                "prompt": prompt_text,  # Only the current request
+                "prompt": prompt_text,  # Только текущий запрос
                 "n": request_data.get("n", 1),
                 "size": request_data.get("size", "1024x1024")
             }
             
-            # Add additional parameters for certain models
+            # Добавляем дополнительные параметры для определенных моделей
             if model == "dall-e-3":
                 image_request["quality"] = request_data.get("quality", "standard")
                 image_request["style"] = request_data.get("style", "vivid")
 
-            # We check the availability of special parameters in Prompt for models type Midjourney
+            # Проверяем наличие специальных параметров в промпте для моделей типа midjourney
             if model.startswith("midjourney"):
-                # Add inspections and parameters for midjourney models
+                # Добавляем проверки и параметры для midjourney моделей
                 if "--ar" in prompt_text or "\u2014ar" in prompt_text:
                     logger.debug(f"[{request_id}] Found aspect ratio parameter in prompt")
                 elif request_data.get("aspect_ratio"):
@@ -1119,43 +1119,43 @@ def conversation():
                 if "--no" in prompt_text or "\u2014no" in prompt_text:
                     logger.debug(f"[{request_id}] Found negative prompt parameter in prompt")
                 elif request_data.get("negative_prompt"):
-                    # Add negative industrial plane as a separate parameter
+                    # Добавляем негативный промпт как отдельный параметр
                     image_request["negative_prompt"] = request_data.get("negative_prompt")
                     
-            # We delete messages from the request to avoid combining history
+            # Удаляем сообщения из запроса, чтобы избежать объединения истории
             if "messages" in image_request:
                 del image_request["messages"]
                 
             logger.debug(f"[{request_id}] Final image request: {json.dumps(image_request)[:200]}...")
             
-            # We save a modified request (only the last request without history)
+            # Сохраняем модифицированный запрос (только последний запрос без истории)
             request.environ["body_copy"] = json.dumps(image_request)
-            return redirect(url_for('generate_image'), code=307)  # 307 preserves the method and body of the request
+            return redirect(url_for('generate_image'), code=307)  # 307 сохраняет метод и тело запроса
             
-        # For speech generation models (TTS)
+        # Для моделей генерации речи (TTS)
         if model in TEXT_TO_SPEECH_MODELS:
             logger.info(f"[{request_id}] Redirecting text-to-speech model to /v1/audio/speech")
-            # Add the text to a request for speech synthesis
+            # Добавляем текст к запросу для синтеза речи
             if prompt_text:
                 request_data["input"] = prompt_text
                 logger.debug(f"[{request_id}] Setting TTS input: {prompt_text[:100]}..." if len(prompt_text) > 100 else f"[{request_id}] Setting TTS input: {prompt_text}")
-            # We maintain a modified request
+            # Сохраняем модифицированный запрос
             request.environ["body_copy"] = json.dumps(request_data)
             return redirect(url_for('text_to_speech'), code=307)
             
-        # For models of audio transcription (STT)
+        # Для моделей транскрипции аудио (STT)
         if model in SPEECH_TO_TEXT_MODELS:
             logger.info(f"[{request_id}] Redirecting speech-to-text model to /v1/audio/transcriptions")
             return redirect(url_for('audio_transcriptions'), code=307)
 
-        # Let's journal the beginning of the request
+        # Журналируем начало запроса
         logger.debug(f"[{request_id}] Processing chat completion request")
 
-        # Check whether the image of the image contains
+        # Проверяем, содержит ли запрос изображения
         image = False
         image_paths = []
         
-        # Check the availability of user files for working with PDF
+        # Проверяем наличие файлов пользователя для работы с PDF
         user_file_ids = []
         if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
             try:
@@ -1171,7 +1171,7 @@ def conversation():
                             user_files = user_files_json
                         
                         if user_files and isinstance(user_files, list):
-                            # We extract the ID files
+                            # Извлекаем ID файлов
                             user_file_ids = [file_info.get("id") for file_info in user_files if file_info.get("id")]
                             logger.debug(f"[{request_id}] Found user files: {user_file_ids}")
                     except Exception as e:
@@ -1181,45 +1181,45 @@ def conversation():
         else:
             logger.debug(f"[{request_id}] Memcached not available, no user files loaded")
         
-        # We check the availability of messages before the start of processing
+        # Проверяем наличие сообщений до начала обработки
         if not messages:
             logger.error(f"[{request_id}] No messages provided in request")
             return ERROR_HANDLER(1412)
             
-        # We extract the text of the request for analysis
+        # Извлекаем текст запроса для анализа
         extracted_prompt = messages[-1].get("content", "")
         if isinstance(extracted_prompt, list):
             extracted_prompt = " ".join([item.get("text", "") for item in extracted_prompt if "text" in item])
         extracted_prompt_lower = extracted_prompt.lower() if extracted_prompt else ""
                     
-        # If the request does not indicate File_ids, but the user has uploaded files,
-        # Add them to the request only if the message mentions something about files or documents
+        # Если в запросе не указаны file_ids, но у пользователя есть загруженные файлы, 
+        # добавляем их к запросу только если в сообщении упоминается что-то о файлах или документах
         file_keywords = ["файл", "файлы", "file", "files", "документ", "документы", "document", "documents"]
         prompt_has_file_keywords = False
         
-        # Check the availability of keywords about files in the request
+        # Проверяем наличие ключевых слов о файлах в запросе
         if extracted_prompt_lower:
             prompt_has_file_keywords = any(keyword in extracted_prompt_lower for keyword in file_keywords)
             
-        # Add files only if the user requested work with files or clearly indicated File_ids
+        # Добавляем файлы только если пользователь запросил работу с файлами или явно указал file_ids
         if (not request_data.get("file_ids") and user_file_ids and prompt_has_file_keywords):
             logger.info(f"[{request_id}] Adding user files to request: {user_file_ids}")
             request_data["file_ids"] = user_file_ids
         elif not request_data.get("file_ids") and user_file_ids:
             logger.debug(f"[{request_id}] User has files but didn't request to use them in this message")
 
-        # We get the contents of the last message for further processing
+        # Получаем содержимое последнего сообщения для дальнейшей обработки
         user_input = messages[-1].get("content")
         if not user_input:
             logger.error(f"[{request_id}] No content in last message")
             return ERROR_HANDLER(1423)
 
-        # We form the history of dialogue
+        # Формируем историю диалога
         all_messages = format_conversation_history(
             request_data.get("messages", []), request_data.get("new_input", "")
         )
 
-        # Checking for the presence of images in the last message
+        # Проверка на наличие изображений в последнем сообщении
         if isinstance(user_input, list):
             logger.debug(
                 f"[{request_id}] Processing message with multiple content items (text/images)"
@@ -1237,11 +1237,11 @@ def conversation():
                         )
                         return ERROR_HANDLER(1044, model)
 
-                    # Create a hash url image for caching
+                    # Создаем хеш URL изображения для кэширования
                     image_key = None
                     image_url = None
 
-                    # We extract the URL images
+                    # Извлекаем URL изображения
                     if (
                         isinstance(item["image_url"], dict)
                         and "url" in item["image_url"]
@@ -1250,11 +1250,11 @@ def conversation():
                     else:
                         image_url = item["image_url"]
 
-                    # Heshchit url for the cache
+                    # Хешируем URL для кэша
                     if image_url:
                         image_key = hashlib.md5(image_url.encode("utf-8")).hexdigest()
 
-                    # Check the cache
+                    # Проверяем кэш
                     if image_key and image_key in IMAGE_CACHE:
                         cached_path = IMAGE_CACHE[image_key]
                         logger.debug(
@@ -1264,21 +1264,21 @@ def conversation():
                         image = True
                         continue
 
-                    # We load the image if it is not in the cache
+                    # Загружаем изображение, если оно не в кэше
                     logger.debug(
                         f"[{request_id}] Processing image URL in item {i+1}: {image_url[:30]}..."
                     )
 
-                    # We load the image
+                    # Загружаем изображение
                     image_path = retry_image_upload(
                         image_url, api_key, request_id=request_id
                     )
 
                     if image_path:
-                        # We save in the cache
+                        # Сохраняем в кэш
                         if image_key:
                             IMAGE_CACHE[image_key] = image_path
-                            # Clean the old notes if necessary
+                            # Очищаем старые записи если нужно
                             if len(IMAGE_CACHE) > MAX_CACHE_SIZE:
                                 old_key = next(iter(IMAGE_CACHE))
                                 del IMAGE_CACHE[old_key]
@@ -1291,15 +1291,15 @@ def conversation():
                     else:
                         logger.error(f"[{request_id}] Failed to upload image {i+1}")
 
-            # We replace user_input with the textual part only if it is not empty
+            # Заменяем user_input текстовой частью, только если она не пуста
             if combined_text:
                 user_input = combined_text
 
-        # We check if there is File_ids for a chat with documents
+        # Проверяем, есть ли file_ids для чата с документами
         file_ids = request_data.get("file_ids", [])
         conversation_id = request_data.get("conversation_id", None)
 
-        # We extract the text of the request for the analysis of keywords
+        # Извлекаем текст запроса для анализа ключевых слов
         prompt_text = all_messages.lower()
         extracted_prompt = messages[-1].get("content", "")
         if isinstance(extracted_prompt, list):
@@ -1308,25 +1308,25 @@ def conversation():
 
         logger.debug(f"[{request_id}] Extracted prompt text: {extracted_prompt}")
 
-        # We check the file deletion request
+        # Проверяем запрос на удаление файлов
         delete_keywords = ["удалить", "удали", "удаление", "очисти", "очистка", "delete", "remove", "clean"]
         file_keywords = ["файл", "файлы", "file", "files", "документ", "документы", "document", "documents"]
         mime_type_keywords = ["pdf", "txt", "doc", "docx", "csv", "xls", "xlsx", "json", "md", "html", "htm", "xml", "pptx", "ppt", "rtf"]
 
-        # Combine all keywords for files
+        # Объединяем все ключевые слова для файлов
         all_file_keywords = file_keywords + mime_type_keywords
 
-        # We check the request for file deletion (there must be keywords of deletion and file keywords)
+        # Проверяем запрос на удаление файлов (должны быть и ключевые слова удаления, и файловые ключевые слова)
         has_delete_keywords = any(keyword in extracted_prompt for keyword in delete_keywords)
         has_file_keywords = any(keyword in extracted_prompt for keyword in all_file_keywords)
 
         if has_delete_keywords and has_file_keywords and user_file_ids:
             logger.info(f"[{request_id}] Deletion request detected, removing all user files")
             
-            # Trying to get ID teams
+            # Пытаемся получить ID команды
             team_id = None
             try:
-                # Trying to get ID commands through API
+                # Попытка получить ID команды через API
                 teams_url = f"{ONE_MIN_API_URL}/teams"
                 teams_headers = {"API-KEY": api_key}
                 teams_response = api_request("GET", teams_url, headers=teams_headers)
@@ -1341,7 +1341,7 @@ def conversation():
             deleted_files = []
             for file_id in user_file_ids:
                 try:
-                    # We form a URL to delete the file depending on the availability of Team_id
+                    # Формируем URL для удаления файла в зависимости от наличия team_id
                     if team_id:
                         delete_url = f"{ONE_MIN_API_URL}/teams/{team_id}/assets/{file_id}"
                     else:
@@ -1360,7 +1360,7 @@ def conversation():
                 except Exception as e:
                     logger.error(f"[{request_id}] Error deleting file {file_id}: {str(e)}")
             
-            # Clean the user's list of user files in Memcache
+            # Очищаем списох файлов пользователя в memcached
             if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None and deleted_files:
                 try:
                     user_key = f"user:{api_key}"
@@ -1369,7 +1369,7 @@ def conversation():
                 except Exception as e:
                     logger.error(f"[{request_id}] Error clearing user files in memcached: {str(e)}")
             
-            # Send a response to file deletion
+            # Отправляем ответ о удалении файлов
             return jsonify({
                 "id": str(uuid.uuid4()),
                 "object": "chat.completion",
@@ -1392,24 +1392,24 @@ def conversation():
                 }
             }), 200
 
-        # We check the request for keywords for file processing
+        # Проверяем запрос на наличие ключевых слов для обработки файлов
         has_file_reference = any(keyword in extracted_prompt for keyword in all_file_keywords)
 
-        # If there is File_ids and the request contains keywords about files or there are ID conversations, we use Chat_with_PDF
+        # Если есть file_ids и запрос содержит ключевые слова о файлах или есть ID беседы, используем CHAT_WITH_PDF
         if file_ids and len(file_ids) > 0:
             logger.debug(
                 f"[{request_id}] Creating CHAT_WITH_PDF request with {len(file_ids)} files"
             )
 
-            # Add instructions for working with documents to Prompt
+            # Добавляем инструкцию для работы с документами к промпту
             enhanced_prompt = all_messages
             if not enhanced_prompt.strip().startswith(DOCUMENT_ANALYSIS_INSTRUCTION):
                 enhanced_prompt = f"{DOCUMENT_ANALYSIS_INSTRUCTION}\n\n{all_messages}"
 
-            # We get the user Team_id
+            # Получаем team_id пользователя
             team_id = None
             try:
-                teams_url = "https://api.1min.ai/api/teams"  # Correct URL C /API /
+                teams_url = "https://api.1min.ai/api/teams"  # Правильный URL с /api/
                 teams_headers = {"API-KEY": api_key, "Content-Type": "application/json"}
                 
                 logger.debug(f"[{request_id}] Fetching team ID from: {teams_url}")
@@ -1425,7 +1425,7 @@ def conversation():
             except Exception as e:
                 logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
 
-            # If there is no Conversation_id, we create a new conversation
+            # Если нет conversation_id, создаем новую беседу
             if not conversation_id:
                 conversation_id = create_conversation_with_files(
                     file_ids, "Chat with documents", model, api_key, request_id
@@ -1436,28 +1436,28 @@ def conversation():
                         500,
                     )
 
-            # We form Payload to request files
+            # Формируем payload для запроса с файлами
             payload = {"message": enhanced_prompt}
             if conversation_id:
                 payload["conversationId"] = conversation_id
 
-            # We use the correct URL API C /API /
+            # Используем правильный URL API с /api/
             api_url = "https://api.1min.ai/api/features/conversations/messages"
-            # Add Conversationid as a request parameter
+            # Добавляем conversationId как параметр запроса
             api_params = {"conversationId": conversation_id}
             
             logger.debug(f"[{request_id}] Sending message to conversation using URL: {api_url} with params: {api_params}")
             
             headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-            # Depending on the Stream parameter, select the request method
+            # В зависимости от параметра stream выбираем способ запроса
             if stream:
-                # Streaming request
+                # Потоковый запрос
                 return streaming_request(
                     api_url, payload, headers, request_id, model, model_settings, api_params=api_params
                 )
             else:
-                # The usual request
+                # Обычный запрос
                 try:
                     response = requests.post(api_url, json=payload, headers=headers, params=api_params)
                     
@@ -1471,11 +1471,11 @@ def conversation():
                             response.status_code,
                         )
 
-                    # We convert the answer to the Openai format
+                    # Преобразуем ответ в формат OpenAI
                     response_data = response.json()
                     logger.debug(f"[{request_id}] Raw API response: {json.dumps(response_data)[:500]}...")
                     
-                    # We extract a response from different places of data structure
+                    # Извлекаем ответ из разных мест структуры данных
                     ai_response = None
                     if "answer" in response_data:
                         ai_response = response_data["answer"]
@@ -1487,7 +1487,7 @@ def conversation():
                         ai_response = response_data["aiRecord"]["aiRecordDetail"].get("answer", "")
                     
                     if not ai_response:
-                        # Recursively looking for a response on Keys Asswer, Message, Result
+                        # Рекурсивно ищем ответ по ключам answer, message, result
                         def find_response(obj, path=""):
                             if isinstance(obj, dict):
                                 for key in ["answer", "message", "result"]:
@@ -1523,10 +1523,10 @@ def conversation():
                     traceback.print_exc()
                     return jsonify({"error": str(e)}), 500
 
-        # Counting tokens
+        # Подсчет токенов
         prompt_token = calculate_token(str(all_messages))
 
-        # Checking the model
+        # Проверка модели
         if PERMIT_MODELS_FROM_SUBSET_ONLY and model not in AVAILABLE_MODELS:
             return ERROR_HANDLER(1002, model)
 
@@ -1534,16 +1534,16 @@ def conversation():
             f"[{request_id}] Processing {prompt_token} prompt tokens with model {model}"
         )
 
-        # Prepare Payload, taking into account the capabilities of the model
+        # Подготавливаем payload с учетом возможностей модели
         payload = prepare_payload(
             request_data, model, all_messages, image_paths, request_id
         )
 
         headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-        # Request depending on Stream
+        # Выполнение запроса в зависимости от stream
         if not request_data.get("stream", False):
-            # The usual request
+            # Обычный запрос
             logger.debug(
                 f"[{request_id}] Sending non-streaming request to {ONE_MIN_API_URL}"
             )
@@ -1580,16 +1580,16 @@ def conversation():
                 logger.error(f"[{request_id}] Exception during request: {str(e)}")
                 return jsonify({"error": str(e)}), 500
         else:
-            # Streaming request
+            # Потоковый запрос
             logger.debug(f"[{request_id}] Sending streaming request")
 
-            # URL for streaming mode
+            # URL для потокового режима
             streaming_url = f"{ONE_MIN_API_URL}?isStreaming=true"
 
             logger.debug(f"[{request_id}] Streaming URL: {streaming_url}")
             logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:200]}...")
             
-            # If a web pion is included, we display a full websearch block for debugging
+            # Если включен веб-поиск, выводим полный блок webSearch для отладки
             if "promptObject" in payload and payload["promptObject"].get("webSearch"):
                 logger.info(f"[{request_id}] Web search parameters in payload: " +
                           f"webSearch={payload['promptObject'].get('webSearch')}, " +
@@ -1597,7 +1597,7 @@ def conversation():
                           f"maxWord={payload['promptObject'].get('maxWord')}")
 
             try:
-                # We use a session to control the connection
+                # Используем сессию для управления соединением
                 session = create_session()
                 response_stream = session.post(
                     streaming_url, json=payload, headers=headers, stream=True
@@ -1626,7 +1626,7 @@ def conversation():
                     session.close()
                     return ERROR_HANDLER(response_stream.status_code)
 
-                # We transfer the session to Generator
+                # Передаем сессию в generator
                 return Response(
                     stream_response(
                         response_stream, request_data, model, prompt_token, session
@@ -1651,53 +1651,53 @@ def conversation():
 
 def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     """
-    Extracts the ratio of the parties from the request or industrial and checks its validity
+    Извлекает соотношение сторон из запроса или промпта и проверяет его валидность
     
     Args:
-        PROMPT (STR): Request text
-        Model (str): the name of the image generation model
-        Request_Data (DICT): Request data
-        Request_id (Str, Optional): ID Request for Logging
+        prompt (str): Текст запроса
+        model (str): Имя модели генерации изображения
+        request_data (dict): Данные запроса
+        request_id (str, optional): ID запроса для логирования
         
     Returns:
-        tuple: (modified Prompt, parties ratio, image size, error message)
+        tuple: (модифицированный промпт, соотношение сторон, размер изображения, сообщение об ошибке)
     """
-    # Default values
+    # Значения по умолчанию
     aspect_ratio = None
     size = request_data.get("size", "1024x1024")
     ar_error = None
     
-    # We are trying to extract the ratio of the parties from Prompt
+    # Пытаемся извлечь соотношение сторон из промпта
     ar_match = re.search(r'(--|\u2014)ar\s+(\d+):(\d+)', prompt)
     if ar_match:
         width = int(ar_match.group(2))
         height = int(ar_match.group(3))
         
-        # We check that the ratio does not exceed 2: 1 or 1: 2
+        # Проверяем, что соотношение не превышает 2:1 или 1:2
         if max(width, height) / min(width, height) > 2:
             ar_error = "Aspect ratio cannot exceed 2:1 or 1:2"
             logger.error(f"[{request_id}] Invalid aspect ratio: {width}:{height} - {ar_error}")
             return prompt, None, size, ar_error
         
-        # We check that the values ​​in the permissible range
+        # Проверяем, что значения в допустимом диапазоне
         if width < 1 or width > 10000 or height < 1 or height > 10000:
             ar_error = "Aspect ratio values must be between 1 and 10000"
             logger.error(f"[{request_id}] Invalid aspect ratio values: {width}:{height} - {ar_error}")
             return prompt, None, size, ar_error
         
-        # Install the ratio of the parties
+        # Устанавливаем соотношение сторон
         aspect_ratio = f"{width}:{height}"
         
-        # We delete the parameter from industrial
+        # Удаляем параметр из промпта
         prompt = re.sub(r'(--|\u2014)ar\s+\d+:\d+\s*', '', prompt).strip()
         
         logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_ratio}")
     
-    # If there is no ratio in Prompta, we check in the request
+    # Если соотношения нет в промпте, проверяем в запросе
     elif "aspect_ratio" in request_data:
         aspect_ratio = request_data.get("aspect_ratio")
         
-        # We check that the ratio in the correct format
+        # Проверяем, что соотношение в правильном формате
         if not re.match(r'^\d+:\d+$', aspect_ratio):
             ar_error = "Aspect ratio must be in format width:height"
             logger.error(f"[{request_id}] Invalid aspect ratio format: {aspect_ratio} - {ar_error}")
@@ -1705,13 +1705,13 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         
         width, height = map(int, aspect_ratio.split(':'))
         
-        # We check that the ratio does not exceed 2: 1 or 1: 2
+        # Проверяем, что соотношение не превышает 2:1 или 1:2
         if max(width, height) / min(width, height) > 2:
             ar_error = "Aspect ratio cannot exceed 2:1 or 1:2"
             logger.error(f"[{request_id}] Invalid aspect ratio: {width}:{height} - {ar_error}")
             return prompt, None, size, ar_error
         
-        # We check that the values ​​in the permissible range
+        # Проверяем, что значения в допустимом диапазоне
         if width < 1 or width > 10000 or height < 1 or height > 10000:
             ar_error = "Aspect ratio values must be between 1 and 10000"
             logger.error(f"[{request_id}] Invalid aspect ratio values: {width}:{height} - {ar_error}")
@@ -1719,28 +1719,28 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
             
         logger.debug(f"[{request_id}] Using aspect ratio from request: {aspect_ratio}")
     
-    # We delete all other possible modifiers of parameters
-    # Remove negative industrialists (-no or –no)
+    # Удаляем все другие возможные модификаторы параметров
+    # Удаляем негативные промпты (--no или —no)
     prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
     
-    # For models Dall-E 3, set the corresponding dimensions
+    # Для моделей DALL-E 3 устанавливаем соответствующие размеры
     if model == "dall-e-3" and aspect_ratio:
         width, height = map(int, aspect_ratio.split(':'))
         
-        # We round to the nearest permissible ratio for Dall-E 3
-        if abs(width/height - 1) < 0.1:  # square
+        # Округляем до ближайшего допустимого соотношения для DALL-E 3
+        if abs(width/height - 1) < 0.1:  # квадрат
             size = "1024x1024"
             aspect_ratio = "square"
-        elif width > height:  # Album orientation
+        elif width > height:  # альбомная ориентация
             size = "1792x1024"
             aspect_ratio = "landscape"
-        else:  # Portrait orientation
+        else:  # портретная ориентация
             size = "1024x1792"
             aspect_ratio = "portrait"
             
         logger.debug(f"[{request_id}] Adjusted size for DALL-E 3: {size}, aspect_ratio: {aspect_ratio}")
     
-    # For Leonardo models, we set the corresponding dimensions based on the ratio of the parties
+    # Для моделей Leonardo устанавливаем соответствующие размеры на основе соотношения сторон
     elif (model in [
         "6b645e3a-d64f-4341-a6d8-7a3690fbf042", "phoenix",  # Leonardo.ai - Phoenix
         "b24e16ff-06e3-43eb-8d33-4416c2d75876", "lightning-xl",  # Leonardo.ai - Lightning XL
@@ -1750,25 +1750,25 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         "aa77f04e-3eec-4034-9c07-d0f619684628", "kino-xl",  # Leonardo.ai - Kino XL
         "2067ae52-33fd-4a82-bb92-c2c55e7d2786", "albedo-base-xl"  # Leonardo.ai - Albedo Base XL
     ]) and aspect_ratio:
-        # Determine the size based on the ratio of the parties
+        # Определяем размер на основе соотношения сторон
         if aspect_ratio == "1:1":
             size = LEONARDO_SIZES["1:1"]  # "1024x1024"
         elif aspect_ratio == "4:3":
             size = LEONARDO_SIZES["4:3"]  # "1024x768"
         elif aspect_ratio == "3:4":
             size = LEONARDO_SIZES["3:4"]  # "768x1024"
-        # For other ratios, we round to the nearest supported
+        # Для других соотношений округляем до ближайшего поддерживаемого
         else:
             width, height = map(int, aspect_ratio.split(':'))
             ratio = width / height
             
-            if abs(ratio - 1) < 0.1:  # Close to 1: 1
+            if abs(ratio - 1) < 0.1:  # близко к 1:1
                 size = LEONARDO_SIZES["1:1"]  # "1024x1024"
                 aspect_ratio = "1:1"
-            elif ratio > 1:  # The width is greater than the height (album orientation)
+            elif ratio > 1:  # ширина больше высоты (альбомная ориентация)
                 size = LEONARDO_SIZES["4:3"]  # "1024x768"
                 aspect_ratio = "4:3"
-            else:  # The height is greater than the width (portrait orientation)
+            else:  # высота больше ширины (портретная ориентация)
                 size = LEONARDO_SIZES["3:4"]  # "768x1024"
                 aspect_ratio = "3:4"
                 
@@ -1781,12 +1781,12 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
 @limiter.limit("500 per minute")
 def generate_image():
     """
-    Route for generating images
+    Маршрут для генерации изображений
     """
     if request.method == "OPTIONS":
         return handle_options_request()
 
-    # Create a unique ID for request
+    # Создаем уникальный ID для запроса
     request_id = str(uuid.uuid4())
     logger.info(f"[{request_id}] Received request: /v1/images/generations")
 
@@ -1798,64 +1798,64 @@ def generate_image():
     api_key = auth_header.split(" ")[1]
     headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-    # Verification that the data is transmitted in the correct format
+    # Проверка, что данные переданы в правильном формате
     if request.is_json:
         request_data = request.get_json()
     else:
         logger.error(f"[{request_id}] Request content-type is not application/json")
         return jsonify({"error": "Content-type must be application/json"}), 400
 
-    # We get the necessary parameters from the request
+    # Получаем необходимые параметры из запроса
     model = request_data.get("model", "dall-e-3").strip()
     prompt = request_data.get("prompt", "").strip()
     
-    # If the request was redirected from the Conversation function,
-    # We must take only the last request of the user without history
+    # Если запрос был перенаправлен из функции conversation, 
+    # мы должны брать только последний запрос пользователя без истории
     if request.environ.get("HTTP_REFERER") and "chat/completions" in request.environ.get("HTTP_REFERER"):
         logger.debug(f"[{request_id}] Request came from chat completions, isolating the prompt")
-        # We do not combine industrial depths, but we take only the last user request
+        # Мы не объединяем промпты, а берем только последний запрос пользователя
     
-    # Determine the presence of negative industrials (if any)
+    # Определим наличие негативного промпта (если есть)
     negative_prompt = None
     no_match = re.search(r'(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)', prompt)
     if no_match:
         negative_prompt = no_match.group(2).strip()
-        # We delete negative industrial plate from the main text
+        # Удаляем негативный промпт из основного текста
         prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
 
-    # We process the ratio of the parties and the size
+    # Обрабатываем соотношение сторон и размер
     prompt, aspect_ratio, size, ar_error = parse_aspect_ratio(prompt, model, request_data, request_id)
     
-    # If there was an error in processing the ratio of the parties, we return it to the user
+    # Если была ошибка в обработке соотношения сторон, возвращаем её пользователю
     if ar_error:
         return jsonify({"error": ar_error}), 400
 
-    # Checking the availability of industrialpus
+    # Проверка наличия промпта
     if not prompt:
-        # We check if there is a prompt in messages
+        # Проверяем, есть ли промпт в сообщениях
         messages = request_data.get("messages", [])
         if messages and len(messages) > 0:
-            # We take only the last user message
+            # Берем только последнее сообщение пользователя
             last_message = messages[-1]
             if last_message.get("role") == "user":
                 content = last_message.get("content", "")
                 if isinstance(content, str):
                     prompt = content
                 elif isinstance(content, list):
-                    # Collect all the text parts of the contents
+                    # Собираем все текстовые части содержимого
                     text_parts = []
                     for item in content:
                         if isinstance(item, dict) and "text" in item:
                             text_parts.append(item["text"])
                     prompt = " ".join(text_parts)
                     
-                # We process the parameters in Prompt from the message
+                # Обрабатываем параметры в промпте из сообщения
                 negative_prompt = None
                 no_match = re.search(r'(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)', prompt)
                 if no_match:
                     negative_prompt = no_match.group(2).strip()
                 
-                # We re -process the industrial plate to delete modifiers
+                # Повторно обрабатываем промпт для удаления модификаторов
                 prompt, aspect_ratio, size, ar_error = parse_aspect_ratio(prompt, model, request_data, request_id)
                 
                 if ar_error:
@@ -1870,13 +1870,13 @@ def generate_image():
     logger.info(f"[{request_id}] Using model: {model}, prompt: '{prompt}'")
 
     try:
-        # Determine the URL for different models
+        # Определяем URL для разных моделей
         api_url = f"{ONE_MIN_API_URL}"
         
-        # Tysout 15 minutes for all images generation models
+        # Таймаут 15 минут для всех моделей генерации изображений
         timeout = MIDJOURNEY_TIMEOUT
         
-        # We form Payload for request depending on the model
+        # Формируем payload для запроса в зависимости от модели
         if model == "dall-e-3":
             payload = {
                 "type": "IMAGE_GENERATOR",
@@ -1933,16 +1933,16 @@ def generate_image():
                 },
             }
         elif model in ["midjourney", "midjourney_6_1"]:
-            # Permissible parties for the Midjourney
+            # Допустимые соотношения сторон для Midjourney
             
-            # Default values
+            # Значения по умолчанию
             aspect_width = 1
             aspect_height = 1
             no_param = ""
             
-            # If the ratio of the parties is indicated
+            # Если указано соотношение сторон
             if aspect_ratio:
-                # We break the parties to the width and height ratio
+                # Разбиваем соотношение сторон на width и height
                 ar_parts = aspect_ratio.split(":")
                 aspect_width = int(ar_parts[0])
                 aspect_height = int(ar_parts[1])
@@ -1955,7 +1955,7 @@ def generate_image():
                 "promptObject": {
                     "prompt": prompt,
                     "mode": request_data.get("mode", "relax"),
-                    "n": 4,  # Midjourney always generates 4 images
+                    "n": 4,  # Midjourney всегда генерирует 4 изображения
                     "aspect_width": aspect_width,
                     "aspect_height": aspect_height,
                     "isNiji6": request_data.get("isNiji6", False),
@@ -1966,7 +1966,7 @@ def generate_image():
                     "weird": request_data.get("weird", 0),
                 },
             }
-            # If negativePrompt or no, we delete these fields
+            # Если не задан negativePrompt или no, удаляем эти поля
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
             if not payload["promptObject"]["no"]:
@@ -2025,11 +2025,11 @@ def generate_image():
                 "promptObject": {
                     "prompt": prompt,
                     "n": request_data.get("n", 4),
-                    "size": size,  # The size is determined on the basis of aspect_ratio in Parse_aspect_ratio
+                    "size": size,  # Размер определяется на основе aspect_ratio в parse_aspect_ratio
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
                 },
             }
-            # We delete empty parameters
+            # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
             logger.debug(f"[{request_id}] Leonardo.ai Phoenix payload with size: {size}, from aspect_ratio: {aspect_ratio}")
@@ -2043,11 +2043,11 @@ def generate_image():
                 "promptObject": {
                     "prompt": prompt,
                     "n": request_data.get("n", 4),
-                    "size": size,  # The size is determined on the basis of aspect_ratio in Parse_aspect_ratio
+                    "size": size,  # Размер определяется на основе aspect_ratio в parse_aspect_ratio
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
                 },
             }
-            # We delete empty parameters
+            # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
             logger.debug(f"[{request_id}] Leonardo.ai Lightning XL payload with size: {size}, from aspect_ratio: {aspect_ratio}")
@@ -2061,11 +2061,11 @@ def generate_image():
                 "promptObject": {
                     "prompt": prompt,
                     "n": request_data.get("n", 4),
-                    "size": size,  # The size is determined on the basis of aspect_ratio in Parse_aspect_ratio
+                    "size": size,  # Размер определяется на основе aspect_ratio в parse_aspect_ratio
                     "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
                 },
             }
-            # We delete empty parameters
+            # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
             logger.debug(f"[{request_id}] Leonardo.ai Vision XL payload with size: {size}, from aspect_ratio: {aspect_ratio}")
@@ -2084,7 +2084,7 @@ def generate_image():
                     "aspect_ratio": aspect_ratio
                 },
             }
-            # We delete empty parameters
+            # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
             if not payload["promptObject"]["aspect_ratio"]:
@@ -2105,7 +2105,7 @@ def generate_image():
                     "aspect_ratio": aspect_ratio
                 },
             }
-            # We delete empty parameters
+            # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
             if not payload["promptObject"]["aspect_ratio"]:
@@ -2126,7 +2126,7 @@ def generate_image():
                     "aspect_ratio": aspect_ratio
                 },
             }
-            # We delete empty parameters
+            # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
             if not payload["promptObject"]["aspect_ratio"]:
@@ -2147,7 +2147,7 @@ def generate_image():
                     "aspect_ratio": aspect_ratio
                 },
             }
-            # We delete empty parameters
+            # Удаляем пустые параметры
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
             if not payload["promptObject"]["aspect_ratio"]:
@@ -2160,13 +2160,13 @@ def generate_image():
         logger.debug(f"[{request_id}] Sending request to 1min.ai API: {api_url}")
         logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:500]}")
 
-        # We set parameters for repeated attempts
+        # Задаем параметры для повторных попыток
         max_retries = 3
         retry_count = 0
-        retry_delay = 5  # Start with 5 seconds between repetitions
-        start_time = time.time()  # We remember the start time to track the total waiting time
+        retry_delay = 5  # Начинаем с 5 секунд между повторами
+        start_time = time.time()  # Запоминаем время начала запроса для отслеживания общего времени ожидания
 
-        # For Midjourney and Leonardo models, we do not make repeated requests, as they are executed longer
+        # Для моделей Midjourney и Leonardo не делаем повторных запросов, так как они выполняются дольше
         if model.startswith("midjourney") or model.startswith("dall-e") or model.startswith("flux") or model.startswith("stable-diffusion") or model in [
             "6b645e3a-d64f-4341-a6d8-7a3690fbf042", "phoenix",  # Leonardo.ai - Phoenix
             "b24e16ff-06e3-43eb-8d33-4416c2d75876", "lightning-xl",  # Leonardo.ai - Lightning XL
@@ -2176,11 +2176,11 @@ def generate_image():
             "aa77f04e-3eec-4034-9c07-d0f619684628", "kino-xl",  # Leonardo.ai - Kino XL
             "2067ae52-33fd-4a82-bb92-c2c55e7d2786", "albedo-base-xl"  # Leonardo.ai - Albedo Base XL
         ]:
-            max_retries = 1  # For these models we make only one attempt
+            max_retries = 1  # Для этих моделей делаем только одну попытку
 
         while retry_count < max_retries:
             try:
-                # We send a request with a timeout
+                # Отправляем запрос с таймаутом
                 response = api_request(
                     "POST", 
                     api_url, 
@@ -2192,31 +2192,31 @@ def generate_image():
                 
                 logger.debug(f"[{request_id}] Response status code: {response.status_code}")
                 
-                # If a successful answer is received, we process it
+                # Если получен успешный ответ, обрабатываем его
                 if response.status_code == 200:
                     break
                 
-                # For Midjourney, we return the error immediately without repeated attempts
+                # Для Midjourney возвращаем ошибку сразу без повторных попыток
                 if model.startswith("midjourney"):
-                    # For error 504 (Gateway Timeout), we do not think for a mistake
-                    # We just continue to wait until the complete timeout
+                    # Для ошибки 504 (Gateway Timeout) не считаем за ошибку
+                    # Просто продолжаем ожидание до полного таймаута
                     if response.status_code == 504:
                         logger.warning(
                             f"[{request_id}] Получен 504 Gateway Timeout для Midjourney. Это нормальное состояние - продолжаем ожидание полного таймаута {MIDJOURNEY_TIMEOUT}с."
                         )
-                        # Check how much time has passed since the beginning of the request
+                        # Проверяем, сколько времени прошло с начала запроса
                         elapsed_time = time.time() - start_time
                         remaining_time = MIDJOURNEY_TIMEOUT - elapsed_time
                         
                         if remaining_time > 0:
                             logger.info(f"[{request_id}] Продолжаем ожидание: прошло {elapsed_time:.1f}с из {MIDJOURNEY_TIMEOUT}с, осталось {remaining_time:.1f}с")
-                            # Here we simply return 504 so that the client can check the results later
+                            # Здесь мы просто возвращаем 504, чтобы клиент мог проверить результаты позже
                             return (
                                 jsonify({"error": "Image generation is still in progress. Please check back later."}),
                                 504,
                             )
                     
-                    # For other errors, we return the error right away
+                    # Для остальных ошибок возвращаем ошибку сразу
                     error_msg = "Unknown error"
                     try:
                         error_data = response.json()
@@ -2229,9 +2229,9 @@ def generate_image():
                         response.status_code,
                     )
                     
-                # If error 429 (Rate Limit) or 500 (server error), we repeat the request
+                # Если ошибка 429 (Rate Limit) или 500 (Server Error), повторяем запрос
                 elif response.status_code in [429, 500, 502, 503, 504]:
-                    # For Midjourney and Code 504, we continue to wait instead of a second request
+                    # Для Midjourney и кода 504 продолжаем ожидание вместо повторного запроса
                     if response.status_code == 504 and model.startswith("midjourney"):
                         elapsed_time = time.time() - start_time
                         remaining_time = MIDJOURNEY_TIMEOUT - elapsed_time
@@ -2247,16 +2247,16 @@ def generate_image():
                             logger.error(f"[{request_id}] Превышен полный таймаут {MIDJOURNEY_TIMEOUT}с после получения 504")
                             return jsonify({"error": f"Image generation timed out after {MIDJOURNEY_TIMEOUT}s"}), 500
                     
-                    # For all other mistakes, we make a second attempt
+                    # Для всех остальных ошибок делаем повторную попытку
                     retry_count += 1
                     logger.warning(
                         f"[{request_id}] Received {response.status_code} error, retry {retry_count}/{max_retries}"
                     )
                     time.sleep(retry_delay)
-                    retry_delay *= 2  # We increase the waiting time exponally
+                    retry_delay *= 2  # Увеличиваем время ожидания экспоненциально
                     continue
                     
-                # For other errors, we return the answer right away
+                # Для других ошибок возвращаем ответ сразу
                 elif response.status_code == 401:
                     return ERROR_HANDLER(1020, key=api_key)
                 else:
@@ -2279,13 +2279,13 @@ def generate_image():
                 time.sleep(retry_delay)
                 retry_delay *= 2
                 
-                # For Midjourney models, we do not repeat requests even with exceptions
+                # Для моделей Midjourney не повторяем запросы даже при исключениях
                 if model.startswith("midjourney"):
-                    # Check if the complete timout has expired
+                    # Проверяем, не истек ли полный таймаут
                     elapsed_time = time.time() - start_time
                     remaining_time = MIDJOURNEY_TIMEOUT - elapsed_time
                     
-                    # If there is time left until a complete timeout, we inform the client to continue waiting
+                    # Если осталось время до полного таймаута, сообщаем клиенту продолжать ожидание
                     if remaining_time > 0:
                         logger.warning(f"[{request_id}] Сетевая ошибка при запросе к Midjourney: {str(e)}. Ожидание продолжается, осталось {remaining_time:.1f}с из {MIDJOURNEY_TIMEOUT}с")
                         return (
@@ -2293,25 +2293,25 @@ def generate_image():
                             504,
                         )
                     
-                    # If time has expired, we report an error
+                    # Если время истекло, сообщаем об ошибке
                     logger.error(f"[{request_id}] Превышен полный таймаут {MIDJOURNEY_TIMEOUT}с для запроса к Midjourney: {str(e)}")
                     return jsonify({"error": f"API request timed out after {MIDJOURNEY_TIMEOUT}s: {str(e)}"}), 500
                     
                 continue
                 
-        # If after all attempts we still get mistakes
+        # Если после всех попыток по-прежнему получаем ошибки
         if retry_count >= max_retries and (not 'response' in locals() or response.status_code != 200):
             logger.error(f"[{request_id}] Max retries exceeded for image generation request")
             return jsonify({"error": "Failed to generate image after multiple attempts"}), 500
 
         one_min_response = response.json()
 
-        # Converting 1min.ai response into Openai format
+        # Преобразование ответа 1min.ai в формат OpenAI
         try:
-            # We get all the URL images if they are available
+            # Получаем все URL изображений, если они доступны
             image_urls = []
             
-            # Check if the response of an array of URL images
+            # Проверяем, содержит ли ответ массив URL изображений
             result_object = one_min_response.get("aiRecord", {}).get("aiRecordDetail", {}).get("resultObject", [])
             
             if isinstance(result_object, list) and result_object:
@@ -2319,7 +2319,7 @@ def generate_image():
             elif result_object and isinstance(result_object, str):
                 image_urls = [result_object]
             
-            # If the URL is not found, we will try other extracts
+            # Если URL не найдены, попробуем другие пути извлечения
             if not image_urls:
                 if "resultObject" in one_min_response:
                     if isinstance(one_min_response["resultObject"], list):
@@ -2340,7 +2340,7 @@ def generate_image():
                 f"[{request_id}] Successfully generated {len(image_urls)} images"
             )
             
-            # We form full URLs for all images
+            # Формируем полные URL для всех изображений
             full_image_urls = []
             asset_host = "https://asset.1min.ai"
             
@@ -2348,9 +2348,9 @@ def generate_image():
                 if not url:
                     continue
                     
-                # Check if the URL contains full URL
+                # Проверяем, содержит ли url полный URL
                 if not url.startswith("http"):
-                    # If the image begins with /, do not add one more /
+                    # Если изображение начинается с /, не добавляем еще один /
                     if url.startswith("/"):
                         full_url = f"{asset_host}{url}"
                     else:
@@ -2360,19 +2360,19 @@ def generate_image():
                     
                 full_image_urls.append(full_url)
             
-            # We form a response in Openai format with teams for variations
+            # Формируем ответ в формате OpenAI с командами для вариаций
             openai_data = []
             for i, url in enumerate(full_image_urls):
-                # Create a short identifier for image
+                # Создаем короткий идентификатор для изображения
                 image_id = str(uuid.uuid4())[:8]
                 
-                # Add commands for variations only if the model supports variations
+                # Добавляем команды для вариаций только если модель поддерживает вариации
                 if model in IMAGE_VARIATION_MODELS:
                     variation_commands = {
                         "url": url,
                         "revised_prompt": prompt,
                         "variation_commands": {
-                            "variation": f"/v{i+1} {url}",  # Team to create variation with number
+                            "variation": f"/v{i+1} {url}",  # Команда для создания вариации с номером
                         }
                     }
                     openai_data.append(variation_commands)
@@ -2384,26 +2384,26 @@ def generate_image():
                 "data": openai_data,
             }
 
-            # For compatibility with the format of text answers, add Structure_outPut
+            # Для совместимости с форматом текстовых ответов, добавляем structure_output
             structured_output = {"type": "image", "image_urls": full_image_urls}
             
-            # We form a markdown text with variation buttons
+            # Формируем markdown-текст с кнопками вариаций
             if len(full_image_urls) == 1:
                 text_response = f"![Image]({full_image_urls[0]}) `[_V1_]`"
-                # Add a hint about the creation of variations
-                text_response += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in your next **prompt**"
+                # Добавляем подсказку о создании вариаций
+                text_response += "\n\nTo generate variants of an image - tap (copy) [_V1_] and send it (paste) in next prompt"
             else:
-                # We form a text with images and buttons of variations on one line
+                # Формируем текст с изображениями и кнопками вариаций на одной строке
                 image_lines = []
                 
                 for i, url in enumerate(full_image_urls):
                     image_lines.append(f"![Image {i+1}]({url}) `[_V{i+1}_]`")
                 
-                # Combine lines with a new line between them
+                # Объединяем строки с новой строкой между ними
                 text_response = "\n".join(image_lines)
                 
-                # Add a hint about the creation of variations
-                text_response += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in your next **prompt**"
+                # Добавляем подсказку о создании вариаций
+                text_response += "\n\nTo generate variants of an image - tap (copy) [_V1_] - [_V4_] and send it (paste) in next prompt"
                 
             openai_response["choices"] = [
                 {
@@ -2439,7 +2439,7 @@ def image_variations():
     if request.method == "OPTIONS":
         return handle_options_request()
 
-    # Create a unique ID for request
+    # Создаем уникальный ID для запроса
     request_id = str(uuid.uuid4())
     logger.debug(f"[{request_id}] Processing image variation request")
 
@@ -2449,9 +2449,9 @@ def image_variations():
         return ERROR_HANDLER(1021)
     api_key = auth_header.split(" ")[1]
 
-    # We check whether a request has come with the REQUEST_ID parameter (redirection from/V1/Chat/Complets)
+    # Проверяем, пришел ли запрос с параметром request_id (перенаправление из /v1/chat/completions)
     if 'request_id' in request.args and 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
-        # We get data on variation from MemcacheD
+        # Получаем данные о вариации из memcached
         redirect_request_id = request.args.get('request_id')
         variation_key = f"variation:{redirect_request_id}"
         variation_data_json = safe_memcached_operation('get', variation_key)
@@ -2465,34 +2465,34 @@ def image_variations():
                 else:
                     variation_data = variation_data_json
                 
-                # We get the way to the temporary file, model and number of variations
+                # Получаем путь к временному файлу, модель и количество вариаций
                 temp_file_path = variation_data.get("temp_file")
                 model = variation_data.get("model")
                 n = variation_data.get("n", 1)
-                # We get a relative path from the data if it was preserved
+                # Получаем относительный путь из данных, если он был сохранен
                 image_path = variation_data.get("image_path")
                 
                 logger.debug(f"[{request_id}] Retrieved variation data from memcached: model={model}, n={n}, temp_file={temp_file_path}")
                 if image_path:
                     logger.debug(f"[{request_id}] Retrieved image path from memcached: {image_path}")
                 
-                # We check that the file exists
+                # Проверяем, что файл существует
                 if os.path.exists(temp_file_path):
-                    # We download the file and process directly
+                    # Загружаем файл и обрабатываем напрямую
                     try:
                         with open(temp_file_path, 'rb') as f:
                             file_data = f.read()
                             
-                        # Create a temporary file for processing a request
+                        # Создаем временный файл для обработки запроса
                         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                         temp_file.write(file_data)
                         temp_file.close()
                         
-                        # Create a file object for the Image_variations route
+                        # Создаем файловый объект для маршрута image_variations
                         from io import BytesIO
                         file_data_io = BytesIO(file_data)
                         
-                        # We register the file in Request.files via Workraund
+                        # Регистрируем файл в request.files через воркэраунд
                         from werkzeug.datastructures import FileStorage
                         file_storage = FileStorage(
                             stream=file_data_io,
@@ -2500,13 +2500,13 @@ def image_variations():
                             content_type="image/png",
                         )
                         
-                        # We process a request with a new temporary file
+                        # Обрабатываем запрос с новым временным файлом
                         request.files = {"image": file_storage}
                         
-                        # Create a form with the necessary parameters
+                        # Создаем форму с необходимыми параметрами
                         form_data = [("model", model), ("n", str(n))]
                         
-                        # If there is a relative path, add it to the form
+                        # Если есть относительный путь, добавляем его в форму
                         if image_path:
                             form_data.append(("image_path", image_path))
                             
@@ -2514,15 +2514,15 @@ def image_variations():
                         
                         logger.info(f"[{request_id}] Using file from memcached for image variations")
                         
-                        # We delete the original temporary file
+                        # Удаляем оригинальный временный файл
                         try:
                             os.unlink(temp_file_path)
                             logger.debug(f"[{request_id}] Deleted original temporary file: {temp_file_path}")
                         except Exception as e:
                             logger.warning(f"[{request_id}] Failed to delete original temporary file: {str(e)}")
                             
-                        # We will use the original temporary file instead of creating a new
-                        # to avoid problems with the closing of the flow
+                        # Будем использовать оригинальный временный файл вместо создания нового
+                        # чтобы избежать проблем с закрытием потока                        
                     except Exception as e:
                         logger.error(f"[{request_id}] Error processing file from memcached: {str(e)}")
                         return jsonify({"error": f"Error processing variation request: {str(e)}"}), 500
@@ -2533,7 +2533,7 @@ def image_variations():
                 logger.error(f"[{request_id}] Error processing variation data: {str(e)}")
                 return jsonify({"error": f"Error processing variation request: {str(e)}"}), 500
 
-    # Getting an image file
+    # Получение файла изображения
     if "image" not in request.files:
         logger.error(f"[{request_id}] No image file provided")
         return jsonify({"error": "No image file provided"}), 400
@@ -2542,29 +2542,29 @@ def image_variations():
     original_model = request.form.get("model", "dall-e-2").strip()
     n = int(request.form.get("n", 1))
     size = request.form.get("size", "1024x1024")
-    prompt_text = request.form.get("prompt", "")  # We extract the industrial plane from the request if it is
-    mode = request.form.get("mode", "relax")  # We get a regime from a request
+    prompt_text = request.form.get("prompt", "")  # Извлекаем промпт из запроса если он есть
+    mode = request.form.get("mode", "relax")  # Получаем режим из запроса
     
-    # We check whether the relative path to the image in the Form-data has been transmitted
+    # Проверяем, передан ли относительный путь к изображению в form-данных
     relative_image_path = request.form.get("image_path")
     if relative_image_path:
         logger.debug(f"[{request_id}] Using relative image path from form: {relative_image_path}")
 
     logger.debug(f"[{request_id}] Original model requested: {original_model} for image variations")
     
-    # Determine the order of models for Fallback
+    # Определяем порядок моделей для fallback
     fallback_models = ["midjourney_6_1", "midjourney", "clipdrop", "dall-e-2"]
     
-    # If the requested model supports variations, we try it first
+    # Если запрошенная модель поддерживает вариации, пробуем сначала её
     if original_model in IMAGE_VARIATION_MODELS:
-        # We start with the requested model, then we try others, excluding the already requested
+        # Начинаем с запрошенной модели, затем пробуем другие, исключая уже запрошенную
         models_to_try = [original_model] + [m for m in fallback_models if m != original_model]
     else:
-        # If the requested model does not support variations, we start with Fallback models
+        # Если запрошенная модель не поддерживает вариации, начинаем с fallback моделей
         logger.warning(f"[{request_id}] Model {original_model} does not support image variations. Will try fallback models")
         models_to_try = fallback_models
     
-    # We save a temporary file for multiple use
+    # Сохраняем временный файл для многократного использования
     try:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
         image_file.save(temp_file.name)
@@ -2573,11 +2573,11 @@ def image_variations():
         logger.error(f"[{request_id}] Failed to save temporary file: {str(e)}")
         return jsonify({"error": "Failed to process image file"}), 500
     
-    # Create a session to download the image
+    # Создаем сессию для загрузки изображения
     session = create_session()
     headers = {"API-KEY": api_key}
     
-    # We extract the ratio of the parties from the industrial plane if it is
+    # Извлекаем соотношение сторон из промпта если оно есть
     aspect_width = 1
     aspect_height = 1
     if "--ar" in prompt_text:
@@ -2587,38 +2587,38 @@ def image_variations():
             aspect_height = int(ar_match.group(2))
             logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_width}:{aspect_height}")
     
-    # Initialize the variable for variations in front of the cycle
+    # Инициализируем переменную для вариаций перед циклом
     variation_urls = []
     current_model = None
     
-    # We try each model in turn
+    # Пробуем каждую модель по очереди
     for model in models_to_try:
         logger.info(f"[{request_id}] Trying model: {model} for image variations")
         current_model = model
         
         try:
-            # Special processing for Dall-E 2
+            # Специальная обработка для DALL-E 2
             if model == "dall-e-2":
-                # For Dall-E 2, you need to use a special Openai and direct file transfer
+                # Для DALL-E 2 нужно использовать специальный эндпоинт OpenAI с прямой передачей файла
                 logger.debug(f"[{request_id}] Special handling for DALL-E 2 variations")
                 
-                # Open the image file and create a request
+                # Открываем файл изображения и создаем запрос
                 with open(temp_file.name, 'rb') as img_file:
-                    # Openai expects a file directly to Form-Data
+                    # OpenAI ожидает файл напрямую в form-data
                     dalle_files = {
                         'image': (os.path.basename(temp_file.name), img_file, 'image/png')
                     }
                     
-                    # Request parameters
+                    # Параметры запроса
                     dalle_form_data = {
                         'n': n,
                         'size': size,
                         'model': 'dall-e-2'
                     }
                     
-                    # We create a request for variation directly to Openai API
+                    # Создаем запрос на вариацию напрямую к OpenAI API
                     try:
-                        # Try to use a direct connection to Openai if available
+                        # Пробуем использовать прямое подключение к OpenAI если доступно
                         openai_api_key = os.environ.get("OPENAI_API_KEY")
                         if openai_api_key:
                             openai_headers = {"Authorization": f"Bearer {openai_api_key}"}
@@ -2637,7 +2637,7 @@ def image_variations():
                                 logger.debug(f"[{request_id}] OpenAI API variation successful")
                                 variation_data = variation_response.json()
                                 
-                                # We extract the URL from the answer
+                                # Извлекаем URL из ответа
                                 if "data" in variation_data and isinstance(variation_data["data"], list):
                                     for item in variation_data["data"]:
                                         if "url" in item:
@@ -2645,7 +2645,7 @@ def image_variations():
                                 
                                 if variation_urls:
                                     logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via OpenAI API")
-                                    # We form an answer in Openai API format
+                                    # Формируем ответ в формате OpenAI API
                                     response_data = {
                                         "created": int(time.time()),
                                         "data": [{"url": url} for url in variation_urls]
@@ -2656,12 +2656,12 @@ def image_variations():
                     except Exception as e:
                         logger.error(f"[{request_id}] Error trying direct OpenAI API: {str(e)}")
                     
-                    # If the direct request to Openai failed, we try through 1min.ai API
+                    # Если прямой запрос к OpenAI не удался, пробуем через 1min.ai API
                     try:
-                        # We reject the file because it could be read in the previous request
+                        # Переоткрываем файл, потому что он мог быть прочитан в предыдущем запросе
                         img_file.seek(0)
                         
-                        # We draw a request through our own and 1min.ai and dall-e 2
+                        # Проксируем запрос через собственный эндпоинт 1min.ai для DALL-E 2
                         onemin_url = "https://api.1min.ai/api/features/images/variations"
                         
                         logger.debug(f"[{request_id}] Trying 1min.ai API for DALL-E 2 variations")
@@ -2678,7 +2678,7 @@ def image_variations():
                             logger.debug(f"[{request_id}] 1min.ai API variation successful")
                             variation_data = variation_response.json()
                             
-                            # We extract the URL from the answer
+                            # Извлекаем URL из ответа
                             if "data" in variation_data and isinstance(variation_data["data"], list):
                                 for item in variation_data["data"]:
                                     if "url" in item:
@@ -2686,7 +2686,7 @@ def image_variations():
                             
                             if variation_urls:
                                 logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via 1min.ai API")
-                                # We form an answer in Openai API format
+                                # Формируем ответ в формате OpenAI API
                                 response_data = {
                                     "created": int(time.time()),
                                     "data": [{"url": url} for url in variation_urls]
@@ -2697,12 +2697,12 @@ def image_variations():
                     except Exception as e:
                         logger.error(f"[{request_id}] Error trying 1min.ai API: {str(e)}")
                 
-                # If you could not create a variation with Dall-E 2, we continue with other models
+                # Если не удалось создать вариацию с DALL-E 2, продолжаем с другими моделями
                 logger.warning(f"[{request_id}] Failed to create variations with DALL-E 2, trying next model")
                 continue
             
-            # For other models, we use standard logic
-            # Image loading in 1min.ai
+            # Для остальных моделей используем стандартную логику
+            # Загрузка изображения в 1min.ai
             with open(temp_file.name, 'rb') as img_file:
                 files = {"asset": (os.path.basename(temp_file.name), img_file, "image/png")}
                 
@@ -2717,18 +2717,18 @@ def image_variations():
                     logger.error(
                         f"[{request_id}] Failed to upload image: {asset_response.status_code} - {asset_response.text}"
                     )
-                    continue  # We try the next model
+                    continue  # Пробуем следующую модель
 
-                # Extract an ID of a loaded image and a full URL
+                # Извлекаем ID загруженного изображения и полный URL
                 asset_data = asset_response.json()
                 logger.debug(f"[{request_id}] Asset upload response: {asset_data}")
 
-                # We get a URL or ID image
+                # Получаем URL или ID изображения
                 image_id = None
                 image_url = None
                 image_location = None
 
-                # We are looking for ID in different places of the response structure
+                # Ищем ID в разных местах структуры ответа
                 if "id" in asset_data:
                     image_id = asset_data["id"]
                 elif "fileContent" in asset_data and "id" in asset_data["fileContent"]:
@@ -2736,25 +2736,25 @@ def image_variations():
                 elif "fileContent" in asset_data and "uuid" in asset_data["fileContent"]:
                     image_id = asset_data["fileContent"]["uuid"]
                 
-                # We are looking for an absolute URL (location) for image
+                # Ищем абсолютный URL (location) для изображения
                 if "asset" in asset_data and "location" in asset_data["asset"]:
                     image_location = asset_data["asset"]["location"]
                 
-                # If there is a Path, we use it as a URL image
+                # Если есть path, используем его как URL изображения
                 if "fileContent" in asset_data and "path" in asset_data["fileContent"]:
                     image_url = asset_data["fileContent"]["path"]
-                    # Add the host if the path is relative
+                    # Добавляем хост, если путь относительный
                     if not image_url.startswith("http"):
                         image_url = f"https://asset.1min.ai{image_url if image_url.startswith('/') else '/' + image_url}"
 
                 if not (image_id or image_url or image_location):
                     logger.error(f"[{request_id}] Failed to extract image information from response")
-                    continue  # We try the next model
+                    continue  # Пробуем следующую модель
 
-                # We form Payload for image variation
-                # We determine which model to use
+                # Формируем payload для вариации изображения
+                # Определяем, какую модель использовать
                 if model.startswith("midjourney"):
-                    # For Midjourney
+                    # Для Midjourney
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": model,
@@ -2769,7 +2769,7 @@ def image_variations():
                         }
                     }
                 elif model == "dall-e-2":
-                    # For Dall-E 2
+                    # Для DALL-E 2
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": "dall-e-2",
@@ -2780,7 +2780,7 @@ def image_variations():
                         }
                     }
                 elif model == "clipdrop":
-                    # For Clipdrop (Stable Diffusion)
+                    # Для Clipdrop (Stable Diffusion)
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": "clipdrop",
@@ -2789,7 +2789,7 @@ def image_variations():
                         }
                     }
                 else:
-                    # For all other models, we use minimal parameters
+                    # Для всех остальных моделей используем минимальные параметры
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": model,
@@ -2799,24 +2799,24 @@ def image_variations():
                         }
                     }
                 
-                # Remove the initial slash in Imageurl if it is
+                # Удаляем начальный слеш в imageUrl, если он есть
                 if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"] and isinstance(payload["promptObject"]["imageUrl"], str) and payload["promptObject"]["imageUrl"].startswith('/'):
                     payload["promptObject"]["imageUrl"] = payload["promptObject"]["imageUrl"][1:]
                     logger.debug(f"[{request_id}] Removed leading slash from imageUrl: {payload['promptObject']['imageUrl']}")
 
-                # For VIP users, add Credit to the request
+                # Для VIP-пользователей добавляем credit в запрос
                 if api_key.startswith("vip-"):
-                    payload["credits"] = 90000  # Standard number of loans for VIP
+                    payload["credits"] = 90000  # Стандартное количество кредитов для VIP
                 
-                # Detailed Payload logistics for debugging
+                # Детальное логирование payload для отладки
                 logger.info(f"[{request_id}] {model} variation payload: {json.dumps(payload, indent=2)}")
 
-                # Using Timeout for all models (15 minutes)
+                # Использование timeout для всех моделей (15 минут)
                 timeout = MIDJOURNEY_TIMEOUT
                     
                 logger.debug(f"[{request_id}] Sending variation request to {ONE_MIN_API_URL}")
 
-                # We send a request to create a variation
+                # Отправляем запрос на создание вариации
                 variation_response = api_request(
                     "POST",
                     f"{ONE_MIN_API_URL}",
@@ -2826,25 +2826,25 @@ def image_variations():
                 )
 
                 if variation_response.status_code != 200:
-                    # We process the 504 error for Midjourney in a special way
+                    # Обрабатываем ошибку 504 для Midjourney особым образом
                     if variation_response.status_code == 504 and model.startswith("midjourney"):
                         logger.warning(f"[{request_id}] Получен 504 Gateway Timeout для вариаций Midjourney. Продолжаем ожидание.")
                         return (
                             jsonify({"error": "Image variation is still in progress. Please check back later."}),
                             504,
                         )
-                    # For other errors, we continue to try the next model
+                    # Для других ошибок продолжаем пробовать следующую модель
                     logger.error(f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
                     continue
 
-                # We process the answer and form the result
+                # Обрабатываем ответ и формируем результат
                 variation_data = variation_response.json()
                 logger.debug(f"[{request_id}] Variation response: {variation_data}")
 
-                # We extract the URL variations - initialize an empty array before searching
+                # Извлекаем URL вариаций - инициализируем пустым массивом перед поиском
                 variation_urls = []
                 
-                # We are trying to find URL variations in the answer - various structures for different models
+                # Пытаемся найти URL вариаций в ответе - различные структуры для разных моделей
                 if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                     record_detail = variation_data["aiRecord"]["aiRecordDetail"]
                     if "resultObject" in record_detail:
@@ -2854,7 +2854,7 @@ def image_variations():
                         elif isinstance(result, str):
                             variation_urls = [result]
                 
-                # An alternative search path
+                # Альтернативный путь поиска
                 if not variation_urls and "resultObject" in variation_data:
                     result = variation_data["resultObject"]
                     if isinstance(result, list):
@@ -2862,7 +2862,7 @@ def image_variations():
                     elif isinstance(result, str):
                         variation_urls = [result]
                         
-                # Search in Data.URL for Dall-E 2
+                # Поиск в data.url для DALL-E 2
                 if not variation_urls and "data" in variation_data and isinstance(variation_data["data"], list):
                     for item in variation_data["data"]:
                         if "url" in item:
@@ -2870,28 +2870,28 @@ def image_variations():
 
                 if not variation_urls:
                     logger.error(f"[{request_id}] No variation URLs found in response with model {model}")
-                    continue  # We try the next model
+                    continue  # Пробуем следующую модель
 
-                # Successfully received variations, we leave the cycle
+                # Успешно получили вариации, выходим из цикла
                 logger.info(f"[{request_id}] Successfully generated variations with model {model}")
                 break
                 
         except Exception as e:
             logger.error(f"[{request_id}] Exception during variation request with model {model}: {str(e)}")
-            continue  # We try the next model
+            continue  # Пробуем следующую модель
     
-    # Clean the temporary file
+    # Очищаем временный файл
     try:
         os.unlink(temp_file.name)
     except:
         pass
     
-    # We check if you managed to get variations from any of the models
+    # Проверяем, удалось ли получить вариации с какой-либо из моделей
     if not variation_urls:
         session.close()
         return jsonify({"error": "Failed to create image variations with any available model"}), 500
     
-    # We form complete URL for variations
+    # Формируем полные URL для вариаций
     full_variation_urls = []
     asset_host = "https://asset.1min.ai"
     
@@ -2899,7 +2899,7 @@ def image_variations():
         if not url:
             continue
             
-        # If the URL is not complete, add the host
+        # Если URL не полный, добавляем хост
         if not url.startswith("http"):
             if url.startswith("/"):
                 full_url = f"{asset_host}{url}"
@@ -2910,7 +2910,7 @@ def image_variations():
             
         full_variation_urls.append(full_url)
 
-    # We form an answer in Openai format
+    # Формируем ответ в формате OpenAI
     openai_data = []
     for url in full_variation_urls:
         openai_data.append({"url": url})
@@ -2920,23 +2920,23 @@ def image_variations():
         "data": openai_data,
     }
 
-    # Add the text with variation buttons for Markdown Object
+    # Добавляем текст с кнопками вариаций для markdown-отображения
     markdown_text = ""
     if len(full_variation_urls) == 1:
         markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
-        # Add a hint to create variations
-        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in your next **prompt**"
+        # Добавляем подсказку для создания вариаций
+        markdown_text += "\n\nTo generate variants of an image - tap (copy) [_V1_] and send it (paste) in next prompt"
     else:
-        # We form a text with images and buttons of variations on one line
+        # Формируем текст с изображениями и кнопками вариаций на одной строке
         image_lines = []
         
         for i, url in enumerate(full_variation_urls):
             image_lines.append(f"![Variation {i+1}]({url}) `[_V{i+1}_]`")
         
-        # Combine lines with a new line between them
+        # Объединяем строки с новой строкой между ними
         markdown_text = "\n".join(image_lines)
-        # Add a hint to create variations
-        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in your next **prompt**"
+        # Добавляем подсказку для создания вариаций
+        markdown_text += "\n\nTo generate variants of an image - tap (copy) [_V1_] - [_V4_] and send it (paste) in next prompt"
     
     openai_response["choices"] = [
         {
@@ -2974,7 +2974,7 @@ def create_assistant():
     model = request_data.get("model", "gpt-4o-mini")
     file_ids = request_data.get("file_ids", [])
 
-    # Creating a conversation with PDF in 1min.ai
+    # Создание беседы с PDF в 1min.ai
     payload = {
         "title": name,
         "type": "CHAT_WITH_PDF",
@@ -3029,10 +3029,10 @@ def handle_options_request():
 
 def transform_response(one_min_response, request_data, prompt_token):
     try:
-        # Output of the response structure for debugging
+        # Вывод структуры ответа для отладки
         logger.debug(f"Response structure: {json.dumps(one_min_response)[:200]}...")
 
-        # We get an answer from the appropriate place to json
+        # Получаем ответ из соответствующего места в JSON
         result_text = (
             one_min_response.get("aiRecord", {})
             .get("aiRecordDetail", {})
@@ -3040,7 +3040,7 @@ def transform_response(one_min_response, request_data, prompt_token):
         )
 
         if not result_text:
-            # Alternative ways to extract an answer
+            # Альтернативные пути извлечения ответа
             if "resultObject" in one_min_response:
                 result_text = (
                     one_min_response["resultObject"][0]
@@ -3050,7 +3050,7 @@ def transform_response(one_min_response, request_data, prompt_token):
             elif "result" in one_min_response:
                 result_text = one_min_response["result"]
             else:
-                # If you have not found an answer along the well -known paths, we return the error
+                # Если не нашли ответ по известным путям, возвращаем ошибку
                 logger.error(f"Cannot extract response text from API result")
                 result_text = "Error: Could not extract response from API"
 
@@ -3083,7 +3083,7 @@ def transform_response(one_min_response, request_data, prompt_token):
         }
     except Exception as e:
         logger.error(f"Error in transform_response: {str(e)}")
-        # Return the error in the format compatible with Openai
+        # Возвращаем ошибку в формате, совместимом с OpenAI
         return {
             "id": f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion",
@@ -3109,21 +3109,21 @@ def transform_response(one_min_response, request_data, prompt_token):
 
 def set_response_headers(response):
     response.headers["Content-Type"] = "application/json"
-    response.headers["Access-Control-Allow-Origin"] = "*"  # Corrected the hyphen in the title name
+    response.headers["Access-Control-Allow-Origin"] = "*"  # Исправил дефис в имени заголовка
     response.headers["X-Request-ID"] = str(uuid.uuid4())
-    # Add more Cors headings
+    # Добавляем больше CORS заголовков
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
-    return response  # Return the answer for the chain
+    return response  # Возвращаем ответ для цепочки
 
 
 def stream_response(response, request_data, model, prompt_tokens, session=None):
     """
-    Stream received from 1min.ai response in a format compatible with Openai API.
+    Stream полученный от 1min.ai ответ в формате, совместимом с OpenAI API.
     """
     all_chunks = ""
     
-    # We send the first fragment: the role of the message
+    # Отправляем первый фрагмент: роль сообщения
     first_chunk = {
         "id": f"chatcmpl-{uuid.uuid4()}",
         "object": "chat.completion.chunk",
@@ -3140,7 +3140,7 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     
     yield f"data: {json.dumps(first_chunk)}\n\n"
     
-    # Simpler implementation from Main (6) .py for content processing
+    # Более простая реализация из main (6).py для обработки контента
     for chunk in response.iter_content(chunk_size=1024):
         finish_reason = None
 
@@ -3166,7 +3166,7 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     logger.debug(f"Finished processing streaming response. Completion tokens: {str(tokens)}")
     logger.debug(f"Total tokens: {str(tokens + prompt_tokens)}")
     
-    # Final cup denoting the end of the flow
+    # Финальный чанк, обозначающий конец потока
     final_chunk = {
         "id": f"chatcmpl-{uuid.uuid4()}",
         "object": "chat.completion.chunk",
@@ -3193,30 +3193,30 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
 
 def safe_temp_file(prefix, request_id=None):
     """
-    Safely creates a temporary file and guarantees its deletion after use
+    Безопасно создает временный файл и гарантирует его удаление после использования
 
     Args:
-        Prefix: Prefix for file name
-        Request_id: ID Request for Logging
+        prefix: Префикс для имени файла
+        request_id: ID запроса для логирования
 
     Returns:
-        STR: Way to the temporary file
+        str: Путь к временному файлу
     """
     request_id = request_id or str(uuid.uuid4())[:8]
     random_string = "".join(random.choices(string.ascii_letters + string.digits, k=10))
     temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
 
-    # Create a temporary directory if it is not
+    # Создаем временную директорию, если её нет
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
 
-    # Clean old files (over 1 hour)
+    # Очищаем старые файлы (старше 1 часа)
     try:
         current_time = time.time()
         for old_file in os.listdir(temp_dir):
             file_path = os.path.join(temp_dir, old_file)
             if os.path.isfile(file_path):
-                # If the file is older than 1 hour - delete
+                # Если файл старше 1 часа - удаляем
                 if current_time - os.path.getmtime(file_path) > 3600:
                     try:
                         os.remove(file_path)
@@ -3230,50 +3230,50 @@ def safe_temp_file(prefix, request_id=None):
     except Exception as e:
         logger.warning(f"[{request_id}] Error while cleaning old temp files: {str(e)}")
 
-    # Create a new temporary file
+    # Создаем новый временный файл
     temp_file_path = os.path.join(temp_dir, f"{prefix}_{request_id}_{random_string}")
     return temp_file_path
 
 
 def retry_image_upload(image_url, api_key, request_id=None):
-    """Uploads an image with repeated attempts, returns a direct link to it"""
+    """Загружает изображение с повторными попытками, возвращает прямую ссылку на него"""
     request_id = request_id or str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Uploading image: {image_url}")
 
-    # We create a new session for this request
+    # Создаем новую сессию для этого запроса
     session = create_session()
     temp_file_path = None
 
     try:
-        # We load the image
+        # Загружаем изображение
         if image_url.startswith(("http://", "https://")):
-            # URL loading
+            # Загрузка по URL
             logger.debug(f"[{request_id}] Fetching image from URL: {image_url}")
             response = session.get(image_url, stream=True)
             response.raise_for_status()
             image_data = response.content
         else:
-            # Decoding Base64
+            # Декодирование base64
             logger.debug(f"[{request_id}] Decoding base64 image")
             image_data = base64.b64decode(image_url.split(",")[1])
 
-        # Check the file size
+        # Проверяем размер файла
         if len(image_data) == 0:
             logger.error(f"[{request_id}] Empty image data")
             return None
 
-        # Create a temporary file
+        # Создаем временный файл
         temp_file_path = safe_temp_file("image", request_id)
 
         with open(temp_file_path, "wb") as f:
             f.write(image_data)
 
-        # Check that the file is not empty
+        # Проверяем, что файл не пуст
         if os.path.getsize(temp_file_path) == 0:
             logger.error(f"[{request_id}] Empty image file created: {temp_file_path}")
             return None
 
-        # We load to the server
+        # Загружаем на сервер
         try:
             with open(temp_file_path, "rb") as f:
                 upload_response = session.post(
@@ -3298,7 +3298,7 @@ def retry_image_upload(image_url, api_key, request_id=None):
                     )
                     return None
 
-                # We get URL images
+                # Получаем URL изображения
                 upload_data = upload_response.json()
                 if isinstance(upload_data, str):
                     try:
@@ -3311,7 +3311,7 @@ def retry_image_upload(image_url, api_key, request_id=None):
 
                 logger.debug(f"[{request_id}] Upload response: {upload_data}")
 
-                # We get the path to the file from FileContent
+                # Получаем путь к файлу из fileContent
                 if (
                     "fileContent" in upload_data
                     and "path" in upload_data["fileContent"]
@@ -3332,9 +3332,9 @@ def retry_image_upload(image_url, api_key, request_id=None):
         traceback.print_exc()
         return None
     finally:
-        # Close the session
+        # Закрываем сессию
         session.close()
-        # We delete a temporary file
+        # Удаляем временный файл
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
@@ -3346,10 +3346,10 @@ def retry_image_upload(image_url, api_key, request_id=None):
 
 
 def create_session():
-    """Creates a new session with optimal settings for APIs"""
+    """Создает новую сессию с оптимальными настройками для API-запросов"""
     session = requests.Session()
 
-    # Setting up repeated attempts for all requests
+    # Настройка повторных попыток для всех запросов
     retry_strategy = requests.packages.urllib3.util.retry.Retry(
         total=3,
         backoff_factor=1,
@@ -3365,24 +3365,24 @@ def create_session():
 
 def upload_document(file_data, file_name, api_key, request_id=None):
     """
-    Downloads the file/document to the server and returns its ID.
+    Загружает файл/документ на сервер и возвращает его ID.
 
     Args:
-        File_DATA: Binar file contents
-        File_name: file name
-        API_KEY: user API
-        Request_id: ID Request for Logging
+        file_data: бинарное содержимое файла
+        file_name: имя файла
+        api_key: API-ключ пользователя
+        request_id: ID запроса для логирования
 
     Returns:
-        STR: ID loaded file or None in case of error
+        str: ID загруженного файла или None в случае ошибки
     """
     session = create_session()
     try:
-        # Determine the type of expansion file
+        # Определяем тип файла по расширению
         extension = os.path.splitext(file_name)[1].lower()
         logger.info(f"[{request_id}] Uploading document: {file_name}")
 
-        # Dictionary with MIME types for different file extensions
+        # Словарь с MIME-типами для разных расширений файлов
         mime_types = {
             ".pdf": "application/pdf",
             ".txt": "text/plain",
@@ -3401,24 +3401,24 @@ def upload_document(file_data, file_name, api_key, request_id=None):
             ".rtf": "application/rtf",
         }
 
-        # We get MIME-type from a dictionary or use Octet-Stream by default
+        # Получаем MIME-тип из словаря или используем octet-stream по умолчанию
         mime_type = mime_types.get(extension, "application/octet-stream")
 
-        # Determine the type of file for special processing
+        # Определяем тип файла для специальной обработки
         file_type = None
         if extension in [".doc"]:
             file_type = "DOC"
         elif extension in [".docx"]:
             file_type = "DOCX"
 
-        # We download the file to the server - add more details to the logs
+        # Загружаем файл на сервер - добавим больше деталей в логи
         logger.info(
             f"[{request_id}] Uploading file to 1min.ai: {file_name} ({mime_type}, {len(file_data)} bytes)"
         )
 
         headers = {"API-KEY": api_key}
 
-        # Special headlines for DOC/DOCX
+        # Специальные заголовки для DOC/DOCX
         if file_type in ["DOC", "DOCX"]:
             headers["X-File-Type"] = file_type
 
@@ -3432,7 +3432,7 @@ def upload_document(file_data, file_name, api_key, request_id=None):
             )
             return None
 
-        # Detailed logistics of the answer
+        # Подробное логирование ответа
         try:
             response_text = upload_response.text
             logger.debug(
@@ -3459,9 +3459,9 @@ def upload_document(file_data, file_name, api_key, request_id=None):
                 file_id = response_data["fileContent"]["uuid"]
                 logger.debug(f"[{request_id}] Found file ID (uuid) in fileContent: {file_id}")
             else:
-                # We are trying to find ID in other places of response structure
+                # Пытаемся найти ID в других местах структуры ответа
                 if isinstance(response_data, dict):
-                    # Recursive search for ID in the response structure
+                    # Рекурсивный поиск id в структуре ответа
                     def find_id(obj, path="root"):
                         if isinstance(obj, dict):
                             if "id" in obj:
@@ -3513,7 +3513,7 @@ def upload_document(file_data, file_name, api_key, request_id=None):
 @limiter.limit("100 per minute")
 def upload_file():
     """
-    File download route (analogue Openai Files API)
+    Маршрут для загрузки файлов (аналог OpenAI Files API)
     """
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Received file upload request")
@@ -3535,21 +3535,21 @@ def upload_file():
         return jsonify({"error": "No selected file"}), 400
 
     try:
-        # We save the file in memory
+        # Сохраняем файл в память
         file_data = file.read()
         file_name = file.filename
 
-        # We download the file to the 1min.ai server
+        # Загружаем файл на сервер 1min.ai
         file_id = upload_document(file_data, file_name, api_key, request_id)
 
         if not file_id:
             return jsonify({"error": "Failed to upload file"}), 500
 
-        # We save the file of the file in the user's session through Memcache, if it is available
+        # Сохраняем ID файла в сессии пользователя через memcached, если он доступен
         if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
             try:
                 user_key = f"user:{api_key}"
-                # We get the current user's current files or create a new list
+                # Получаем текущие файлы пользователя или создаем новый список
                 user_files_json = safe_memcached_operation('get', user_key)
                 user_files = []
                 
@@ -3563,22 +3563,22 @@ def upload_file():
                         logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
                         user_files = []
                         
-                # Add a new file
+                # Добавляем новый файл
                 file_info = {
                     "id": file_id,
                     "filename": file_name,
                     "uploaded_at": int(time.time())
                 }
                 
-                # Check that a file with such an ID is not yet on the list
+                # Проверяем, что файла с таким ID еще нет в списке
                 if not any(f.get("id") == file_id for f in user_files):
                     user_files.append(file_info)
                 
-                # We save the updated file list
+                # Сохраняем обновленный список файлов
                 safe_memcached_operation('set', user_key, json.dumps(user_files))
                 logger.info(f"[{request_id}] Saved file ID {file_id} for user in memcached")
                 
-                # Add the user to the list of well -known users for cleaning function
+                # Добавляем пользователя в список известных пользователей для функции очистки
                 known_users_list_json = safe_memcached_operation('get', 'known_users_list')
                 known_users_list = []
                 
@@ -3591,7 +3591,7 @@ def upload_file():
                     except Exception as e:
                         logger.error(f"[{request_id}] Error parsing known users list: {str(e)}")
                 
-                # Add the API key to the list of famous users if it is not yet
+                # Добавляем API-ключ в список известных пользователей, если его еще нет
                 if api_key not in known_users_list:
                     known_users_list.append(api_key)
                     safe_memcached_operation('set', 'known_users_list', json.dumps(known_users_list))
@@ -3599,7 +3599,7 @@ def upload_file():
             except Exception as e:
                 logger.error(f"[{request_id}] Error saving file info to memcached: {str(e)}")
 
-        # We create an answer in the Openai API format
+        # Создаем ответ в формате OpenAI API
         response_data = {
             "id": file_id,
             "object": "file",
@@ -3617,18 +3617,18 @@ def upload_file():
 
 def emulate_stream_response(full_content, request_data, model, prompt_tokens):
     """
-    Emulates a streaming response for cases when the API does not support the flow gear
+    Эмулирует потоковый ответ для случаев, когда API не поддерживает потоковую передачу
 
     Args:
-        Full_Content: Full text of the answer
-        Request_Data: Request data
-        Model: Model
-        Prompt_tokens: the number of tokens in the request
+        full_content: Полный текст ответа
+        request_data: Данные запроса
+        model: Модель
+        prompt_tokens: Количество токенов в запросе
 
     Yields:
-        STR: Lines for streaming
+        str: строки для потоковой передачи
     """
-    # We break the answer to fragments by ~ 5 words
+    # Разбиваем ответ на фрагменты по ~5 слов
     words = full_content.split()
     chunks = [" ".join(words[i : i + 5]) for i in range(0, len(words), 5)]
 
@@ -3644,12 +3644,12 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
         }
 
         yield f"data: {json.dumps(return_chunk)}\n\n"
-        time.sleep(0.05)  # Small delay in emulating stream
+        time.sleep(0.05)  # Небольшая задержка для эмуляции потока
 
-    # We calculate the tokens
+    # Подсчитываем токены
     tokens = calculate_token(full_content)
 
-    # Final chambers
+    # Финальный чанк
     final_chunk = {
         "id": f"chatcmpl-{uuid.uuid4()}",
         "object": "chat.completion.chunk",
@@ -3667,16 +3667,16 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
     yield "data: [DONE]\n\n"
 
 
-# A function for performing a request to the API with a new session
+# Функция для выполнения запроса к API с новой сессией
 def api_request(req_method, url, headers=None, 
                 requester_ip=None, data=None, 
                 files=None, stream=False, 
                 timeout=None, json=None, **kwargs):
-    """Performs the HTTP request to the API with the normalization of the URL and error processing"""
+    """Выполняет HTTP-запрос к API с нормализацией URL и обработкой ошибок"""
     req_url = url.strip()
     logger.debug(f"API request URL: {req_url}")
     
-    # Request parameters
+    # Параметры запроса
     req_params = {}
     if headers:
         req_params["headers"] = headers
@@ -3689,14 +3689,14 @@ def api_request(req_method, url, headers=None,
     if json:
         req_params["json"] = json
     
-    # Add other parameters
+    # Добавляем остальные параметры
     req_params.update(kwargs)
     
-    # We use increased timaut for Midjourney requests
+    # Используем увеличенный таймаут для запросов Midjourney
     is_midjourney = False
     is_image_operation = False
     
-    # Check JSON for Midjourney mention and operations
+    # Проверяем JSON на наличие упоминаний Midjourney и типов операций
     if json and isinstance(json, dict):
         model_name = json.get("model", "")
         prompt_type = json.get("type", "")
@@ -3707,7 +3707,7 @@ def api_request(req_method, url, headers=None,
             if "midjourney" in str(json).lower():
                 is_midjourney = True
     
-    # We check all the parameters of the request for the mentions of Midjourney
+    # Проверяем все параметры запроса на наличие упоминаний Midjourney
     if not is_midjourney and "midjourney" in str(req_params).lower():
         is_midjourney = True
         
@@ -3717,12 +3717,12 @@ def api_request(req_method, url, headers=None,
     else:
         req_params["timeout"] = timeout or DEFAULT_TIMEOUT
         
-    # We fulfill the request
+    # Выполняем запрос
     try:
         response = requests.request(req_method, req_url, **req_params)
         
-        # For error 504 with Midjourney, we just return the answer without repeated attempts
-        # It's just a signal that you need to continue to wait until the complete timeout
+        # Для ошибки 504 с Midjourney просто возвращаем ответ без повторных попыток
+        # Это просто сигнал, что нужно продолжать ждать до полного таймаута
         if is_midjourney and is_image_operation and response.status_code == 504:
             logger.warning(f"Получен 504 Gateway Timeout для Midjourney. Это нормально - продолжаем ожидание полного таймаута.")
             
@@ -3736,7 +3736,7 @@ def api_request(req_method, url, headers=None,
 @limiter.limit("60 per minute")
 def audio_transcriptions():
     """
-    Route for converting speech into text (analogue of Openai Whisper API)
+    Маршрут для преобразования речи в текст (аналог OpenAI Whisper API)
     """
     if request.method == "OPTIONS":
         return handle_options_request()
@@ -3751,7 +3751,7 @@ def audio_transcriptions():
 
     api_key = auth_header.split(" ")[1]
 
-    # Checking the availability of the Audio file
+    # Проверка наличия файла аудио
     if "file" not in request.files:
         logger.error(f"[{request_id}] No audio file provided")
         return jsonify({"error": "No audio file provided"}), 400
@@ -3765,11 +3765,11 @@ def audio_transcriptions():
     logger.info(f"[{request_id}] Processing audio transcription with model {model}")
 
     try:
-        # We create a new session for loading audio
+        # Создаем новую сессию для загрузки аудио
         session = create_session()
         headers = {"API-KEY": api_key}
 
-        # Audio loading in 1min.ai
+        # Загрузка аудио в 1min.ai
         files = {"asset": (audio_file.filename, audio_file, "audio/mpeg")}
 
         try:
@@ -3798,7 +3798,7 @@ def audio_transcriptions():
         finally:
             session.close()
 
-            # We form Payload for request Speech_to_text
+            # Формируем payload для запроса SPEECH_TO_TEXT
             payload = {
                 "type": "SPEECH_TO_TEXT",
                 "model": "whisper-1",
@@ -3808,7 +3808,7 @@ def audio_transcriptions():
                 },
             }
 
-        # Add additional parameters if they are provided
+        # Добавляем дополнительные параметры, если они предоставлены
         if language:
             payload["promptObject"]["language"] = language
 
@@ -3817,7 +3817,7 @@ def audio_transcriptions():
 
         headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-        # We send a request
+        # Отправляем запрос
         logger.debug(
             f"[{request_id}] Sending transcription request to {ONE_MIN_API_URL}"
         )
@@ -3837,11 +3837,11 @@ def audio_transcriptions():
                 response.status_code,
             )
 
-        # We convert the answer to the Openai API format
+        # Преобразуем ответ в формат OpenAI API
         one_min_response = response.json()
 
         try:
-            # We extract the text from the answer
+            # Извлекаем текст из ответа
             result_text = ""
 
             if (
@@ -3858,17 +3858,17 @@ def audio_transcriptions():
                     else one_min_response["resultObject"]
                 )
 
-            # Check if the result_text json is
+            # Проверяем, не является ли result_text JSON строкой
             try:
-                # If result_text is a json line, we rush it
+                # Если result_text - это JSON строка, распарсим ее
                 if result_text and result_text.strip().startswith("{"):
                     parsed_json = json.loads(result_text)
-                    # If Parsed_json has a “Text” field, we use its value
+                    # Если в parsed_json есть поле "text", используем его значение
                     if "text" in parsed_json:
                         result_text = parsed_json["text"]
                         logger.debug(f"[{request_id}] Extracted inner text from JSON: {result_text}")
             except (json.JSONDecodeError, TypeError, ValueError):
-                # If it was not possible to steam like JSON, we use it as it is
+                # Если не удалось распарсить как JSON, используем как есть
                 logger.debug(f"[{request_id}] Using result_text as is: {result_text}")
                 pass
 
@@ -3878,13 +3878,13 @@ def audio_transcriptions():
                 )
                 return jsonify({"error": "Could not extract transcription text"}), 500
 
-            # The most simple and reliable response format
+            # Максимально простой и надежный формат ответа
             logger.info(f"[{request_id}] Successfully processed audio transcription: {result_text}")
             
-            # Create json strictly in Openai API format
+            # Создаем JSON ответ строго в формате OpenAI API
             response_data = {"text": result_text}
             
-            # Add Cors headlines
+            # Добавляем CORS заголовки
             response = jsonify(response_data)
             response.headers["Access-Control-Allow-Origin"] = "*"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
@@ -3907,7 +3907,7 @@ def audio_transcriptions():
 @limiter.limit("60 per minute")
 def audio_translations():
     """
-    Route for translating audio to text (analogue Openai Whisper API)
+    Маршрут для перевода аудио в текст (аналог OpenAI Whisper API)
     """
     if request.method == "OPTIONS":
         return handle_options_request()
@@ -3922,7 +3922,7 @@ def audio_translations():
 
     api_key = auth_header.split(" ")[1]
 
-    # Checking the availability of the Audio file
+    # Проверка наличия файла аудио
     if "file" not in request.files:
         logger.error(f"[{request_id}] No audio file provided")
         return jsonify({"error": "No audio file provided"}), 400
@@ -3935,11 +3935,11 @@ def audio_translations():
     logger.info(f"[{request_id}] Processing audio translation with model {model}")
 
     try:
-        # We create a new session for loading audio
+        # Создаем новую сессию для загрузки аудио
         session = create_session()
         headers = {"API-KEY": api_key}
 
-        # Audio loading in 1min.ai
+        # Загрузка аудио в 1min.ai
         files = {"asset": (audio_file.filename, audio_file, "audio/mpeg")}
 
         try:
@@ -3968,7 +3968,7 @@ def audio_translations():
         finally:
             session.close()
 
-            # We form Payload for request Audio_Translator
+            # Формируем payload для запроса AUDIO_TRANSLATOR
             payload = {
                 "type": "AUDIO_TRANSLATOR",
                 "model": "whisper-1",
@@ -3981,7 +3981,7 @@ def audio_translations():
 
         headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-        # We send a request
+        # Отправляем запрос
         logger.debug(f"[{request_id}] Sending translation request to {ONE_MIN_API_URL}")
         response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
         logger.debug(
@@ -3999,11 +3999,11 @@ def audio_translations():
                 response.status_code,
             )
 
-        # We convert the answer to the Openai API format
+        # Преобразуем ответ в формат OpenAI API
         one_min_response = response.json()
 
         try:
-            # We extract the text from the answer
+            # Извлекаем текст из ответа
             result_text = ""
 
             if (
@@ -4026,13 +4026,13 @@ def audio_translations():
                 )
                 return jsonify({"error": "Could not extract translation text"}), 500
 
-            # The most simple and reliable response format
+            # Максимально простой и надежный формат ответа
             logger.info(f"[{request_id}] Successfully processed audio translation: {result_text}")
             
-            # Create json strictly in Openai API format
+            # Создаем JSON ответ строго в формате OpenAI API
             response_data = {"text": result_text}
             
-            # Add Cors headlines
+            # Добавляем CORS заголовки
             response = jsonify(response_data)
             response.headers["Access-Control-Allow-Origin"] = "*"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
@@ -4055,7 +4055,7 @@ def audio_translations():
 @limiter.limit("60 per minute")
 def text_to_speech():
     """
-    Route for converting text into speech (analogue Openai TTS API)
+    Маршрут для преобразования текста в речь (аналог OpenAI TTS API)
     """
     if request.method == "OPTIONS":
         return handle_options_request()
@@ -4070,7 +4070,7 @@ def text_to_speech():
 
     api_key = auth_header.split(" ")[1]
 
-    # We get data data
+    # Получаем данные запроса
     request_data = request.json
     model = request_data.get("model", "tts-1")
     input_text = request_data.get("input", "")
@@ -4086,7 +4086,7 @@ def text_to_speech():
         return jsonify({"error": "No input text provided"}), 400
         
     try:
-        # We form Payload for request_to_Speech
+        # Формируем payload для запроса TEXT_TO_SPEECH
         payload = {
             "type": "TEXT_TO_SPEECH",
             "model": model,
@@ -4100,7 +4100,7 @@ def text_to_speech():
 
         headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-        # We send a request
+        # Отправляем запрос
         logger.debug(f"[{request_id}] Sending TTS request to {ONE_MIN_API_URL}")
         response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
         logger.debug(f"[{request_id}] TTS response status code: {response.status_code}")
@@ -4114,11 +4114,11 @@ def text_to_speech():
                 response.status_code,
             )
 
-        # We process the answer
+        # Обрабатываем ответ
         one_min_response = response.json()
         
         try:
-            # We get a URL audio from the answer
+            # Получаем URL аудио из ответа
             audio_url = ""
             
             if "aiRecord" in one_min_response and "aiRecordDetail" in one_min_response["aiRecord"]:
@@ -4138,17 +4138,17 @@ def text_to_speech():
                 logger.error(f"[{request_id}] Could not extract audio URL from API response")
                 return jsonify({"error": "Could not extract audio URL"}), 500
             
-            # We get audio data by URL
+            # Получаем аудио-данные по URL
             audio_response = api_request("GET", f"https://asset.1min.ai/{audio_url}")
             
             if audio_response.status_code != 200:
                 logger.error(f"[{request_id}] Failed to download audio: {audio_response.status_code}")
                 return jsonify({"error": "Failed to download audio"}), 500
             
-            # We return the audio to the client
+            # Возвращаем аудио клиенту
             logger.info(f"[{request_id}] Successfully generated speech audio")
             
-            # We create an answer with audio and correct MIME-type
+            # Создаем ответ с аудио и правильными MIME-типами
             content_type = "audio/mpeg" if response_format == "mp3" else f"audio/{response_format}"
             response = make_response(audio_response.content)
             response.headers["Content-Type"] = content_type
@@ -4165,12 +4165,12 @@ def text_to_speech():
         return jsonify({"error": str(e)}), 500
 
 
-# Functions for working with files in API
+# Функции для работы с файлами в API
 @app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
 @limiter.limit("60 per minute")
 def handle_files():
     """
-    Route for working with files: getting a list and downloading new files
+    Маршрут для работы с файлами: получение списка и загрузка новых файлов
     """
     if request.method == "OPTIONS":
         return handle_options_request()
@@ -4184,11 +4184,11 @@ def handle_files():
 
     api_key = auth_header.split(" ")[1]
     
-    # Get - getting a list of files
+    # GET - получение списка файлов
     if request.method == "GET":
         logger.info(f"[{request_id}] Received request: GET /v1/files")
         try:
-            # We get a list of user files from MemcacheD
+            # Получаем список файлов пользователя из memcached
             files = []
             if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
                 try:
@@ -4204,7 +4204,7 @@ def handle_files():
                             else:
                                 user_files = user_files_json
                                 
-                            # Let's convert files about files to API response format
+                            # Преобразуем данные о файлах в формат ответа API
                             for file_info in user_files:
                                 if isinstance(file_info, dict) and "id" in file_info:
                                     files.append({
@@ -4222,7 +4222,7 @@ def handle_files():
                 except Exception as e:
                     logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
             
-            # We form an answer in Openai API format
+            # Формируем ответ в формате OpenAI API
             response_data = {
                 "data": files,
                 "object": "list"
@@ -4234,11 +4234,11 @@ def handle_files():
             logger.error(f"[{request_id}] Exception during files list request: {str(e)}")
             return jsonify({"error": str(e)}), 500
     
-    # Post - downloading a new file
+    # POST - загрузка нового файла
     elif request.method == "POST":
         logger.info(f"[{request_id}] Received request: POST /v1/files")
         
-        # Checking a file
+        # Проверка наличия файла
         if "file" not in request.files:
             logger.error(f"[{request_id}] No file provided")
             return jsonify({"error": "No file provided"}), 400
@@ -4247,18 +4247,18 @@ def handle_files():
         purpose = request.form.get("purpose", "assistants")
         
         try:
-            # We get the contents of the file
+            # Получаем содержимое файла
             file_data = file.read()
             file_name = file.filename
             
-            # We get a loaded file ID
+            # Получаем ID загруженного файла
             file_id = upload_document(file_data, file_name, api_key, request_id)
             
             if not file_id:
                 logger.error(f"[{request_id}] Failed to upload file")
                 return jsonify({"error": "Failed to upload file"}), 500
                 
-            # We form an answer in Openai API format
+            # Формируем ответ в формате OpenAI API
             response_data = {
                 "id": file_id,
                 "object": "file",
@@ -4283,7 +4283,7 @@ def handle_files():
 @limiter.limit("60 per minute")
 def handle_file(file_id):
     """
-    Route for working with a specific file: obtaining information and deleting
+    Маршрут для работы с конкретным файлом: получение информации и удаление
     """
     if request.method == "OPTIONS":
         return handle_options_request()
@@ -4297,11 +4297,11 @@ def handle_file(file_id):
 
     api_key = auth_header.split(" ")[1]
     
-    # Get - obtaining file information
+    # GET - получение информации о файле
     if request.method == "GET":
         logger.info(f"[{request_id}] Received request: GET /v1/files/{file_id}")
         try:
-            # We are looking for a file in saved user files in Memcache
+            # Ищем файл в сохраненных файлах пользователя в memcached
             file_info = None
             if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
                 try:
@@ -4317,7 +4317,7 @@ def handle_file(file_id):
                             else:
                                 user_files = user_files_json
                                 
-                            # Looking for a file with the specified ID
+                            # Ищем файл с указанным ID
                             for file_item in user_files:
                                 if file_item.get("id") == file_id:
                                     file_info = file_item
@@ -4328,7 +4328,7 @@ def handle_file(file_id):
                 except Exception as e:
                     logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
             
-            # If the file is not found, we return the filler
+            # Если файл не найден, возвращаем заполнитель
             if not file_info:
                 logger.debug(f"[{request_id}] File not found in memcached, using placeholder: {file_id}")
                 file_info = {
@@ -4338,7 +4338,7 @@ def handle_file(file_id):
                     "filename": f"file_{file_id}"
                 }
             
-            # We form an answer in Openai API format
+            # Формируем ответ в формате OpenAI API
             response_data = {
                 "id": file_info.get("id"),
                 "object": "file",
@@ -4357,11 +4357,11 @@ def handle_file(file_id):
             logger.error(f"[{request_id}] Exception during file info request: {str(e)}")
             return jsonify({"error": str(e)}), 500
     
-    # Delete - File deletion
+    # DELETE - удаление файла
     elif request.method == "DELETE":
         logger.info(f"[{request_id}] Received request: DELETE /v1/files/{file_id}")
         try:
-            # If the files are stored in Memcached, delete the file from the list
+            # Если файлы хранятся в memcached, удаляем файл из списка
             deleted = False
             if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
                 try:
@@ -4377,10 +4377,10 @@ def handle_file(file_id):
                             else:
                                 user_files = user_files_json
                                 
-                            # We filter the list, excluding the file with the specified ID
+                            # Фильтруем список, исключая файл с указанным ID
                             new_user_files = [f for f in user_files if f.get("id") != file_id]
                             
-                            # If the list has changed, we save the updated list
+                            # Если список изменился, сохраняем обновленный список
                             if len(new_user_files) < len(user_files):
                                 safe_memcached_operation('set', user_key, json.dumps(new_user_files))
                                 logger.info(f"[{request_id}] Deleted file {file_id} from user's files in memcached")
@@ -4390,7 +4390,7 @@ def handle_file(file_id):
                 except Exception as e:
                     logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
             
-            # Return the answer about successful removal (even if the file was not found)
+            # Возвращаем ответ об успешном удалении (даже если файл не был найден)
             response_data = {
                 "id": file_id,
                 "object": "file",
@@ -4410,7 +4410,7 @@ def handle_file(file_id):
 @limiter.limit("60 per minute")
 def handle_file_content(file_id):
     """
-    Route for obtaining the contents of the file
+    Маршрут для получения содержимого файла
     """
     if request.method == "OPTIONS":
         return handle_options_request()
@@ -4426,8 +4426,8 @@ def handle_file_content(file_id):
     api_key = auth_header.split(" ")[1]
     
     try:
-        # In 1min.ai there is no API to obtain the contents of the file by ID
-        # Return the error
+        # В 1min.ai нет API для получения содержимого файла по ID
+        # Возвращаем ошибку
         logger.error(f"[{request_id}] File content retrieval not supported")
         return jsonify({"error": "File content retrieval not supported"}), 501
         
@@ -4436,17 +4436,17 @@ def handle_file_content(file_id):
         return jsonify({"error": str(e)}), 500
 
 
-# Closter function for safe access to Memcache
+# Функция-обертка для безопасного доступа к memcached
 def safe_memcached_operation(operation, *args, **kwargs):
     """
-    Safely performs the operation with Memcache, processing possible errors.
+    Безопасно выполняет операцию с memcached, обрабатывая возможные ошибки.
     
     Args:
-        Operation: The name of the Memcached method to execute
-        *args, ** kwargs: arguments for the method
+        operation: Имя метода memcached для выполнения
+        *args, **kwargs: Аргументы для метода
         
     Returns:
-        Operation result or None in case of error
+        Результат операции или None в случае ошибки
     """
     if 'MEMCACHED_CLIENT' not in globals() or MEMCACHED_CLIENT is None:
         return None
@@ -4465,20 +4465,20 @@ def safe_memcached_operation(operation, *args, **kwargs):
 
 def delete_all_files_task():
     """
-    Function for periodic deleting all user files
+    Функция для периодического удаления всех файлов пользователей
     """
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Starting scheduled files cleanup task")
     
     try:
-        # We get all users with files from MemcacheD
+        # Получаем всех пользователей с файлами из memcached
         if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
-            # We get all the keys that begin with "user:"
+            # Получаем все ключи, которые начинаются с "user:"
             try:
                 keys = []
                 
-                # Instead of scanning Slabs, we use a list of famous users
-                # which should be saved when uploading files
+                # Вместо сканирования slabs используем список известных пользователей
+                # который должен сохраняться при загрузке файлов
                 known_users = safe_memcached_operation('get', 'known_users_list')
                 if known_users:
                     try:
@@ -4498,7 +4498,7 @@ def delete_all_files_task():
                 
                 logger.info(f"[{request_id}] Found {len(keys)} user keys for cleanup")
                 
-                # We delete files for each user
+                # Удаляем файлы для каждого пользователя
                 for user_key in keys:
                     try:
                         api_key = user_key.replace("user:", "")
@@ -4520,7 +4520,7 @@ def delete_all_files_task():
                         
                         logger.info(f"[{request_id}] Cleaning up {len(user_files)} files for user {api_key[:8]}...")
                         
-                        # We delete each file
+                        # Удаляем каждый файл
                         for file_info in user_files:
                             file_id = file_info.get("id")
                             if file_id:
@@ -4537,7 +4537,7 @@ def delete_all_files_task():
                                 except Exception as e:
                                     logger.error(f"[{request_id}] Scheduled cleanup: error deleting file {file_id}: {str(e)}")
                         
-                        # Cleaning the list of user files
+                        # Очищаем список файлов пользователя
                         safe_memcached_operation('set', user_key, json.dumps([]))
                         logger.info(f"[{request_id}] Cleared files list for user {api_key[:8]}")
                     except Exception as e:
@@ -4547,18 +4547,18 @@ def delete_all_files_task():
     except Exception as e:
         logger.error(f"[{request_id}] Error in scheduled cleanup task: {str(e)}")
     
-    # Plan the following execution in an hour
+    # Запланировать следующее выполнение через час
     cleanup_timer = threading.Timer(3600, delete_all_files_task)
     cleanup_timer.daemon = True
     cleanup_timer.start()
     logger.info(f"[{request_id}] Scheduled next cleanup in 1 hour")
 
-# Run the task at the start of the server
+# Запускаем задачу при старте сервера
 if __name__ == "__main__":
-    # Launch the task of deleting files
+    # Запускаем задачу удаления файлов
     delete_all_files_task()
     
-    # Run the application
+    # Запускаем приложение
     internal_ip = socket.gethostbyname(socket.gethostname())
     try:
         response = requests.get("https://api.ipify.org")
@@ -4567,7 +4567,7 @@ if __name__ == "__main__":
         public_ip = "Не удалось определить"
         
     logger.info(
-"""{printedcolors.Color.fg.lightcyan}  
+        f"""{printedcolors.Color.fg.lightcyan}  
 Server is ready to serve at:
 Internal IP: {internal_ip}:{PORT}
 Public IP: {public_ip} (only if you've setup port forwarding on your router.)
@@ -4584,22 +4584,22 @@ If does not work, try:
 
 def split_text_for_streaming(text, chunk_size=6):
     """
-    It breaks the text into small parts to emulate streaming output.
+    Разбивает текст на небольшие части для эмуляции потокового вывода.
     
     Args:
-        Text (str): text for breakdown
-        chunk_size (int): the approximate size of the parts in words
+        text (str): Текст для разбиения
+        chunk_size (int): Приблизительный размер частей в словах
         
     Returns:
-        List: List of parts of the text
+        list: Список частей текста
     """
     if not text:
         return [""]
     
-    # We break the text into sentences
+    # Разбиваем текст на предложения
     sentences = re.split(r'(?<=[.!?])\s+', text)
     
-    # We are grouping sentences to champs
+    # Группируем предложения в чанки
     chunks = []
     current_chunk = []
     current_word_count = 0
@@ -4607,21 +4607,21 @@ def split_text_for_streaming(text, chunk_size=6):
     for sentence in sentences:
         words_in_sentence = len(sentence.split())
         
-        # If the current cup is empty or the addition of a sentence does not exceed the limit of words
+        # Если текущий чанк пуст или добавление предложения не превысит лимит слов
         if not current_chunk or current_word_count + words_in_sentence <= chunk_size:
             current_chunk.append(sentence)
             current_word_count += words_in_sentence
         else:
-            # We form a cup and begin the new
+            # Формируем чанк и начинаем новый
             chunks.append(" ".join(current_chunk))
             current_chunk = [sentence]
             current_word_count = words_in_sentence
     
-    # Add the last cup if it is not empty
+    # Добавляем последний чанк, если он не пуст
     if current_chunk:
         chunks.append(" ".join(current_chunk))
     
-    # If there is no Cankov (breakdown did not work), we return the entire text entirely
+    # Если чанков нет (разбиение не сработало), возвращаем весь текст целиком
     if not chunks:
         return [text]
     
@@ -4629,17 +4629,17 @@ def split_text_for_streaming(text, chunk_size=6):
 
 def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
     """
-    Creates variations based on the original image, taking into account the specifics of each model.
+    Создает вариации на основе исходного изображения с учетом специфики каждой модели.
     """
-    # Initialize the URL list in front of the cycle
+    # Инициализируем список URL перед циклом
     variation_urls = []
     current_model = None
     
-    # We use a temporary ID request if it was not provided
+    # Используем временный ID запроса, если не был предоставлен
     if request_id is None:
         request_id = str(uuid.uuid4())
 
-    # We get saved generation parameters
+    # Получаем сохраненные параметры генерации
     generation_params = None
     if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
         try:
@@ -4654,20 +4654,20 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         except Exception as e:
             logger.error(f"[{request_id}] Error retrieving generation parameters: {str(e)}")
 
-    # We use saved parameters if they are available
+    # Используем сохраненные параметры, если они доступны
     if generation_params:
-        # We take Aspect_width and Aspect_Height from saved parameters if they are
+        # Берем aspect_width и aspect_height из сохраненных параметров, если они есть
         if "aspect_width" in generation_params and "aspect_height" in generation_params:
             aspect_width = generation_params.get("aspect_width")
             aspect_height = generation_params.get("aspect_height")
             logger.debug(f"[{request_id}] Using saved aspect ratio: {aspect_width}:{aspect_height}")
         
-        # We take the mode of saved parameters if it is
+        # Берем режим из сохраненных параметров, если он есть
         if "mode" in generation_params:
             mode = generation_params.get("mode")
             logger.debug(f"[{request_id}] Using saved mode: {mode}")
 
-    # We determine the list of models for variations
+    # Определяем список моделей для вариаций
     variation_models = []
     if user_model in VARIATION_SUPPORTED_MODELS:
         variation_models.append(user_model)
@@ -4676,24 +4676,24 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
     
     logger.info(f"[{request_id}] Trying image variations with models: {variation_models}")
 
-    # Create a session to download the image
+    # Создаем сессию для загрузки изображения
     session = create_session()
 
     try:
-        # We load the image
+        # Загружаем изображение
         image_response = session.get(image_url, stream=True, timeout=60)
         if image_response.status_code != 200:
             logger.error(f"[{request_id}] Failed to download image: {image_response.status_code}")
             return jsonify({"error": "Failed to download image"}), 500
 
-        # We try each model in turn
+        # Пробуем каждую модель по очереди
         for model in variation_models:
             current_model = model
             logger.info(f"[{request_id}] Trying model: {model} for image variations")
 
             try:
-                # Determine the MIME-type image based on the contents or url
-                content_type = "image/png"  # By default
+                # Определяем MIME-тип изображения на основе содержимого или URL
+                content_type = "image/png"  # По умолчанию
                 if "content-type" in image_response.headers:
                     content_type = image_response.headers["content-type"]
                 elif image_url.lower().endswith(".webp"):
@@ -4703,7 +4703,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 elif image_url.lower().endswith(".gif"):
                     content_type = "image/gif"
                 
-                # Determine the appropriate extension for the file
+                # Определяем подходящее расширение для файла
                 ext = "png"
                 if "webp" in content_type:
                     ext = "webp"
@@ -4714,7 +4714,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 
                 logger.debug(f"[{request_id}] Detected image type: {content_type}, extension: {ext}")
                 
-                # We load the image to the server with the correct MIME type
+                # Загружаем изображение на сервер с корректным MIME-типом
                 files = {"asset": (f"variation.{ext}", image_response.content, content_type)}
                 upload_response = session.post(ONE_MIN_ASSET_URL, files=files, headers=headers)
 
@@ -4725,11 +4725,11 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 upload_data = upload_response.json()
                 logger.debug(f"[{request_id}] Asset upload response: {upload_data}")
 
-                # We get the way to the loaded image
+                # Получаем путь к загруженному изображению
                 image_path = None
                 if "fileContent" in upload_data and "path" in upload_data["fileContent"]:
                     image_path = upload_data["fileContent"]["path"]
-                    # We remove the initial slash if it is
+                    # Убираем начальный слеш, если он есть
                     if image_path.startswith('/'):
                         image_path = image_path[1:]
                     logger.debug(f"[{request_id}] Using relative path for variation: {image_path}")
@@ -4737,7 +4737,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                     logger.error(f"[{request_id}] Could not extract image path from upload response")
                     continue
 
-                # We form Payload depending on the model
+                # Формируем payload в зависимости от модели
                 if model in ["midjourney_6_1", "midjourney"]:
                     payload = {
                         "type": "IMAGE_VARIATOR",
@@ -4755,7 +4755,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                     }
                     logger.info(f"[{request_id}] Midjourney variation payload: {json.dumps(payload, indent=2)}")
                 elif model == "dall-e-2":
-                    # For Dall-E 2
+                    # Для DALL-E 2
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": "dall-e-2",
@@ -4767,7 +4767,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                     }
                     logger.info(f"[{request_id}] DALL-E 2 variation payload: {json.dumps(payload, indent=2)}")
                     
-                    # We send a request through the main API URL
+                    # Отправляем запрос через основной API URL
                     variation_response = api_request(
                         "POST",
                         ONE_MIN_API_URL,
@@ -4780,10 +4780,10 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         logger.error(f"[{request_id}] DALL-E 2 variation failed: {variation_response.status_code}, {variation_response.text}")
                         continue
                         
-                    # We process the answer
+                    # Обрабатываем ответ
                     variation_data = variation_response.json()
                     
-                    # We extract the URL from the answer
+                    # Извлекаем URL из ответа
                     if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                         result_object = variation_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
                         if isinstance(result_object, list):
@@ -4803,7 +4803,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                     else:
                         logger.warning(f"[{request_id}] No variation URLs found in DALL-E 2 response")
                 elif model == "clipdrop":
-                    # For Clipdrop
+                    # Для Clipdrop
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": "clipdrop",
@@ -4814,7 +4814,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                     }
                     logger.info(f"[{request_id}] Clipdrop variation payload: {json.dumps(payload, indent=2)}")
                     
-                    # We send a request through the main API URL
+                    # Отправляем запрос через основной API URL
                     variation_response = api_request(
                         "POST",
                         ONE_MIN_API_URL,
@@ -4827,10 +4827,10 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         logger.error(f"[{request_id}] Clipdrop variation failed: {variation_response.status_code}, {variation_response.text}")
                         continue
                         
-                    # We process the answer
+                    # Обрабатываем ответ
                     variation_data = variation_response.json()
                     
-                    # We extract the URL from the answer
+                    # Извлекаем URL из ответа
                     if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                         result_object = variation_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
                         if isinstance(result_object, list):
@@ -4853,7 +4853,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 logger.debug(f"[{request_id}] Sending variation request to URL: {ONE_MIN_API_URL}")
                 logger.debug(f"[{request_id}] Using headers: {json.dumps(headers)}")
 
-                # We send a request to create a variation
+                # Отправляем запрос на создание вариации
                 timeout = MIDJOURNEY_TIMEOUT if model.startswith("midjourney") else DEFAULT_TIMEOUT
                 logger.debug(f"Using extended timeout for Midjourney: {timeout}s")
                 
@@ -4869,10 +4869,10 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                     logger.error(f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
                     continue
 
-                # We process the answer
+                # Обрабатываем ответ
                 variation_data = variation_response.json()
                 
-                # We extract the URL variations from the answer
+                # Извлекаем URL вариаций из ответа
                 if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                     result_object = variation_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
                     if isinstance(result_object, list):
@@ -4896,12 +4896,12 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 logger.error(f"[{request_id}] Error with model {model}: {str(e)}")
                 continue
 
-        # If you could not create variations with any model
+        # Если не удалось создать вариации ни с одной моделью
         if not variation_urls:
             logger.error(f"[{request_id}] Failed to create variations with any available model")
             return jsonify({"error": "Failed to create image variations with any available model"}), 500
 
-        # We form an answer
+        # Формируем ответ
         openai_response = {
             "created": int(time.time()),
             "data": []
@@ -4913,7 +4913,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
             }
             openai_response["data"].append(openai_data)
         
-        # We form a markdown text with a hint
+        # Формируем markdown-текст с подсказкой
         text_lines = []
         for i, url in enumerate(variation_urls, 1):
             text_lines.append(f"Image {i} ({url}) [_V{i}_]")
