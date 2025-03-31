@@ -4755,14 +4755,15 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         "model": model,
                         "promptObject": {
                             "imageUrl": image_path,
-                            "mode": "relax",
-                            "n": 4,  # Всегда 4 для Midjourney
+                            "mode": mode or "relax",
+                            "n": 4,
                             "isNiji6": False,
-                            "maintainModeration": True,
                             "aspect_width": aspect_width or 1,
-                            "aspect_height": aspect_height or 1
+                            "aspect_height": aspect_height or 1,
+                            "maintainModeration": True
                         }
                     }
+                    logger.info(f"[{request_id}] Midjourney variation payload: {json.dumps(payload, indent=2)}")
                 elif model == "dall-e-2":
                     # Для DALL-E 2
                     payload = {
@@ -4770,12 +4771,13 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         "model": "dall-e-2",
                         "promptObject": {
                             "imageUrl": image_path,
-                            "n": 1,  # Всегда 1 для DALL-E 2
+                            "n": 1,
                             "size": "1024x1024"
                         }
                     }
+                    logger.info(f"[{request_id}] DALL-E 2 variation payload: {json.dumps(payload, indent=2)}")
                 elif model == "clipdrop":
-                    # Для Clipdrop (без n)
+                    # Для Clipdrop
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": "clipdrop",
@@ -4783,8 +4785,10 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                             "imageUrl": image_path
                         }
                     }
+                    logger.info(f"[{request_id}] Clipdrop variation payload: {json.dumps(payload, indent=2)}")
 
-                logger.debug(f"[{request_id}] Sending variation request with payload: {payload}")
+                logger.debug(f"[{request_id}] Sending variation request to URL: {ONE_MIN_API_URL}")
+                logger.debug(f"[{request_id}] Using headers: {json.dumps(headers)}")
 
                 # Отправляем запрос на создание вариации
                 timeout = MIDJOURNEY_TIMEOUT if model.startswith("midjourney") else DEFAULT_TIMEOUT
