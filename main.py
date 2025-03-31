@@ -2390,6 +2390,8 @@ def generate_image():
             # Формируем markdown-текст с кнопками вариаций
             if len(full_image_urls) == 1:
                 text_response = f"![Image]({full_image_urls[0]}) `[_V1_]`"
+                # Добавляем подсказку о создании вариаций
+                text_response += "\n\nTo generate variants of an image - tap (copy) [_V1_] and send it (paste) in next prompt"
             else:
                 # Формируем текст с изображениями и кнопками вариаций на одной строке
                 image_lines = []
@@ -2399,6 +2401,9 @@ def generate_image():
                 
                 # Объединяем строки с новой строкой между ними
                 text_response = "\n".join(image_lines)
+                
+                # Добавляем подсказку о создании вариаций
+                text_response += "\n\nTo generate variants of an image - tap (copy) [_V1_] - [_V4_] and send it (paste) in next prompt"
                 
             openai_response["choices"] = [
                 {
@@ -2919,6 +2924,8 @@ def image_variations():
     markdown_text = ""
     if len(full_variation_urls) == 1:
         markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
+        # Добавляем подсказку для создания вариаций
+        markdown_text += "\n\nTo generate variants of an image - tap (copy) [_V1_] and send it (paste) in next prompt"
     else:
         # Формируем текст с изображениями и кнопками вариаций на одной строке
         image_lines = []
@@ -2928,8 +2935,9 @@ def image_variations():
         
         # Объединяем строки с новой строкой между ними
         markdown_text = "\n".join(image_lines)
+        # Добавляем подсказку для создания вариаций
+        markdown_text += "\n\nTo generate variants of an image - tap (copy) [_V1_] - [_V4_] and send it (paste) in next prompt"
     
-    # Добавляем текстовый контент в ответ
     openai_response["choices"] = [
         {
             "message": {
@@ -4933,4 +4941,3 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         return jsonify({"error": str(e)}), 500
     finally:
         session.close()
-
