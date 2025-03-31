@@ -1036,11 +1036,17 @@ def conversation():
                     path_match = re.search(r'(?:asset\.1min\.ai)(/images/[^?#]+)', image_url)
                     if path_match:
                         image_path = path_match.group(1)
+                        # Убираем начальный слеш, если он есть
+                        if image_path.startswith('/'):
+                            image_path = image_path[1:]
                     else:
                         # Пробуем извлечь путь из URL в целом
                         path_match = re.search(r'/images/[^?#]+', image_url)
                         if path_match:
                             image_path = path_match.group(0)
+                            # Убираем начальный слеш, если он есть
+                            if image_path.startswith('/'):
+                                image_path = image_path[1:]
                         
                 # Если нашли относительный путь, используем его вместо полного URL
                 download_url = image_url
@@ -2741,59 +2747,69 @@ def image_variations():
                     continue  # Пробуем следующую модель
 
                 # Формируем payload для вариации изображения
-                payload = {
-                    "type": "IMAGE_VARIATOR",
-                    "model": model,
-                    "promptObject": {}
-                }
-
-                # Для VIP-пользователей добавляем credit в запрос
-                if api_key.startswith("vip-"):
-                    payload["credits"] = 90000  # Стандартное количество кредитов для VIP
-
-                # Специальная обработка для разных моделей
-                if model == "dall-e-2":
+                # Определяем, какую модель использовать
+                if model.startswith("midjourney"):
+                    # Для Midjourney
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": model,
                         "promptObject": {
-                            "imageUrl": image_path,
+                            "imageUrl": image_url if image_url else image_location,
+                            "mode": mode or "relax",
+                            "n": 4,
+                            "isNiji6": False,
+                            "aspect_width": aspect_width or 1, 
+                            "aspect_height": aspect_height or 1,
+                            "maintainModeration": True
+                        }
+                    }
+                elif model == "dall-e-2":
+                    # Для DALL-E 2
+                    payload = {
+                        "type": "IMAGE_VARIATOR",
+                        "model": "dall-e-2",
+                        "promptObject": {
+                            "imageUrl": image_url if image_url else image_location,
                             "n": 1,
                             "size": "1024x1024"
                         }
                     }
                 elif model == "clipdrop":
+                    # Для Clipdrop (Stable Diffusion)
+                    payload = {
+                        "type": "IMAGE_VARIATOR",
+                        "model": "clipdrop",
+                        "promptObject": {
+                            "imageUrl": image_url if image_url else image_location
+                        }
+                    }
+                else:
+                    # Для всех остальных моделей используем минимальные параметры
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": model,
                         "promptObject": {
-                            "imageUrl": image_path
+                            "imageUrl": image_url if image_url else image_location,
+                            "n": int(n)
                         }
                     }
-                else:
-                    # Для всех остальных моделей (SD, Clipdrop) используем минимальные параметры
-                    payload["promptObject"] = {
-                        "n": int(n)
-                    }
-                    
-                    # Приоритет использования: 1) image_location (абсолютный URL) 2) image_url 3) image_id
-                    if image_location:
-                        payload["promptObject"]["imageUrl"] = image_location
-                        logger.debug(f"[{request_id}] Using absolute URL for variation: {image_location}")
-                    elif image_url:
-                        payload["promptObject"]["imageUrl"] = image_url
-                        logger.debug(f"[{request_id}] Using path URL for variation: {image_url}")
-                    elif image_id:
-                        payload["promptObject"]["image_id"] = image_id
-                        logger.debug(f"[{request_id}] Using image ID for variation: {image_id}")
-                    else:
-                        logger.error(f"[{request_id}] No valid image reference found")
-                        continue  # Пробуем следующую модель
+                
+                # Удаляем начальный слеш в imageUrl, если он есть
+                if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"] and isinstance(payload["promptObject"]["imageUrl"], str) and payload["promptObject"]["imageUrl"].startswith('/'):
+                    payload["promptObject"]["imageUrl"] = payload["promptObject"]["imageUrl"][1:]
+                    logger.debug(f"[{request_id}] Removed leading slash from imageUrl: {payload['promptObject']['imageUrl']}")
+
+                # Для VIP-пользователей добавляем credit в запрос
+                if api_key.startswith("vip-"):
+                    payload["credits"] = 90000  # Стандартное количество кредитов для VIP
+                
+                # Детальное логирование payload для отладки
+                logger.info(f"[{request_id}] {model} variation payload: {json.dumps(payload, indent=2)}")
 
                 # Использование timeout для всех моделей (15 минут)
                 timeout = MIDJOURNEY_TIMEOUT
                     
-                logger.debug(f"[{request_id}] Sending variation request with payload: {payload}")
+                logger.debug(f"[{request_id}] Sending variation request to {ONE_MIN_API_URL}")
 
                 # Отправляем запрос на создание вариации
                 variation_response = api_request(
@@ -4705,6 +4721,9 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 image_path = None
                 if "fileContent" in upload_data and "path" in upload_data["fileContent"]:
                     image_path = upload_data["fileContent"]["path"]
+                    # Убираем начальный слеш, если он есть
+                    if image_path.startswith('/'):
+                        image_path = image_path[1:]
                     logger.debug(f"[{request_id}] Using relative path for variation: {image_path}")
                 else:
                     logger.error(f"[{request_id}] Could not extract image path from upload response")
@@ -4721,8 +4740,9 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                             "n": 4,
                             "isNiji6": False,
                             "maintainModeration": True,
-                            "aspect_width": aspect_width or 1,
-                            "aspect_height": aspect_height or 1
+                            "aspect_width": aspect_width or 1, 
+                            "aspect_height": aspect_height or 1,
+                            "maintainModeration": True
                         }
                     }
                     logger.info(f"[{request_id}] Midjourney variation payload: {json.dumps(payload, indent=2)}")
