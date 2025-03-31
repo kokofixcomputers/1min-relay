@@ -4878,4 +4878,3 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         return jsonify({"error": str(e)}), 500
     finally:
         session.close()
-
