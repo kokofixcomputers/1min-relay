@@ -2391,7 +2391,7 @@ def generate_image():
             if len(full_image_urls) == 1:
                 text_response = f"![Image]({full_image_urls[0]}) `[_V1_]`"
                 # Add a hint about the creation of variations
-                text_response += "\n\n>To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
+                text_response += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
             else:
                 # We form a text with images and buttons of variations on one line
                 image_lines = []
@@ -2403,7 +2403,7 @@ def generate_image():
                 text_response = "\n".join(image_lines)
                 
                 # Add a hint about the creation of variations
-                text_response += "\n\n>To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
+                text_response += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
                 
             openai_response["choices"] = [
                 {
@@ -2925,7 +2925,7 @@ def image_variations():
     if len(full_variation_urls) == 1:
         markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
         # Add a hint to create variations
-        markdown_text += "\n\n>To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
+        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
     else:
         # We form a text with images and buttons of variations on one line
         image_lines = []
@@ -2936,7 +2936,7 @@ def image_variations():
         # Combine lines with a new line between them
         markdown_text = "\n".join(image_lines)
         # Add a hint to create variations
-        markdown_text += "\n\n>To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
+        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
     
     openai_response["choices"] = [
         {
@@ -4889,7 +4889,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         text_lines = []
         for i, url in enumerate(variation_urls, 1):
             text_lines.append(f"Image {i} ({url}) [_V{i}_]")
-        text_lines.append("\n>To generate **variants** of **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**")
+        text_lines.append("\n> To generate **variants** of **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**")
         
         text_response = "\n".join(text_lines)
         
