@@ -216,11 +216,11 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gpt-4",
     "gpt-3.5-turbo",
     #
-    # "Whisper-1", # speech recognition
-    # "TTS-1", # Speech synthesis
-    # "TTS-1-HD", # Speech synthesis HD
+    # "whisper-1", # speech recognition
+    # "tts-1",     # Speech synthesis
+    # "tts-1-hd",  # Speech synthesis HD
     #
-    "dall-e-2",  # Generation of images
+    "dall-e-2",    # Generation of images
     "dall-e-3",    # Generation of images
     # Claude
     "claude-instant-1.2",
@@ -234,14 +234,14 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gemini-1.0-pro",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
-    # "Google-TTS", # speech synthesis
-    # "Latest_long", # speech recognition
-    # "Latest_short", # speech recognition
-    # "Phone_call", # speech recognition
-    # "Telephony", # speech recognition
-    # "Telephony_short", # speech recognition
-    # "Medical_Dictation", # speech recognition
-    # "Medical_Conversation", # Speech recognition
+    # "google-tts",            # Speech synthesis
+    # "latest_long",           # speech recognition
+    # "latest_short",          # speech recognition
+    # "phone_call",            # speech recognition
+    # "telephony",             # speech recognition
+    # "telephony_short",       # speech recognition
+    # "medical_dictation",     # speech recognition
+    # "medical_conversation",  # speech recognition
     # "chat-bison@002",
     # MistralAI
     "mistral-large-latest",
@@ -263,11 +263,11 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # xAI
     "grok-2",
     # Other models (made for future use)
-    # "Stable -Image", # stabilityi - images generation
-    # "Stable-Diffusion-XL-1024-V1-0", # stabilityai-images generation
-    # "Stable-Diffusion-V1-6", # stabilityai-images generation
-    # "Esrgan-V1-X2Plus", # stabilityai-Improving images
-    # "Stable-Video-Diffusion", # stabilityai-video generation
+    # "stable-image",                  # stabilityi - images generation
+    # "stable-diffusion-xl-1024-v1-0", # stabilityi - images generation
+    # "stable-diffusion-v1-6",         # stabilityi - images generation
+    # "esrgan-v1-x2plus",              # stabilityai-Improving images
+    # "stable-video-diffusion",        # stabilityai-video generation  
     "phoenix",         # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
     "lightning-xl",    # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
     "anime-xl",        # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
@@ -282,10 +282,10 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # "cjwbw/damo-text-to-video:1e205ea73084bd17a0a3b43396e49ba0d6bc2e754e9283b2df49fad2dcf95755",  # Replicate - Text to Video
     # "lucataco/animate-diff:beecf59c4aee8d81bf04f0381033dfa10dc16e845b4ae00d281e2fa377e48a9f",     # Replicate - Animation
     # "lucataco/hotshot-xl:78b3a6257e16e4b241245d65c8b2b81ea2e1ff7ed4c55306b511509ddbfd327a",       # Replicate - Video
-    "flux-schnell",  # Replicate - Flux "black-forest-labs/flux-schnell"
-    "flux-dev",      # Replicate - Flux Dev "black-forest-labs/flux-dev"
-    "flux-pro",      # Replicate - Flux Pro "black-forest-labs/flux-pro"
-    "flux-1.1-pro",  # Replicate - Flux Pro 1.1 "black-forest-labs/flux-1.1-pro"
+    "flux-schnell",    # Replicate - Flux "black-forest-labs/flux-schnell"
+    "flux-dev",        # Replicate - Flux Dev "black-forest-labs/flux-dev"
+    "flux-pro",        # Replicate - Flux Pro "black-forest-labs/flux-pro"
+    "flux-1.1-pro",    # Replicate - Flux Pro 1.1 "black-forest-labs/flux-1.1-pro"
     # "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",  # Replicate - Music Generation
     # "luma",                  # TTAPI - Luma
     # "Qubico/image-toolkit",  # TTAPI - Image Toolkit
@@ -2391,7 +2391,7 @@ def generate_image():
             if len(full_image_urls) == 1:
                 text_response = f"![Image]({full_image_urls[0]}) `[_V1_]`"
                 # Add a hint about the creation of variations
-                text_response += "\n\nTo generate variants of an image - tap (copy) [_V1_] and send it (paste) in next prompt"
+                text_response += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
             else:
                 # We form a text with images and buttons of variations on one line
                 image_lines = []
@@ -2403,7 +2403,7 @@ def generate_image():
                 text_response = "\n".join(image_lines)
                 
                 # Add a hint about the creation of variations
-                text_response += "\n\nTo generate variants of an image - tap (copy) [_V1_] - [_V4_] and send it (paste) in next prompt"
+                text_response += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
                 
             openai_response["choices"] = [
                 {
@@ -2925,7 +2925,7 @@ def image_variations():
     if len(full_variation_urls) == 1:
         markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
         # Add a hint to create variations
-        markdown_text += "\n\nTo generate variants of an image - tap (copy) [_V1_] and send it (paste) in next prompt"
+        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
     else:
         # We form a text with images and buttons of variations on one line
         image_lines = []
@@ -2936,7 +2936,7 @@ def image_variations():
         # Combine lines with a new line between them
         markdown_text = "\n".join(image_lines)
         # Add a hint to create variations
-        markdown_text += "\n\nTo generate variants of an image - tap (copy) [_V1_] - [_V4_] and send it (paste) in next prompt"
+        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
     
     openai_response["choices"] = [
         {
@@ -4917,7 +4917,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         text_lines = []
         for i, url in enumerate(variation_urls, 1):
             text_lines.append(f"Image {i} ({url}) [_V{i}_]")
-        text_lines.append("\nTo generate Variants of Image - tap (copy) [_V1_] - [_V4_] and send it (paste) in next prompt")
+        text_lines.append("\n> To generate **variants** of **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**")
         
         text_response = "\n".join(text_lines)
         
