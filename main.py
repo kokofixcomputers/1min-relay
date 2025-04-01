@@ -1062,32 +1062,34 @@ def conversation():
                                 image_id = image_id_match.group(1)
                                 logger.info(f"[{request_id}] Extracted image_id for variation: {image_id}")
                                 gen_params_key = f"gen_params:{image_id}"
-                                # We use Safe_MemCeched_Operation, which now uses Memory_storage
-                                # With the inaccessibility of Memcache
                                 logger.info(f"[{request_id}] Looking for generation parameters with key: {gen_params_key}")
                                 
-                                # Check directly the presence of the key in Memory_Storage
+                                # Check the presence of parameters in Memory_Storage directly
                                 if gen_params_key in MEMORY_STORAGE:
                                     logger.info(f"[{request_id}] Found in MEMORY_STORAGE: {MEMORY_STORAGE[gen_params_key]}")
-                                
-                                params_json = safe_memcached_operation('get', gen_params_key)
-                                if params_json:
-                                    logger.info(f"[{request_id}] Retrieved parameters for image {image_id}: {params_json}")
-                                    if isinstance(params_json, str):
-                                        try:
-                                            saved_params = json.loads(params_json)
-                                        except:
-                                            saved_params = params_json
-                                    elif isinstance(params_json, bytes):
-                                        try:
-                                            saved_params = json.loads(params_json.decode('utf-8'))
-                                        except:
-                                            saved_params = params_json.decode('utf-8')
-                                    else:
-                                        saved_params = params_json
-                                    logger.info(f"[{request_id}] Retrieved generation parameters for image {image_id}: {saved_params}")
+                                    saved_params = MEMORY_STORAGE[gen_params_key]
+                                    logger.info(f"[{request_id}] Using parameters directly from MEMORY_STORAGE: {saved_params}")
                                 else:
-                                    logger.info(f"[{request_id}] No parameters found in storage for key {gen_params_key}")
+                                    # If you are not found in Memory_Storage, we try it through Safe_memcache_oporation
+                                    logger.info(f"[{request_id}] Not found in MEMORY_STORAGE, trying safe_memcached_operation")
+                                    params_json = safe_memcached_operation('get', gen_params_key)
+                                    if params_json:
+                                        logger.info(f"[{request_id}] Retrieved parameters for image {image_id}: {params_json}")
+                                        if isinstance(params_json, str):
+                                            try:
+                                                saved_params = json.loads(params_json)
+                                            except:
+                                                saved_params = params_json
+                                        elif isinstance(params_json, bytes):
+                                            try:
+                                                saved_params = json.loads(params_json.decode('utf-8'))
+                                            except:
+                                                saved_params = params_json.decode('utf-8')
+                                        else:
+                                            saved_params = params_json
+                                        logger.info(f"[{request_id}] Retrieved generation parameters for image {image_id}: {saved_params}")
+                                    else:
+                                        logger.info(f"[{request_id}] No parameters found in storage for key {gen_params_key}")
                         except Exception as e:
                             logger.error(f"[{request_id}] Error retrieving generation parameters: {str(e)}")
                         
@@ -1112,8 +1114,9 @@ def conversation():
                             # We will transfer all the saved parameters
                             for param in ["mode", "aspect_width", "aspect_height", "isNiji6", "maintainModeration"]:
                                 if param in saved_params:
+                                    old_value = payload["promptObject"].get(param)
                                     payload["promptObject"][param] = saved_params[param]
-                                    logger.info(f"[{request_id}] Set parameter {param}={saved_params[param]} from saved generation")
+                                    logger.info(f"[{request_id}] Changed parameter {param} from {old_value} to {saved_params[param]}")
                         else:
                             logger.info(f"[{request_id}] No saved parameters found, using default ratio 1:1 for Midjourney variations")
                             # We use the ratio of 1: 1
@@ -2653,9 +2656,9 @@ def generate_image():
                                 safe_memcached_operation('set', gen_params_key, gen_params, expiry=3600*24*7)  # Store 7 days
                                 logger.info(f"[{request_id}] Saved generation parameters for image {image_id}: {gen_params}")
                                 
-                                # We check that the parameters are preserved in Memory_Storage
+                                # We check that the parameters are precisely preserved correctly
                                 if gen_params_key in MEMORY_STORAGE:
-                                    logger.info(f"[{request_id}] Verified parameters saved in MEMORY_STORAGE for key {gen_params_key}")
+                                    logger.info(f"[{request_id}] Verified saved directly in MEMORY_STORAGE: {MEMORY_STORAGE[gen_params_key]}")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error saving generation parameters: {str(e)}")
 
@@ -4580,7 +4583,6 @@ def handle_files():
         return handle_options_request()
 
     request_id = str(uuid.uuid4())[:8]
-
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         logger.error(f"[{request_id}] Invalid Authentication")
@@ -5398,6 +5400,3 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
-
-
-
