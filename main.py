@@ -1152,7 +1152,7 @@ def conversation():
             response_format = request_data.get("response_format", "mp3")
             speed = request_data.get("speed", 1.0)
             
-            # Формируем payload для запроса к API 1min.ai согласно документации
+            # We form Payload for a request to the API 1min.ai according to the documentation
             payload = {
                 "type": "TEXT_TO_SPEECH",
                 "model": model,
@@ -1167,7 +1167,7 @@ def conversation():
             headers = {"API-KEY": api_key, "Content-Type": "application/json"}
             
             try:
-                # Отправляем запрос напрямую
+                # Send the request directly
                 logger.debug(f"[{request_id}] Sending direct TTS request to {ONE_MIN_API_URL}")
                 response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
                 logger.debug(f"[{request_id}] TTS response status code: {response.status_code}")
@@ -1181,7 +1181,7 @@ def conversation():
                         response.status_code,
                     )
                 
-                # Получаем URL аудио из ответа
+                # We get a URL audio from the answer
                 one_min_response = response.json()
                 audio_url = ""
                 
@@ -1202,35 +1202,35 @@ def conversation():
                     logger.error(f"[{request_id}] Could not extract audio URL from API response")
                     return jsonify({"error": "Could not extract audio URL"}), 500
                 
-                # Вместо скачивания аудио, формируем ответ с markdown-ссылкой
+                # Instead of downloading audio, we form a response with Markdown
                 logger.info(f"[{request_id}] Successfully generated speech audio URL: {audio_url}")
                 
-                # Получаем полный URL для аудиофайла
+                # We get a full URL for the audio file
                 try:
-                    # Проверяем наличие полной подписанной ссылки в ответе API
+                    # We check for the presence of a complete signed link in the response of the API
                     signed_url = None
                     
-                    # Проверяем наличие поля temporaryUrl в ответе (согласно формату ответа API)
+                    # Check the availability of the Temporaryurl field in the answer (according to the API response format)
                     if "temporaryUrl" in one_min_response:
                         signed_url = one_min_response["temporaryUrl"]
                         logger.debug(f"[{request_id}] Found temporaryUrl in API response root")
                     elif "result" in one_min_response and "resultList" in one_min_response["result"]:
-                        # Проверяем в списке результатов
+                        # Check in the list of results
                         for item in one_min_response["result"]["resultList"]:
                             if item.get("type") == "TEXT_TO_SPEECH" and "temporaryUrl" in item:
                                 signed_url = item["temporaryUrl"]
                                 logger.debug(f"[{request_id}] Found temporaryUrl in resultList")
                                 break
                     
-                    # Проверка в aiRecord, если ссылки нет в основных местах
+                    # Checking in Airecord, if there are no links in the main places
                     if not signed_url and "aiRecord" in one_min_response:
                         if "temporaryUrl" in one_min_response["aiRecord"]:
                             signed_url = one_min_response["aiRecord"]["temporaryUrl"]
                             logger.debug(f"[{request_id}] Found temporaryUrl in aiRecord")
                     
-                    # Проверяем и другие возможные поля для обратной совместимости
+                    # We check other possible fields for reverse compatibility
                     if not signed_url:
-                        # Ищем в различных местах в формате ответа API
+                        # We are looking for in various places in the API response format
                         if "aiRecord" in one_min_response and "aiRecordDetail" in one_min_response["aiRecord"]:
                             if "signedUrls" in one_min_response["aiRecord"]["aiRecordDetail"]:
                                 signed_urls = one_min_response["aiRecord"]["aiRecordDetail"]["signedUrls"]
@@ -1249,13 +1249,13 @@ def conversation():
                         elif "signedUrl" in one_min_response:
                             signed_url = one_min_response["signedUrl"]
                     
-                    # Используем полученную подписанную ссылку или базовый URL
+                    # We use the received signed link or basic URL
                     if signed_url:
                         full_audio_url = signed_url
                         logger.debug(f"[{request_id}] Using signed URL from API: {signed_url[:100]}...")
                     else:
-                        # Если подписанной ссылки нет, используем базовый URL в формате S3
-                        # Хотя без подписи он, скорее всего, не будет работать
+                        # If there is no signed link, we use the basic URL in S3 format
+                        # Although without a signature, he will most likely not work
                         full_audio_url = f"https://s3.us-east-1.amazonaws.com/asset.1min.ai/{audio_url}"
                         logger.warning(f"[{request_id}] No signed URL found, using base S3 URL: {full_audio_url}")
                 
@@ -1264,7 +1264,7 @@ def conversation():
                     full_audio_url = f"https://asset.1min.ai/{audio_url}"
                     logger.warning(f"[{request_id}] Error occurred, using fallback URL: {full_audio_url}")
                 
-                # Формируем ответ в формате, аналогичном chat completions
+                # We form a response in the format similar to Chat Complets
                 completion_response = {
                     "id": f"chatcmpl-{request_id}",
                     "object": "chat.completion",
@@ -4168,10 +4168,10 @@ def text_to_speech():
 
     api_key = auth_header.split(" ")[1]
 
-    # Получаем данные запроса
+    # We get data data
     request_data = {}
     
-    # Проверяем наличие данных в memcached, если запрос был перенаправлен
+    # We check the availability of data in Memcached if the request has been redirected
     if 'request_id' in request.args and 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
         tts_session_key = f"tts_request_{request.args.get('request_id')}"
         try:
@@ -4184,13 +4184,13 @@ def text_to_speech():
                 else:
                     request_data = session_data
                     
-                # Удаляем данные из кэша, они больше не нужны
+                # We delete data from the cache, they are no longer needed
                 safe_memcached_operation('delete', tts_session_key)
                 logger.debug(f"[{request_id}] Retrieved TTS request data from memcached")
         except Exception as e:
             logger.error(f"[{request_id}] Error retrieving TTS session data: {str(e)}")
     
-    # Если данные не найдены в memcached, пробуем получить их из тела запроса
+    # If the data is not found in Memcache, we try to get them from the query body
     if not request_data and request.is_json:
         request_data = request.json
         
@@ -5082,4 +5082,3 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
-
