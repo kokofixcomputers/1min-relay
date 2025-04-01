@@ -1044,14 +1044,15 @@ def conversation():
                     # Initialize data for the current request
                     current_image_url = None
                     
-                    # Looking for all URL images in previous messages of the assistant
+                    # We extract all URL images from the current response of the assistant
                     all_urls = []
+                    found_image = False
                     
                     for msg in reversed(request_data.get("messages", [])):
                         if msg.get("role") == "assistant" and msg.get("content"):
                             content = msg.get("content", "")
                             
-                            # Find all the images and their numbers, first we look for the format! [Variation X] (url)
+                            # 1. We are looking for images with obvious variation numbers
                             numbered_urls = {}
                             for match in re.finditer(r'!\[Variation\s*(\d+)\]\((https?://[^\s)]+)', content):
                                 try:
@@ -1063,38 +1064,53 @@ def conversation():
                                 except ValueError:
                                     pass
                             
-                            # If you find numbered images, we use them
+                            # If you find numbered images, we are trying to find the requested variation
                             if numbered_urls:
-                                # If you find the desired number, we use it
                                 if current_variation_number in numbered_urls:
                                     current_image_url = numbered_urls[current_variation_number]
                                     logger.info(f"[{request_id}] Found exact matching variation #{current_variation_number}: {current_image_url}")
+                                    found_image = True
                                     break
-                                # If there is no accurate coincidence, we use the first url
+                                # If there is no accurate coincidence, we continue to search
                                 else:
                                     logger.warning(f"[{request_id}] Requested variation #{current_variation_number} not found in numbered variations.")
                             
-                            # If the numbered URLs are not found, we are looking for ordinary images
-                            if not current_image_url and not numbered_urls:
+                            # 2. If you have not found numbered URLs, we are looking for all images
+                            if not found_image:
                                 simple_urls = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
                                 if simple_urls:
-                                    all_urls.extend(simple_urls)
-                                    logger.debug(f"[{request_id}] Found {len(simple_urls)} unnumbered images")
-                                    if len(simple_urls) >= current_variation_number:
-                                        current_image_url = simple_urls[current_variation_number - 1]
+                                    # Add only unique URLs
+                                    for url in simple_urls:
+                                        if url not in all_urls:
+                                            all_urls.append(url)
+                                    
+                                    logger.debug(f"[{request_id}] Found {len(simple_urls)} unnumbered images, total unique URLs: {len(all_urls)}")
+                                    
+                                    # Check if we can use the requested number
+                                    if len(all_urls) >= current_variation_number:
+                                        current_image_url = all_urls[current_variation_number - 1]
                                         logger.info(f"[{request_id}] Using image URL from position #{current_variation_number}: {current_image_url}")
+                                        found_image = True
                                         break
                                     else:
-                                        logger.warning(f"[{request_id}] Not enough unnumbered images for variation #{current_variation_number}, found only {len(simple_urls)}")
+                                        logger.warning(f"[{request_id}] Not enough images for variation #{current_variation_number}, found only {len(all_urls)}")
                     
                     # If you find a URL, we save it and information about the variation
                     if current_image_url:
+                        # We create a key for the current request to avoid conflicts
+                        request_variation_key = f"current_variation:{request_id}"
+                        
+                        # We save the selected URL in the local storage
+                        if 'MEMORY_STORAGE' in globals():
+                            MEMORY_STORAGE[request_variation_key] = current_image_url
+                            logger.info(f"[{request_id}] Saved selected variation URL to MEMORY_STORAGE with key {request_variation_key}")
+                        
                         image_url = current_image_url
                         variation_number = current_variation_number
                         variation_match = square_variation_match
                         logger.info(f"[{request_id}] Detected square bracket variation command: {variation_number} for URL: {image_url}")
                     elif all_urls and len(all_urls) > 0:
-                        # We use the first URL of all found if the requested number was not found
+                        # We use an affordable URL if the requested number is not found
                         idx = min(current_variation_number - 1, len(all_urls) - 1)
                         image_url = all_urls[idx]
                         variation_number = current_variation_number
@@ -1104,6 +1120,7 @@ def conversation():
                         logger.error(f"[{request_id}] No valid image URLs found in message history")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error processing variation command: {str(e)}")
+                    logger.error(traceback.format_exc())
             # If the old format is found, we use it
             elif old_variation_match:
                 variation_match = old_variation_match
@@ -1115,21 +1132,38 @@ def conversation():
         if variation_match:
             # We process the variation of the image
             try:
-                # We check what type of variation was discovered
-                if variation_match == mono_variation_match or variation_match == square_variation_match:
-                    # URL has already been obtained above in the search process
-                    variation_number = variation_match.group(1)
+                # Check the type of variation detected and remove the URL and number
+                # For the current request, we create a unique identifier
+                request_variation_key = f"current_variation:{request_id}"
+                
+                # Check if the URL has been saved for this request
+                current_image_url = None
+                if 'MEMORY_STORAGE' in globals() and request_variation_key in MEMORY_STORAGE:
+                    current_image_url = MEMORY_STORAGE[request_variation_key]
+                    logger.info(f"[{request_id}] Retrieved saved variation URL from MEMORY_STORAGE: {current_image_url}")
+                
+                # If you have not found the saved URL, we use the standard approach
+                if not current_image_url:
+                    if variation_match == mono_variation_match or variation_match == square_variation_match:
+                        # URL has already been obtained above in the search process
+                        variation_number = variation_match.group(1)
+                    else:
+                        # For the old format, we extract the URL directly from the team
+                        variation_number = variation_match.group(1)
+                        image_url = variation_match.group(2)
+                    
+                    current_image_url = image_url
                 else:
-                    # For the old format, we extract the URL directly from the team
-                    variation_number = variation_match.group(1)
-                    image_url = variation_match.group(2)
-
-                logger.info(f"[{request_id}] Processing variation for image: {image_url}")
+                    # Already removed the URL from the vault, we continue with it
+                    pass
+                
+                current_variation_number = int(variation_number) if str(variation_number).isdigit() else 1
+                logger.info(f"[{request_id}] Processing variation for image: {current_image_url}, variation #{current_variation_number}")
 
                 # For Midjourney models, add a direct call of the API without downloading the image
-                if model.startswith("midjourney") and "asset.1min.ai" in image_url:
+                if model.startswith("midjourney") and "asset.1min.ai" in current_image_url:
                     # We extract a relative path from the URL
-                    path_match = re.search(r'(?:asset\.1min\.ai)/?(images/[^?#]+)', image_url)
+                    path_match = re.search(r'(?:asset\.1min\.ai)/?(images/[^?#]+)', current_image_url)
                     if path_match:
                         relative_path = path_match.group(1)
                         logger.info(f"[{request_id}] Detected Midjourney variation with relative path: {relative_path}")
@@ -1340,9 +1374,9 @@ def conversation():
                     
                     # We convert the full URL to a relative path if it corresponds to the Asset.1Min.Ai format
                     image_path = None
-                    if "asset.1min.ai" in image_url:
+                    if "asset.1min.ai" in current_image_url:
                         # We extract part of the path /images /...
-                        path_match = re.search(r'(?:asset\.1min\.ai)(/images/[^?#]+)', image_url)
+                        path_match = re.search(r'(?:asset\.1min\.ai)(/images/[^?#]+)', current_image_url)
                         if path_match:
                             image_path = path_match.group(1)
                             # We remove the initial slash if it is
@@ -1350,7 +1384,7 @@ def conversation():
                                 image_path = image_path[1:]
                         else:
                             # We try to extract the path from the URL in general
-                            path_match = re.search(r'/images/[^?#]+', image_url)
+                            path_match = re.search(r'/images/[^?#]+', current_image_url)
                             if path_match:
                                 image_path = path_match.group(0)
                                 # We remove the initial slash if it is
@@ -1358,7 +1392,7 @@ def conversation():
                                     image_path = image_path[1:]
 
                     # If you find a relative path, we use it instead of a complete URL
-                    download_url = image_url
+                    download_url = current_image_url
                     if image_path:
                         logger.debug(f"[{request_id}] Extracted relative path from image URL: {image_path}")
                         # We use the full URL for loading, but we keep the relative path
@@ -5493,7 +5527,3 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
-
-
-
-
