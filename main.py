@@ -1049,10 +1049,26 @@ def conversation():
                                 "mode": "relax",  # Всегда используем relax
                                 "n": 4,
                                 "isNiji6": False,
+                                "aspect_width": 1,  # По умолчанию квадратное соотношение
+                                "aspect_height": 1,
                                 "maintainModeration": True
                             }
                         }
                         
+                        # Пытаемся извлечь соотношение сторон из запроса, если оно есть
+                        if request_data and "messages" and len(request_data.get("messages", [])) > 0:
+                            last_message = request_data["messages"][-1]
+                            if last_message.get("role") == "user" and last_message.get("content"):
+                                content = last_message.get("content", "")
+                                # Ищем в сообщении параметр --ar
+                                ar_match = re.search(r'--ar\s+(\d+):(\d+)', content)
+                                if ar_match:
+                                    aspect_width = int(ar_match.group(1))
+                                    aspect_height = int(ar_match.group(2))
+                                    payload["promptObject"]["aspect_width"] = aspect_width
+                                    payload["promptObject"]["aspect_height"] = aspect_height
+                                    logger.info(f"[{request_id}] Found aspect ratio in message: {aspect_width}:{aspect_height}")
+                                    
                         # Для VIP пользователей добавляем кредиты
                         if api_key.startswith("vip-"):
                             payload["credits"] = 90000  # Стандартное количество кредитов для VIP
@@ -1158,6 +1174,20 @@ def conversation():
                                     return jsonify({
                                         "error": "Gateway Timeout (504) occurred while processing image variation request. Try again later."
                                     }), 504
+                                # При ошибке с соотношением сторон (409) также возвращаем ошибку
+                                elif variation_response.status_code == 409:
+                                    error_message = "Error creating image variation"
+                                    # Пытаемся извлечь сообщение об ошибке из ответа
+                                    try:
+                                        error_json = variation_response.json()
+                                        if "message" in error_json:
+                                            error_message = error_json["message"]
+                                    except:
+                                        pass
+                                    logger.error(f"[{request_id}] Midjourney API error (409): {error_message}")
+                                    return jsonify({
+                                        "error": f"Failed to create image variation: {error_message}"
+                                    }), 409
                         except Exception as e:
                             logger.error(f"[{request_id}] Exception during direct variation request: {str(e)}")
                             # Возвращаем ошибку напрямую клиенту вместо перехода к резервному пути
