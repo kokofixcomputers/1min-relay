@@ -1534,7 +1534,7 @@ def conversation():
                             "index": 0,
                             "message": {
                                 "role": "assistant", 
-                                "content": f"🔊 [Аудио сообщение]({full_audio_url})"
+                                "content": f"🔊 [Audio.mp3]({full_audio_url})"
                             },
                             "finish_reason": "stop"
                         }
