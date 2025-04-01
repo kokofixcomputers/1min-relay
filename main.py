@@ -216,8 +216,8 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gpt-4",
     "gpt-3.5-turbo",
     #
-    # "whisper-1", # speech recognition
-    # "tts-1",     # Speech synthesis
+    "whisper-1", # speech recognition
+    "tts-1",     # Speech synthesis
     # "tts-1-hd",  # Speech synthesis HD
     #
     "dall-e-2",    # Generation of images
