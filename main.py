@@ -1057,12 +1057,19 @@ def conversation():
                         saved_params = None
                         try:
                             # We extract image_id from the image path for searching for parameters
-                            image_id_match = re.search(r'images/(\w+)/', relative_path)
+                            image_id_match = re.search(r'images/(\d+_\d+_\d+_\d+_\d+_\d+|\w+\d+)\.png', relative_path)
                             if image_id_match:
                                 image_id = image_id_match.group(1)
+                                logger.info(f"[{request_id}] Extracted image_id for variation: {image_id}")
                                 gen_params_key = f"gen_params:{image_id}"
                                 # We use Safe_MemCeched_Operation, which now uses Memory_storage
                                 # With the inaccessibility of Memcache
+                                logger.info(f"[{request_id}] Looking for generation parameters with key: {gen_params_key}")
+                                
+                                # Check directly the presence of the key in Memory_Storage
+                                if gen_params_key in MEMORY_STORAGE:
+                                    logger.info(f"[{request_id}] Found in MEMORY_STORAGE: {MEMORY_STORAGE[gen_params_key]}")
+                                
                                 params_json = safe_memcached_operation('get', gen_params_key)
                                 if params_json:
                                     logger.info(f"[{request_id}] Retrieved parameters for image {image_id}: {params_json}")
@@ -1079,6 +1086,8 @@ def conversation():
                                     else:
                                         saved_params = params_json
                                     logger.info(f"[{request_id}] Retrieved generation parameters for image {image_id}: {saved_params}")
+                                else:
+                                    logger.info(f"[{request_id}] No parameters found in storage for key {gen_params_key}")
                         except Exception as e:
                             logger.error(f"[{request_id}] Error retrieving generation parameters: {str(e)}")
                         
@@ -2625,9 +2634,10 @@ def generate_image():
                     for url in image_urls:
                         if url:
                             # We extract ID images from the URL
-                            image_id_match = re.search(r'images/(\w+)/', url)
+                            image_id_match = re.search(r'images/(\d+_\d+_\d+_\d+_\d+_\d+|\w+\d+)\.png', url)
                             if image_id_match:
                                 image_id = image_id_match.group(1)
+                                logger.info(f"[{request_id}] Extracted image_id from URL: {image_id}")
                                 
                                 # We save only the necessary parameters
                                 gen_params = {
@@ -2642,6 +2652,10 @@ def generate_image():
                                 # We use the updated version of Safe_Memcache_OPREEN
                                 safe_memcached_operation('set', gen_params_key, gen_params, expiry=3600*24*7)  # Store 7 days
                                 logger.info(f"[{request_id}] Saved generation parameters for image {image_id}: {gen_params}")
+                                
+                                # We check that the parameters are preserved in Memory_Storage
+                                if gen_params_key in MEMORY_STORAGE:
+                                    logger.info(f"[{request_id}] Verified parameters saved in MEMORY_STORAGE for key {gen_params_key}")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error saving generation parameters: {str(e)}")
 
