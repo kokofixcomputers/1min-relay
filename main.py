@@ -1086,6 +1086,13 @@ def conversation():
                                 payload["promptObject"]["aspect_width"] = saved_params["aspect_width"]
                                 payload["promptObject"]["aspect_height"] = saved_params["aspect_height"]
                                 logger.info(f"[{request_id}] Using saved aspect ratio: {saved_params['aspect_width']}:{saved_params['aspect_height']}")
+                            # Если не удалось получить saved_params, но в пути изображения есть соотношение сторон
+                            else:
+                                # Пробуем извлечь соотношение сторон из image_id
+                                # Установим 1:1 как дефолтное для совместимости
+                                payload["promptObject"]["aspect_width"] = 1
+                                payload["promptObject"]["aspect_height"] = 1
+                                logger.info(f"[{request_id}] No saved parameters found, using default ratio 4:3 for Midjourney variations")
                         
                         # Отправляем запрос на вариацию напрямую
                         logger.info(f"[{request_id}] Sending direct Midjourney variation request: {json.dumps(payload)}")
@@ -1185,9 +1192,41 @@ def conversation():
                                 # При ошибке Gateway Timeout (504) возвращаем ошибку сразу, а не продолжаем обработку
                                 if variation_response.status_code == 504:
                                     logger.error(f"[{request_id}] Midjourney API timeout (504). Returning error to client instead of fallback.")
-                                    return jsonify({
-                                        "error": "Gateway Timeout (504) occurred while processing image variation request. Try again later."
-                                    }), 504
+                                    
+                                    # Проверяем содержит ли ответ HTML (от Cloudflare)
+                                    is_html_response = False
+                                    try:
+                                        response_text = variation_response.text
+                                        is_html_response = "<html" in response_text.lower() or "<!doctype html" in response_text.lower()
+                                    except:
+                                        pass
+                                        
+                                    if is_html_response:
+                                        logger.info(f"[{request_id}] Received HTML error page from Cloudflare for 504 error")
+                                    
+                                    # Возвращаем сообщение в формате, как при успешном запросе, но с информацией об ошибке
+                                    error_response = {
+                                        "id": f"chatcmpl-{uuid.uuid4()}",
+                                        "object": "chat.completion",
+                                        "created": int(time.time()),
+                                        "model": model,
+                                        "choices": [
+                                            {
+                                                "index": 0,
+                                                "message": {
+                                                    "role": "assistant",
+                                                    "content": "⚠️ Image variations were requested, but the server was unable to process them in time. Try the request again later."
+                                                },
+                                                "finish_reason": "stop"
+                                            }
+                                        ],
+                                        "usage": {
+                                            "prompt_tokens": 0,
+                                            "completion_tokens": 0,
+                                            "total_tokens": 0
+                                        }
+                                    }
+                                    return jsonify(error_response), 200
                                 # При ошибке с соотношением сторон (409) также возвращаем ошибку
                                 elif variation_response.status_code == 409:
                                     error_message = "Error creating image variation"
@@ -1202,6 +1241,41 @@ def conversation():
                                     return jsonify({
                                         "error": f"Failed to create image variation: {error_message}"
                                     }), 409
+                                # При ошибке модерации (423) также возвращаем сообщение в дружественном формате
+                                elif variation_response.status_code == 423:
+                                    error_message = "Content moderation error"
+                                    # Пытаемся извлечь сообщение об ошибке из ответа
+                                    try:
+                                        error_json = variation_response.json()
+                                        if "message" in error_json:
+                                            error_message = error_json["message"]
+                                    except:
+                                        pass
+                                    logger.error(f"[{request_id}] Midjourney API moderation error (423): {error_message}")
+                                    
+                                    # Форматируем ответ как сообщение в чате
+                                    error_response = {
+                                        "id": f"chatcmpl-{uuid.uuid4()}",
+                                        "object": "chat.completion",
+                                        "created": int(time.time()),
+                                        "model": model,
+                                        "choices": [
+                                            {
+                                                "index": 0,
+                                                "message": {
+                                                    "role": "assistant",
+                                                    "content": f"⚠️ {error_message}"
+                                                },
+                                                "finish_reason": "stop"
+                                            }
+                                        ],
+                                        "usage": {
+                                            "prompt_tokens": 0,
+                                            "completion_tokens": 0,
+                                            "total_tokens": 0
+                                        }
+                                    }
+                                    return jsonify(error_response), 200
                         except Exception as e:
                             logger.error(f"[{request_id}] Exception during direct variation request: {str(e)}")
                             # Возвращаем ошибку напрямую клиенту вместо перехода к резервному пути
@@ -5324,4 +5398,3 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
-
