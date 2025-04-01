@@ -4,39 +4,30 @@ import json
 import logging
 import os
 import random
+import re
 import socket
 import string
+import tempfile
+import threading
 import time
 import traceback
 import uuid
 import warnings
-import re
-import asyncio
-import math
-import threading
-import tempfile
-from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 
 import coloredlogs
+import memcache
 import printedcolors
 import requests
 import tiktoken
-from flask import Flask, request, jsonify, make_response, Response, stream_with_context, redirect, url_for
+from dotenv import load_dotenv
+from flask import Flask, request, jsonify, make_response, Response, redirect, url_for
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_cors import CORS
 from mistral_common.protocol.instruct.messages import UserMessage
 from mistral_common.protocol.instruct.request import ChatCompletionRequest
 from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
-from pymemcache.client.base import Client
 from waitress import serve
-import memcache
-from dotenv import load_dotenv
-from werkzeug.utils import secure_filename
-import io
-import imghdr
-from werkzeug.datastructures import FileStorage, MultiDict
+from werkzeug.datastructures import MultiDict
 
 # We download the environment variables from the .env file
 load_dotenv()
@@ -61,6 +52,7 @@ DOCUMENT_ANALYSIS_INSTRUCTION = "Review the uploaded document and provide at lea
 # Varias of the environment
 
 PORT = int(os.getenv("PORT", 5001))
+
 
 def check_memcached_connection():
     """
@@ -152,12 +144,13 @@ if memcached_available:
     try:
         # First we try Pymemcache
         from pymemcache.client.base import Client
+
         # We extract a host and a port from URI without using. Split ('@')
         if memcached_uri.startswith('memcached://'):
             host_port = memcached_uri.replace('memcached://', '')
         else:
             host_port = memcached_uri
-            
+
         # We share a host and port for Pymemcache
         if ':' in host_port:
             host, port = host_port.split(':')
@@ -174,7 +167,7 @@ if memcached_available:
                 host_port = memcached_uri.replace('memcached://', '')
             else:
                 host_port = memcached_uri
-                
+
             MEMCACHED_CLIENT = memcache.Client([host_port], debug=0)
             logger.info(f"Memcached client initialized using python-memcached: {memcached_uri}")
         except (ImportError, AttributeError, Exception) as e:
@@ -189,7 +182,6 @@ else:
     )
     MEMCACHED_CLIENT = None
     logger.info("Memcached not available, session storage disabled")
-
 
 # Main URL for API
 ONE_MIN_API_URL = "https://api.1min.ai/api/features"
@@ -216,12 +208,12 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gpt-4",
     "gpt-3.5-turbo",
     #
-    "whisper-1", # speech recognition
-    "tts-1",     # Speech synthesis
+    "whisper-1",  # speech recognition
+    "tts-1",  # Speech synthesis
     # "tts-1-hd",  # Speech synthesis HD
     #
-    "dall-e-2",    # Generation of images
-    "dall-e-3",    # Generation of images
+    "dall-e-2",  # Generation of images
+    "dall-e-3",  # Generation of images
     # Claude
     "claude-instant-1.2",
     "claude-2.1",
@@ -268,24 +260,24 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # "stable-diffusion-v1-6",         # stabilityi - images generation
     # "esrgan-v1-x2plus",              # stabilityai-Improving images
     # "stable-video-diffusion",        # stabilityai-video generation
-    "phoenix",         # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
-    "lightning-xl",    # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
-    "anime-xl",        # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
-    "diffusion-xl",    # Leonardo.ai - 1e60896f-3c26-4296-8ecc-53e2afecc132
-    "kino-xl",         # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
-    "vision-xl",       # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
+    "phoenix",  # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
+    "lightning-xl",  # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
+    "anime-xl",  # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
+    "diffusion-xl",  # Leonardo.ai - 1e60896f-3c26-4296-8ecc-53e2afecc132
+    "kino-xl",  # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
+    "vision-xl",  # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
     "albedo-base-xl",  # Leonardo.ai - 2067ae52-33fd-4a82-bb92-c2c55e7d2786
     # "Clipdrop", # clipdrop.co - image processing
-    "midjourney",      # Midjourney - image generation
+    "midjourney",  # Midjourney - image generation
     "midjourney_6_1",  # Midjourney - image generation
     # "methexis-inc/img2prompt:50adaf2d3ad20a6f911a8a9e3ccf777b263b8596fbd2c8fc26e8888f8a0edbb5",   # Replicate - Image to Prompt
     # "cjwbw/damo-text-to-video:1e205ea73084bd17a0a3b43396e49ba0d6bc2e754e9283b2df49fad2dcf95755",  # Replicate - Text to Video
     # "lucataco/animate-diff:beecf59c4aee8d81bf04f0381033dfa10dc16e845b4ae00d281e2fa377e48a9f",     # Replicate - Animation
     # "lucataco/hotshot-xl:78b3a6257e16e4b241245d65c8b2b81ea2e1ff7ed4c55306b511509ddbfd327a",       # Replicate - Video
-    "flux-schnell",    # Replicate - Flux "black-forest-labs/flux-schnell"
-    "flux-dev",        # Replicate - Flux Dev "black-forest-labs/flux-dev"
-    "flux-pro",        # Replicate - Flux Pro "black-forest-labs/flux-pro"
-    "flux-1.1-pro",    # Replicate - Flux Pro 1.1 "black-forest-labs/flux-1.1-pro"
+    "flux-schnell",  # Replicate - Flux "black-forest-labs/flux-schnell"
+    "flux-dev",  # Replicate - Flux Dev "black-forest-labs/flux-dev"
+    "flux-pro",  # Replicate - Flux Pro "black-forest-labs/flux-pro"
+    "flux-1.1-pro",  # Replicate - Flux Pro 1.1 "black-forest-labs/flux-1.1-pro"
     # "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",  # Replicate - Music Generation
     # "luma",                  # TTAPI - Luma
     # "Qubico/image-toolkit",  # TTAPI - Image Toolkit
@@ -323,7 +315,7 @@ retrieval_supported_models = [
     "gpt-4o-mini",
     "gpt-4o",
     "gpt-4-turbo",
-    "gpt-3.5-turbo",    
+    "gpt-3.5-turbo",
     "claude-3-5-sonnet-20240620",
     "claude-3-opus-20240229",
     "claude-3-sonnet-20240229",
@@ -386,26 +378,26 @@ IMAGE_VARIATION_MODELS = VARIATION_SUPPORTED_MODELS
 
 # Permissible parties for different models
 MIDJOURNEY_ALLOWED_ASPECT_RATIOS = [
-    "1:1",     # Square
-    "16:9",    # Widescreen format
-    "9:16",    # Vertical variant of 16:9
-    "16:10",   # Alternative widescreen
-    "10:16",   # Vertical variant of 16:10
-    "8:5",     # Alternative widescreen
-    "5:8",     # Vertical variant of 16:10
-    "3:4",     # Portrait/print
-    "4:3",     # Standard TV/monitor format
-    "3:2",     # Popular in photography
-    "2:3",     # Inverse of 3:2
-    "4:5",     # Common in social media posts
-    "5:4",     # Nearly square format
-    "137:100", # Academy ratio (1.37:1) as an integer ratio
-    "166:100", # European cinema (1.66:1) as an integer ratio
-    "185:100", # Cinematic format (1.85:1) as an integer ratio185
-    "83:50",   # European cinema (1.66:1) as an integer ratio
-    "37:20",   # Cinematic format (1.85:1) as an integer ratio
-    "2:1",     # Maximum allowed widescreen format
-    "1:2"      # Maximum allowed vertical format
+    "1:1",  # Square
+    "16:9",  # Widescreen format
+    "9:16",  # Vertical variant of 16:9
+    "16:10",  # Alternative widescreen
+    "10:16",  # Vertical variant of 16:10
+    "8:5",  # Alternative widescreen
+    "5:8",  # Vertical variant of 16:10
+    "3:4",  # Portrait/print
+    "4:3",  # Standard TV/monitor format
+    "3:2",  # Popular in photography
+    "2:3",  # Inverse of 3:2
+    "4:5",  # Common in social media posts
+    "5:4",  # Nearly square format
+    "137:100",  # Academy ratio (1.37:1) as an integer ratio
+    "166:100",  # European cinema (1.66:1) as an integer ratio
+    "185:100",  # Cinematic format (1.85:1) as an integer ratio185
+    "83:50",  # European cinema (1.66:1) as an integer ratio
+    "37:20",  # Cinematic format (1.85:1) as an integer ratio
+    "2:1",  # Maximum allowed widescreen format
+    "1:2"  # Maximum allowed vertical format
 ]
 
 FLUX_ALLOWED_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4"]
@@ -418,7 +410,7 @@ LEONARDO_SIZES = ALBEDO_SIZES = {"1:1": "1024x1024", "4:3": "1024x768", "3:4": "
 
 # Determination of models for speech synthesis (TTS)
 TEXT_TO_SPEECH_MODELS = [
-    "tts-1"# ,
+    "tts-1"  # ,
     # "tts-1-hd",
     # "google-tts",
     # "elevenlabs-tts"
@@ -426,7 +418,7 @@ TEXT_TO_SPEECH_MODELS = [
 
 # Determination of models for speech recognition (STT)
 SPEECH_TO_TEXT_MODELS = [
-    "whisper-1"# ,
+    "whisper-1"  # ,
     # "latest_long",
     # "latest_short",
     # "phone_call",
@@ -473,9 +465,9 @@ def index():
     if request.method == "GET":
         internal_ip = socket.gethostbyname(socket.gethostname())
         return (
-            "Congratulations! Your API is working! You can now make requests to the API.\n\nEndpoint: "
-            + internal_ip
-            + ":5001/v1"
+                "Congratulations! Your API is working! You can now make requests to the API.\n\nEndpoint: "
+                + internal_ip
+                + ":5001/v1"
         )
 
 
@@ -649,7 +641,7 @@ def get_model_capabilities(model):
 
 
 def prepare_payload(
-    request_data, model, all_messages, image_paths=None, request_id=None
+        request_data, model, all_messages, image_paths=None, request_id=None
 ):
     """
     Prepares Payload for request, taking into account the capabilities of the model
@@ -712,11 +704,11 @@ def prepare_payload(
     if image_paths:
         # Even if the model does not support images, we try to send as a text request
         if capabilities["vision"]:
-            # Add instructions to the industrial plane
+            # Add instructions to the prompt plane
             enhanced_prompt = all_messages
             if not enhanced_prompt.strip().startswith(IMAGE_DESCRIPTION_INSTRUCTION):
                 enhanced_prompt = f"{IMAGE_DESCRIPTION_INSTRUCTION}\n\n{all_messages}"
-            
+
             payload = {
                 "type": "CHAT_WITH_IMAGE",
                 "model": model,
@@ -729,9 +721,10 @@ def prepare_payload(
                     "maxWord": max_word if web_search else None,
                 },
             }
-            
+
             if web_search:
-                logger.debug(f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
+                logger.debug(
+                    f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
         else:
             logger.debug(
                 f"[{request_id}] Model {model} does not support vision, falling back to text-only chat"
@@ -747,9 +740,10 @@ def prepare_payload(
                     "maxWord": max_word if web_search else None,
                 },
             }
-            
+
             if web_search:
-                logger.debug(f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
+                logger.debug(
+                    f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
     elif code_interpreter:
         # If Code_interpreter is requested and supported
         payload = {
@@ -771,9 +765,10 @@ def prepare_payload(
                 "maxWord": max_word if web_search else None,
             },
         }
-        
+
         if web_search:
-            logger.debug(f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
+            logger.debug(
+                f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
 
     return payload
 
@@ -808,12 +803,12 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
 
         # We use the correct URL API C /API /
         conversation_url = "https://api.1min.ai/api/features/conversations?type=CHAT_WITH_PDF"
-            
+
         logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
-        
+
         headers = {"API-KEY": api_key, "Content-Type": "application/json"}
         response = requests.post(conversation_url, json=payload, headers=headers)
-        
+
         logger.debug(f"[{request_id}] Create conversation response status: {response.status_code}")
 
         if response.status_code != 200:
@@ -833,7 +828,7 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
             conversation_id = response_data["id"]
         elif "uuid" in response_data:
             conversation_id = response_data["uuid"]
-        
+
         # Recursive search for ID conversations in the structure of the response
         if not conversation_id:
             def find_conversation_id(obj, path=""):
@@ -844,7 +839,7 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
                     if "uuid" in obj:
                         logger.debug(f"[{request_id}] Found UUID at path '{path}.uuid': {obj['uuid']}")
                         return obj["uuid"]
-                    
+
                     for key, value in obj.items():
                         result = find_conversation_id(value, f"{path}.{key}")
                         if result:
@@ -855,7 +850,7 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
                         if result:
                             return result
                 return None
-            
+
             conversation_id = find_conversation_id(response_data)
 
         if not conversation_id:
@@ -896,10 +891,10 @@ def conversation():
         # We get and normalize the model
         model = request_data.get("model", "").strip()
         logger.info(f"[{request_id}] Using model: {model}")
-        
+
         # We check the support of the web post for the model
         capabilities = get_model_capabilities(model)
-        
+
         # We check if the web post is requested through Openai tools
         web_search_requested = False
         tools = request_data.get("tools", [])
@@ -908,12 +903,12 @@ def conversation():
                 web_search_requested = True
                 logger.debug(f"[{request_id}] Web search requested via retrieval tool")
                 break
-        
+
         # Check the presence of the Web_Search parameter
         if not web_search_requested and request_data.get("web_search", False):
             web_search_requested = True
             logger.debug(f"[{request_id}] Web search requested via web_search parameter")
-        
+
         # Add a clear web_search parameter if you are requested and supported by the model
         if web_search_requested:
             if capabilities["retrieval"]:
@@ -923,7 +918,7 @@ def conversation():
                 logger.info(f"[{request_id}] Web search enabled for model {model}")
             else:
                 logger.warning(f"[{request_id}] Model {model} does not support web search, ignoring request")
-        
+
         # We extract the contents of the last message for possible generation of images
         messages = request_data.get("messages", [])
         prompt_text = ""
@@ -939,7 +934,7 @@ def conversation():
                         if isinstance(item, dict) and "text" in item:
                             prompt_text += item["text"] + " "
                     prompt_text = prompt_text.strip()
-        
+
         # We check whether the request contains the variation of the image
         variation_match = None
         if prompt_text:
@@ -949,12 +944,12 @@ def conversation():
             square_variation_match = re.search(r'\[_V([1-4])_\]', prompt_text)
             # We are looking for a new format with monoshyrin text `[_V1_]` -` [_V4_] `
             mono_variation_match = re.search(r'`\[_V([1-4])_\]`', prompt_text)
-            
+
             # If a monoshyrin format is found, we check if there is a URL dialogue in the history
             if mono_variation_match and request_data.get("messages"):
                 variation_number = int(mono_variation_match.group(1))
                 logger.debug(f"[{request_id}] Found monospace format variation command: {variation_number}")
-                
+
                 # Looking for the necessary URL in previous messages of the assistant
                 image_url = None
                 for msg in reversed(request_data.get("messages", [])):
@@ -962,28 +957,31 @@ def conversation():
                         # Looking for all URL images in the content of the assistant message
                         content = msg.get("content", "")
                         url_matches = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
-                        
+
                         if url_matches:
                             # Check the number of URL found
                             if len(url_matches) >= variation_number:
                                 # We take the URL corresponding to the requested number
                                 image_url = url_matches[variation_number - 1]
-                                logger.debug(f"[{request_id}] Found image URL #{variation_number} in assistant message: {image_url}")
+                                logger.debug(
+                                    f"[{request_id}] Found image URL #{variation_number} in assistant message: {image_url}")
                                 break
                             else:
                                 # Not enough URL for the requested number, we take the first
                                 image_url = url_matches[0]
-                                logger.warning(f"[{request_id}] Requested variation #{variation_number} but only found {len(url_matches)} URLs. Using first URL: {image_url}")
+                                logger.warning(
+                                    f"[{request_id}] Requested variation #{variation_number} but only found {len(url_matches)} URLs. Using first URL: {image_url}")
                                 break
-                
+
                 if image_url:
                     variation_match = mono_variation_match
-                    logger.info(f"[{request_id}] Detected monospace variation command: {variation_number} for URL: {image_url}")
+                    logger.info(
+                        f"[{request_id}] Detected monospace variation command: {variation_number} for URL: {image_url}")
             # If a format with square brackets is found, we check if there is a URL dialogue in the history
             elif square_variation_match and request_data.get("messages"):
                 variation_number = int(square_variation_match.group(1))
                 logger.debug(f"[{request_id}] Found square bracket format variation command: {variation_number}")
-                
+
                 # Looking for the necessary URL in previous messages of the assistant
                 image_url = None
                 for msg in reversed(request_data.get("messages", [])):
@@ -991,30 +989,34 @@ def conversation():
                         # Looking for all URL images in the content of the assistant message
                         content = msg.get("content", "")
                         url_matches = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
-                        
+
                         if url_matches:
                             # Check the number of URL found
                             if len(url_matches) >= variation_number:
                                 # We take the URL corresponding to the requested number
                                 image_url = url_matches[variation_number - 1]
-                                logger.debug(f"[{request_id}] Found image URL #{variation_number} in assistant message: {image_url}")
+                                logger.debug(
+                                    f"[{request_id}] Found image URL #{variation_number} in assistant message: {image_url}")
                                 break
                             else:
                                 # Not enough URL for the requested number, we take the first
                                 image_url = url_matches[0]
-                                logger.warning(f"[{request_id}] Requested variation #{variation_number} but only found {len(url_matches)} URLs. Using first URL: {image_url}")
+                                logger.warning(
+                                    f"[{request_id}] Requested variation #{variation_number} but only found {len(url_matches)} URLs. Using first URL: {image_url}")
                                 break
-                
+
                 if image_url:
                     variation_match = square_variation_match
-                    logger.info(f"[{request_id}] Detected square bracket variation command: {variation_number} for URL: {image_url}")
+                    logger.info(
+                        f"[{request_id}] Detected square bracket variation command: {variation_number} for URL: {image_url}")
             # If the old format is found, we use it
             elif old_variation_match:
                 variation_match = old_variation_match
                 variation_number = old_variation_match.group(1)
                 image_url = old_variation_match.group(2)
-                logger.info(f"[{request_id}] Detected old format variation command: {variation_number} for URL: {image_url}")
-            
+                logger.info(
+                    f"[{request_id}] Detected old format variation command: {variation_number} for URL: {image_url}")
+
         if variation_match:
             # We process the variation of the image
             try:
@@ -1026,9 +1028,9 @@ def conversation():
                     # For the old format, we extract the URL directly from the team
                     variation_number = variation_match.group(1)
                     image_url = variation_match.group(2)
-                
+
                 logger.info(f"[{request_id}] Processing variation for image: {image_url}")
-                
+
                 # We convert the full URL to a relative path if it corresponds to the Asset.1Min.Ai format
                 image_path = None
                 if "asset.1min.ai" in image_url:
@@ -1047,25 +1049,26 @@ def conversation():
                             # We remove the initial slash if it is
                             if image_path.startswith('/'):
                                 image_path = image_path[1:]
-                        
+
                 # If you find a relative path, we use it instead of a complete URL
                 download_url = image_url
                 if image_path:
                     logger.debug(f"[{request_id}] Extracted relative path from image URL: {image_path}")
                     # We use the full URL for loading, but we keep the relative path
-                
+
                 # Download the image to a temporary file and send a redirection
                 # On the route/v1/images/variations by analogy s/v1/images/generations
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                 img_response = requests.get(download_url, stream=True)
-                
+
                 if img_response.status_code != 200:
-                    return jsonify({"error": f"Failed to download image from URL. Status code: {img_response.status_code}"}), 400
-                        
+                    return jsonify(
+                        {"error": f"Failed to download image from URL. Status code: {img_response.status_code}"}), 400
+
                 with open(temp_file.name, 'wb') as f:
                     for chunk in img_response.iter_content(chunk_size=8192):
                         f.write(chunk)
-                
+
                 # We save the path to the temporary file in memory for use in the route/v1/images/variations
                 if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
                     variation_key = f"variation:{request_id}"
@@ -1075,25 +1078,27 @@ def conversation():
                         "n": request_data.get("n", 1),
                         "image_path": image_path  # We keep the relative path if it is
                     }
-                    safe_memcached_operation('set', variation_key, json.dumps(variation_data), expire=300)  # Store 5 minutes
+                    safe_memcached_operation('set', variation_key, json.dumps(variation_data),
+                                             expire=300)  # Store 5 minutes
                     logger.debug(f"[{request_id}] Saved variation data to memcached with key: {variation_key}")
-                
+
                 # We redirect the route/v1/images/variations
                 logger.info(f"[{request_id}] Redirecting to /v1/images/variations with model {model}")
                 return redirect(url_for('image_variations', request_id=request_id), code=307)
-            
+
             except Exception as e:
                 logger.error(f"[{request_id}] Error processing variation command: {str(e)}")
                 return jsonify({"error": f"Failed to process variation command: {str(e)}"}), 500
-        
+
         # We log in the extracted Prompt for debugging
-        logger.debug(f"[{request_id}] Extracted prompt text: {prompt_text[:100]}..." if len(prompt_text) > 100 else f"[{request_id}] Extracted prompt text: {prompt_text}")
-        
+        logger.debug(f"[{request_id}] Extracted prompt text: {prompt_text[:100]}..." if len(
+            prompt_text) > 100 else f"[{request_id}] Extracted prompt text: {prompt_text}")
+
         # We check whether the model belongs to one of the special types
         # For images generation models
         if model in IMAGE_GENERATION_MODELS:
             logger.info(f"[{request_id}] Redirecting image generation model to /v1/images/generations")
-            
+
             # We create a new request only with the necessary fields to generate image
             # We take only the current user's current production without combining with history
             image_request = {
@@ -1102,7 +1107,7 @@ def conversation():
                 "n": request_data.get("n", 1),
                 "size": request_data.get("size", "1024x1024")
             }
-            
+
             # Add additional parameters for certain models
             if model == "dall-e-3":
                 image_request["quality"] = request_data.get("quality", "standard")
@@ -1115,34 +1120,35 @@ def conversation():
                     logger.debug(f"[{request_id}] Found aspect ratio parameter in prompt")
                 elif request_data.get("aspect_ratio"):
                     image_request["aspect_ratio"] = request_data.get("aspect_ratio")
-                    
+
                 if "--no" in prompt_text or "\u2014no" in prompt_text:
                     logger.debug(f"[{request_id}] Found negative prompt parameter in prompt")
                 elif request_data.get("negative_prompt"):
-                    # Add negative industrial plane as a separate parameter
+                    # Add negative prompt plane as a separate parameter
                     image_request["negative_prompt"] = request_data.get("negative_prompt")
-                    
+
             # We delete messages from the request to avoid combining history
             if "messages" in image_request:
                 del image_request["messages"]
-                
+
             logger.debug(f"[{request_id}] Final image request: {json.dumps(image_request)[:200]}...")
-            
+
             # We save a modified request (only the last request without history)
             request.environ["body_copy"] = json.dumps(image_request)
             return redirect(url_for('generate_image'), code=307)  # 307 preserves the method and body of the request
-            
+
         # For speech generation models (TTS)
         if model in TEXT_TO_SPEECH_MODELS:
             logger.info(f"[{request_id}] Redirecting text-to-speech model to /v1/audio/speech")
             # Add the text to a request for speech synthesis
             if prompt_text:
                 request_data["input"] = prompt_text
-                logger.debug(f"[{request_id}] Setting TTS input: {prompt_text[:100]}..." if len(prompt_text) > 100 else f"[{request_id}] Setting TTS input: {prompt_text}")
+                logger.debug(f"[{request_id}] Setting TTS input: {prompt_text[:100]}..." if len(
+                    prompt_text) > 100 else f"[{request_id}] Setting TTS input: {prompt_text}")
             # We maintain a modified request
             request.environ["body_copy"] = json.dumps(request_data)
             return redirect(url_for('text_to_speech'), code=307)
-            
+
         # For models of audio transcription (STT)
         if model in SPEECH_TO_TEXT_MODELS:
             logger.info(f"[{request_id}] Redirecting speech-to-text model to /v1/audio/transcriptions")
@@ -1154,7 +1160,7 @@ def conversation():
         # Check whether the image of the image contains
         image = False
         image_paths = []
-        
+
         # Check the availability of user files for working with PDF
         user_file_ids = []
         if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
@@ -1169,7 +1175,7 @@ def conversation():
                             user_files = json.loads(user_files_json.decode('utf-8'))
                         else:
                             user_files = user_files_json
-                        
+
                         if user_files and isinstance(user_files, list):
                             # We extract the ID files
                             user_file_ids = [file_info.get("id") for file_info in user_files if file_info.get("id")]
@@ -1180,27 +1186,27 @@ def conversation():
                 logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
         else:
             logger.debug(f"[{request_id}] Memcached not available, no user files loaded")
-        
+
         # We check the availability of messages before the start of processing
         if not messages:
             logger.error(f"[{request_id}] No messages provided in request")
             return ERROR_HANDLER(1412)
-            
+
         # We extract the text of the request for analysis
         extracted_prompt = messages[-1].get("content", "")
         if isinstance(extracted_prompt, list):
             extracted_prompt = " ".join([item.get("text", "") for item in extracted_prompt if "text" in item])
         extracted_prompt_lower = extracted_prompt.lower() if extracted_prompt else ""
-                    
+
         # If the request does not indicate File_ids, but the user has uploaded files,
         # Add them to the request only if the message mentions something about files or documents
         file_keywords = ["файл", "файлы", "file", "files", "документ", "документы", "document", "documents"]
         prompt_has_file_keywords = False
-        
+
         # Check the availability of keywords about files in the request
         if extracted_prompt_lower:
             prompt_has_file_keywords = any(keyword in extracted_prompt_lower for keyword in file_keywords)
-            
+
         # Add files only if the user requested work with files or clearly indicated File_ids
         if (not request_data.get("file_ids") and user_file_ids and prompt_has_file_keywords):
             logger.info(f"[{request_id}] Adding user files to request: {user_file_ids}")
@@ -1228,7 +1234,7 @@ def conversation():
             for i, item in enumerate(user_input):
                 if "text" in item:
                     combined_text += item["text"] + "\n"
-                    logger.debug(f"[{request_id}] Added text content from item {i+1}")
+                    logger.debug(f"[{request_id}] Added text content from item {i + 1}")
 
                 if "image_url" in item:
                     if model not in vision_supported_models:
@@ -1243,8 +1249,8 @@ def conversation():
 
                     # We extract the URL images
                     if (
-                        isinstance(item["image_url"], dict)
-                        and "url" in item["image_url"]
+                            isinstance(item["image_url"], dict)
+                            and "url" in item["image_url"]
                     ):
                         image_url = item["image_url"]["url"]
                     else:
@@ -1258,7 +1264,7 @@ def conversation():
                     if image_key and image_key in IMAGE_CACHE:
                         cached_path = IMAGE_CACHE[image_key]
                         logger.debug(
-                            f"[{request_id}] Using cached image path for item {i+1}: {cached_path}"
+                            f"[{request_id}] Using cached image path for item {i + 1}: {cached_path}"
                         )
                         image_paths.append(cached_path)
                         image = True
@@ -1266,7 +1272,7 @@ def conversation():
 
                     # We load the image if it is not in the cache
                     logger.debug(
-                        f"[{request_id}] Processing image URL in item {i+1}: {image_url[:30]}..."
+                        f"[{request_id}] Processing image URL in item {i + 1}: {image_url[:30]}..."
                     )
 
                     # We load the image
@@ -1286,10 +1292,10 @@ def conversation():
                         image_paths.append(image_path)
                         image = True
                         logger.debug(
-                            f"[{request_id}] Image {i+1} successfully processed: {image_path}"
+                            f"[{request_id}] Image {i + 1} successfully processed: {image_path}"
                         )
                     else:
-                        logger.error(f"[{request_id}] Failed to upload image {i+1}")
+                        logger.error(f"[{request_id}] Failed to upload image {i + 1}")
 
             # We replace user_input with the textual part only if it is not empty
             if combined_text:
@@ -1311,7 +1317,8 @@ def conversation():
         # We check the file deletion request
         delete_keywords = ["удалить", "удали", "удаление", "очисти", "очистка", "delete", "remove", "clean"]
         file_keywords = ["файл", "файлы", "file", "files", "документ", "документы", "document", "documents"]
-        mime_type_keywords = ["pdf", "txt", "doc", "docx", "csv", "xls", "xlsx", "json", "md", "html", "htm", "xml", "pptx", "ppt", "rtf"]
+        mime_type_keywords = ["pdf", "txt", "doc", "docx", "csv", "xls", "xlsx", "json", "md", "html", "htm", "xml",
+                              "pptx", "ppt", "rtf"]
 
         # Combine all keywords for files
         all_file_keywords = file_keywords + mime_type_keywords
@@ -1322,7 +1329,7 @@ def conversation():
 
         if has_delete_keywords and has_file_keywords and user_file_ids:
             logger.info(f"[{request_id}] Deletion request detected, removing all user files")
-            
+
             # Trying to get ID teams
             team_id = None
             try:
@@ -1337,7 +1344,7 @@ def conversation():
                         logger.debug(f"[{request_id}] Found team ID for deletion: {team_id}")
             except Exception as e:
                 logger.error(f"[{request_id}] Error getting team ID for deletion: {str(e)}")
-            
+
             deleted_files = []
             for file_id in user_file_ids:
                 try:
@@ -1346,12 +1353,12 @@ def conversation():
                         delete_url = f"{ONE_MIN_API_URL}/teams/{team_id}/assets/{file_id}"
                     else:
                         delete_url = f"{ONE_MIN_ASSET_URL}/{file_id}"
-                        
+
                     logger.debug(f"[{request_id}] Using URL for deletion: {delete_url}")
                     headers = {"API-KEY": api_key}
-                    
+
                     delete_response = api_request("DELETE", delete_url, headers=headers)
-                    
+
                     if delete_response.status_code == 200:
                         logger.info(f"[{request_id}] Successfully deleted file: {file_id}")
                         deleted_files.append(file_id)
@@ -1359,7 +1366,7 @@ def conversation():
                         logger.error(f"[{request_id}] Failed to delete file {file_id}: {delete_response.status_code}")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error deleting file {file_id}: {str(e)}")
-            
+
             # Clean the user's list of user files in Memcache
             if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None and deleted_files:
                 try:
@@ -1368,7 +1375,7 @@ def conversation():
                     logger.info(f"[{request_id}] Cleared user files list in memcached")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error clearing user files in memcached: {str(e)}")
-            
+
             # Send a response to file deletion
             return jsonify({
                 "id": str(uuid.uuid4()),
@@ -1411,17 +1418,18 @@ def conversation():
             try:
                 teams_url = "https://api.1min.ai/api/teams"  # Correct URL C /API /
                 teams_headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-                
+
                 logger.debug(f"[{request_id}] Fetching team ID from: {teams_url}")
                 teams_response = requests.get(teams_url, headers=teams_headers)
-                
+
                 if teams_response.status_code == 200:
                     teams_data = teams_response.json()
                     if "data" in teams_data and teams_data["data"]:
                         team_id = teams_data["data"][0].get("id")
                         logger.debug(f"[{request_id}] Got team ID: {team_id}")
                 else:
-                    logger.warning(f"[{request_id}] Failed to get team ID: {teams_response.status_code} - {teams_response.text}")
+                    logger.warning(
+                        f"[{request_id}] Failed to get team ID: {teams_response.status_code} - {teams_response.text}")
             except Exception as e:
                 logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
 
@@ -1445,9 +1453,10 @@ def conversation():
             api_url = "https://api.1min.ai/api/features/conversations/messages"
             # Add Conversationid as a request parameter
             api_params = {"conversationId": conversation_id}
-            
-            logger.debug(f"[{request_id}] Sending message to conversation using URL: {api_url} with params: {api_params}")
-            
+
+            logger.debug(
+                f"[{request_id}] Sending message to conversation using URL: {api_url} with params: {api_params}")
+
             headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
             # Depending on the Stream parameter, select the request method
@@ -1460,7 +1469,7 @@ def conversation():
                 # The usual request
                 try:
                     response = requests.post(api_url, json=payload, headers=headers, params=api_params)
-                    
+
                     logger.debug(f"[{request_id}] API response status code: {response.status_code}")
                     if response.status_code != 200:
                         logger.error(
@@ -1474,7 +1483,7 @@ def conversation():
                     # We convert the answer to the Openai format
                     response_data = response.json()
                     logger.debug(f"[{request_id}] Raw API response: {json.dumps(response_data)[:500]}...")
-                    
+
                     # We extract a response from different places of data structure
                     ai_response = None
                     if "answer" in response_data:
@@ -1485,7 +1494,7 @@ def conversation():
                         ai_response = response_data["result"]
                     elif "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
                         ai_response = response_data["aiRecord"]["aiRecordDetail"].get("answer", "")
-                    
+
                     if not ai_response:
                         # Recursively looking for a response on Keys Asswer, Message, Result
                         def find_response(obj, path=""):
@@ -1494,7 +1503,7 @@ def conversation():
                                     if key in obj:
                                         logger.debug(f"[{request_id}] Found response at path '{path}.{key}'")
                                         return obj[key]
-                                
+
                                 for key, value in obj.items():
                                     result = find_response(value, f"{path}.{key}")
                                     if result:
@@ -1505,13 +1514,13 @@ def conversation():
                                     if result:
                                         return result
                             return None
-                        
+
                         ai_response = find_response(response_data)
-                    
+
                     if not ai_response:
                         logger.error(f"[{request_id}] Could not extract AI response from API response")
                         return jsonify({"error": "Could not extract AI response"}), 500
-                        
+
                     openai_response = format_openai_response(
                         ai_response, model, request_id
                     )
@@ -1588,13 +1597,13 @@ def conversation():
 
             logger.debug(f"[{request_id}] Streaming URL: {streaming_url}")
             logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:200]}...")
-            
+
             # If a web pion is included, we display a full websearch block for debugging
             if "promptObject" in payload and payload["promptObject"].get("webSearch"):
                 logger.info(f"[{request_id}] Web search parameters in payload: " +
-                          f"webSearch={payload['promptObject'].get('webSearch')}, " +
-                          f"numOfSite={payload['promptObject'].get('numOfSite')}, " +
-                          f"maxWord={payload['promptObject'].get('maxWord')}")
+                            f"webSearch={payload['promptObject'].get('webSearch')}, " +
+                            f"numOfSite={payload['promptObject'].get('numOfSite')}, " +
+                            f"maxWord={payload['promptObject'].get('maxWord')}")
 
             try:
                 # We use a session to control the connection
@@ -1651,14 +1660,14 @@ def conversation():
 
 def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     """
-    Extracts the ratio of the parties from the request or industrial and checks its validity
-    
+    Extracts the ratio of the parties from the request or prompt and checks its validity
+
     Args:
         PROMPT (STR): Request text
         Model (str): the name of the image generation model
         Request_Data (DICT): Request data
         Request_id (Str, Optional): ID Request for Logging
-        
+
     Returns:
         tuple: (modified Prompt, parties ratio, image size, error message, mode)
     """
@@ -1667,77 +1676,77 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     size = request_data.get("size", "1024x1024")
     ar_error = None
     mode = None
-    
+
     # We are looking for the parameters of the mode in the text
     mode_match = re.search(r'(--|\u2014)(fast|relax)\s*', prompt)
     if mode_match:
         mode = mode_match.group(2)
-        # We delete the parameter of the process from the industrial
+        # We delete the parameter of the process from the prompt
         prompt = re.sub(r'(--|\u2014)(fast|relax)\s*', '', prompt).strip()
         logger.debug(f"[{request_id}] Extracted mode from prompt: {mode}")
-    
+
     # We are trying to extract the ratio of the parties from Prompt
     ar_match = re.search(r'(--|\u2014)ar\s+(\d+):(\d+)', prompt)
     if ar_match:
         width = int(ar_match.group(2))
         height = int(ar_match.group(3))
-        
+
         # We check that the ratio does not exceed 2: 1 or 1: 2
         if max(width, height) / min(width, height) > 2:
             ar_error = "Aspect ratio cannot exceed 2:1 or 1:2"
             logger.error(f"[{request_id}] Invalid aspect ratio: {width}:{height} - {ar_error}")
             return prompt, None, size, ar_error, mode
-        
+
         # We check that the values ​​in the permissible range
         if width < 1 or width > 10000 or height < 1 or height > 10000:
             ar_error = "Aspect ratio values must be between 1 and 10000"
             logger.error(f"[{request_id}] Invalid aspect ratio values: {width}:{height} - {ar_error}")
             return prompt, None, size, ar_error, mode
-        
+
         # Install the ratio of the parties
         aspect_ratio = f"{width}:{height}"
-        
-        # We delete the parameter from industrial
+
+        # We delete the parameter from prompt
         prompt = re.sub(r'(--|\u2014)ar\s+\d+:\d+\s*', '', prompt).strip()
-        
+
         logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_ratio}")
-    
+
     # If there is no ratio in Prompta, we check in the request
     elif "aspect_ratio" in request_data:
         aspect_ratio = request_data.get("aspect_ratio")
-        
+
         # We check that the ratio in the correct format
         if not re.match(r'^\d+:\d+$', aspect_ratio):
             ar_error = "Aspect ratio must be in format width:height"
             logger.error(f"[{request_id}] Invalid aspect ratio format: {aspect_ratio} - {ar_error}")
             return prompt, None, size, ar_error, mode
-        
+
         width, height = map(int, aspect_ratio.split(':'))
-        
+
         # We check that the ratio does not exceed 2: 1 or 1: 2
         if max(width, height) / min(width, height) > 2:
             ar_error = "Aspect ratio cannot exceed 2:1 or 1:2"
             logger.error(f"[{request_id}] Invalid aspect ratio: {width}:{height} - {ar_error}")
             return prompt, None, size, ar_error, mode
-        
+
         # We check that the values ​​in the permissible range
         if width < 1 or width > 10000 or height < 1 or height > 10000:
             ar_error = "Aspect ratio values must be between 1 and 10000"
             logger.error(f"[{request_id}] Invalid aspect ratio values: {width}:{height} - {ar_error}")
             return prompt, None, size, ar_error, mode
-            
+
         logger.debug(f"[{request_id}] Using aspect ratio from request: {aspect_ratio}")
-    
+
     # We delete all other possible modifiers of parameters
-    # Remove negative industrialists (-no or –no)
+    # Remove negative promptists (-no or –no)
     prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
-    
+
     # For models Dall-E 3, set the corresponding dimensions
     if model == "dall-e-3" and aspect_ratio:
         width, height = map(int, aspect_ratio.split(':'))
-        
+
         # We round to the nearest permissible ratio for Dall-E 3
-        if abs(width/height - 1) < 0.1:  # square
+        if abs(width / height - 1) < 0.1:  # square
             size = "1024x1024"
             aspect_ratio = "square"
         elif width > height:  # Album orientation
@@ -1746,9 +1755,9 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         else:  # Portrait orientation
             size = "1024x1792"
             aspect_ratio = "portrait"
-            
+
         logger.debug(f"[{request_id}] Adjusted size for DALL-E 3: {size}, aspect_ratio: {aspect_ratio}")
-    
+
     # For Leonardo models, we set the corresponding dimensions based on the ratio of the parties
     elif (model in [
         "6b645e3a-d64f-4341-a6d8-7a3690fbf042", "phoenix",  # Leonardo.ai - Phoenix
@@ -1770,7 +1779,7 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         else:
             width, height = map(int, aspect_ratio.split(':'))
             ratio = width / height
-            
+
             if abs(ratio - 1) < 0.1:  # Close to 1: 1
                 size = LEONARDO_SIZES["1:1"]  # "1024x1024"
                 aspect_ratio = "1:1"
@@ -1780,9 +1789,9 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
             else:  # The height is greater than the width (portrait orientation)
                 size = LEONARDO_SIZES["3:4"]  # "768x1024"
                 aspect_ratio = "3:4"
-                
+
         logger.debug(f"[{request_id}] Adjusted size for Leonardo model: {size}, aspect_ratio: {aspect_ratio}")
-    
+
     return prompt, aspect_ratio, size, ar_error, mode
 
 
@@ -1817,29 +1826,29 @@ def generate_image():
     # We get the necessary parameters from the request
     model = request_data.get("model", "dall-e-3").strip()
     prompt = request_data.get("prompt", "").strip()
-    
+
     # If the request was redirected from the Conversation function,
     # We must take only the last request of the user without history
     if request.environ.get("HTTP_REFERER") and "chat/completions" in request.environ.get("HTTP_REFERER"):
         logger.debug(f"[{request_id}] Request came from chat completions, isolating the prompt")
-        # We do not combine industrial depths, but we take only the last user request
-    
-    # Determine the presence of negative industrials (if any)
+        # We do not combine prompt depths, but we take only the last user request
+
+    # Determine the presence of negative prompts (if any)
     negative_prompt = None
     no_match = re.search(r'(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)', prompt)
     if no_match:
         negative_prompt = no_match.group(2).strip()
-        # We delete negative industrial plate from the main text
+        # We delete negative prompt plate from the main text
         prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
 
     # We process the ratio of the parties and the size
     prompt, aspect_ratio, size, ar_error, mode = parse_aspect_ratio(prompt, model, request_data, request_id)
-    
+
     # If there was an error in processing the ratio of the parties, we return it to the user
     if ar_error:
         return jsonify({"error": ar_error}), 400
 
-    # Checking the availability of industrialpus
+    # Checking the availability of prompt
     if not prompt:
         # We check if there is a prompt in messages
         messages = request_data.get("messages", [])
@@ -1857,21 +1866,22 @@ def generate_image():
                         if isinstance(item, dict) and "text" in item:
                             text_parts.append(item["text"])
                     prompt = " ".join(text_parts)
-                    
+
                 # We process the parameters in Prompt from the message
                 negative_prompt = None
                 no_match = re.search(r'(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)', prompt)
                 if no_match:
                     negative_prompt = no_match.group(2).strip()
-                
-                # We re -process the industrial plate to delete modifiers
+
+                # We re -process the prompt plate to delete modifiers
                 prompt, aspect_ratio, size, ar_error, mode = parse_aspect_ratio(prompt, model, request_data, request_id)
-                
+
                 if ar_error:
                     return jsonify({"error": ar_error}), 400
-        
+
         if prompt:
-            logger.debug(f"[{request_id}] Found prompt in messages: {prompt[:100]}..." if len(prompt) > 100 else f"[{request_id}] Found prompt in messages: {prompt}")
+            logger.debug(f"[{request_id}] Found prompt in messages: {prompt[:100]}..." if len(
+                prompt) > 100 else f"[{request_id}] Found prompt in messages: {prompt}")
         else:
             logger.error(f"[{request_id}] No prompt provided")
             return jsonify({"error": "A prompt is required to generate an image"}), 400
@@ -1881,10 +1891,10 @@ def generate_image():
     try:
         # Determine the URL for different models
         api_url = f"{ONE_MIN_API_URL}"
-        
+
         # Tysout 15 minutes for all images generation models
         timeout = MIDJOURNEY_TIMEOUT
-        
+
         # We form Payload for request depending on the model
         if model == "dall-e-3":
             payload = {
@@ -1943,31 +1953,32 @@ def generate_image():
             }
         elif model in ["midjourney", "midjourney_6_1"]:
             # Permissible parties for the Midjourney
-            
+
             # Default values
             aspect_width = 1
             aspect_height = 1
             no_param = ""
-            
+
             # If the ratio of the parties is indicated
             if aspect_ratio:
                 # We break the parties to the width and height ratio
                 ar_parts = aspect_ratio.split(":")
                 aspect_width = int(ar_parts[0])
                 aspect_height = int(ar_parts[1])
-            
+
             model_name = "midjourney" if model == "midjourney" else "midjourney_6_1"
-            
+
             # Add logistics for the mode
             logger.info(f"[{request_id}] Midjourney generation payload:")
             logger.info(f"[{request_id}] Using mode from prompt: {mode}")
-            
+
             payload = {
                 "type": "IMAGE_GENERATOR",
                 "model": model_name,
                 "promptObject": {
                     "prompt": prompt,
-                    "mode": mode or request_data.get("mode", "relax"),  # We use the mode of industrial plate or from REQUEST_DATA
+                    "mode": mode or request_data.get("mode", "relax"),
+                    # We use the mode of prompt plate or from REQUEST_DATA
                     "n": 4,  # Midjourney always generates 4 images
                     "aspect_width": aspect_width,
                     "aspect_height": aspect_height,
@@ -1977,11 +1988,11 @@ def generate_image():
                     "weird": request_data.get("weird", 0),
                 },
             }
-            
+
             # Add NegativePrompt and No only if they are not empty
             if negative_prompt or request_data.get("negativePrompt"):
                 payload["promptObject"]["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
-            
+
             no_param = request_data.get("no", "")
             if no_param:
                 payload["promptObject"]["no"] = no_param
@@ -2049,11 +2060,12 @@ def generate_image():
             # We delete empty parameters
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
-            logger.debug(f"[{request_id}] Leonardo.ai Phoenix payload with size: {size}, from aspect_ratio: {aspect_ratio}")
+            logger.debug(
+                f"[{request_id}] Leonardo.ai Phoenix payload with size: {size}, from aspect_ratio: {aspect_ratio}")
         elif model in [
             "b24e16ff-06e3-43eb-8d33-4416c2d75876",
             "lightning-xl",
-         ]:  # Leonardo.ai - Lightning XL
+        ]:  # Leonardo.ai - Lightning XL
             payload = {
                 "type": "IMAGE_GENERATOR",
                 "model": "b24e16ff-06e3-43eb-8d33-4416c2d75876",
@@ -2067,7 +2079,8 @@ def generate_image():
             # We delete empty parameters
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
-            logger.debug(f"[{request_id}] Leonardo.ai Lightning XL payload with size: {size}, from aspect_ratio: {aspect_ratio}")
+            logger.debug(
+                f"[{request_id}] Leonardo.ai Lightning XL payload with size: {size}, from aspect_ratio: {aspect_ratio}")
         elif model in [
             "5c232a9e-9061-4777-980a-ddc8e65647c6",
             "vision-xl",
@@ -2085,7 +2098,8 @@ def generate_image():
             # We delete empty parameters
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
-            logger.debug(f"[{request_id}] Leonardo.ai Vision XL payload with size: {size}, from aspect_ratio: {aspect_ratio}")
+            logger.debug(
+                f"[{request_id}] Leonardo.ai Vision XL payload with size: {size}, from aspect_ratio: {aspect_ratio}")
         elif model in [
             "e71a1c2f-4f80-4800-934f-2c68979d8cc8",
             "anime-xl",
@@ -2152,7 +2166,7 @@ def generate_image():
         elif model in [
             "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
             "albedo-base-xl",
-         ]:  # Leonardo.ai - Albedo Base XL
+        ]:  # Leonardo.ai - Albedo Base XL
             payload = {
                 "type": "IMAGE_GENERATOR",
                 "model": "2067ae52-33fd-4a82-bb92-c2c55e7d2786",
@@ -2185,16 +2199,16 @@ def generate_image():
         try:
             # We send a request with a timeout
             response = api_request(
-                "POST", 
-                api_url, 
-                headers=headers, 
-                json=payload, 
+                "POST",
+                api_url,
+                headers=headers,
+                json=payload,
                 timeout=timeout,
                 stream=False
             )
-            
+
             logger.debug(f"[{request_id}] Response status code: {response.status_code}")
-            
+
             # If a successful answer is received, we process it
             if response.status_code == 200:
                 one_min_response = response.json()
@@ -2207,7 +2221,7 @@ def generate_image():
                         error_msg = error_data["error"]
                 except:
                     pass
-                    
+
                 if response.status_code == 401:
                     return ERROR_HANDLER(1020, key=api_key)
                 else:
@@ -2215,7 +2229,7 @@ def generate_image():
                         jsonify({"error": error_msg}),
                         response.status_code,
                     )
-                    
+
         except Exception as e:
             logger.error(f"[{request_id}] Exception during API request: {str(e)}")
             return jsonify({"error": f"API request failed: {str(e)}"}), 500
@@ -2223,15 +2237,15 @@ def generate_image():
         try:
             # We get all the URL images if they are available
             image_urls = []
-            
+
             # Check if the response of an array of URL images
             result_object = one_min_response.get("aiRecord", {}).get("aiRecordDetail", {}).get("resultObject", [])
-            
+
             if isinstance(result_object, list) and result_object:
                 image_urls = result_object
             elif result_object and isinstance(result_object, str):
                 image_urls = [result_object]
-            
+
             # If the URL is not found, we will try other extracts
             if not image_urls:
                 if "resultObject" in one_min_response:
@@ -2239,7 +2253,7 @@ def generate_image():
                         image_urls = one_min_response["resultObject"]
                     else:
                         image_urls = [one_min_response["resultObject"]]
-            
+
             if not image_urls:
                 logger.error(
                     f"[{request_id}] Could not extract image URLs from API response: {json.dumps(one_min_response)[:500]}"
@@ -2248,19 +2262,19 @@ def generate_image():
                     jsonify({"error": "Could not extract image URLs from API response"}),
                     500,
                 )
-            
+
             logger.debug(
                 f"[{request_id}] Successfully generated {len(image_urls)} images"
             )
-            
+
             # We form full URLs for all images
             full_image_urls = []
             asset_host = "https://asset.1min.ai"
-            
+
             for url in image_urls:
                 if not url:
                     continue
-                    
+
                 # Check if the URL contains full URL
                 if not url.startswith("http"):
                     # If the image begins with /, do not add one more /
@@ -2270,28 +2284,28 @@ def generate_image():
                         full_url = f"{asset_host}/{url}"
                 else:
                     full_url = url
-                    
+
                 full_image_urls.append(full_url)
-            
+
             # We form a response in Openai format with teams for variations
             openai_data = []
             for i, url in enumerate(full_image_urls):
                 # Create a short identifier for image
                 image_id = str(uuid.uuid4())[:8]
-                
+
                 # Add commands for variations only if the model supports variations
                 if model in IMAGE_VARIATION_MODELS:
                     variation_commands = {
                         "url": url,
                         "revised_prompt": prompt,
                         "variation_commands": {
-                            "variation": f"/v{i+1} {url}",  # Team to create variation with number
+                            "variation": f"/v{i + 1} {url}",  # Team to create variation with number
                         }
                     }
                     openai_data.append(variation_commands)
                 else:
                     openai_data.append({"url": url, "revised_prompt": prompt})
-                
+
             openai_response = {
                 "created": int(time.time()),
                 "data": openai_data,
@@ -2299,7 +2313,7 @@ def generate_image():
 
             # For compatibility with the format of text answers, add Structure_outPut
             structured_output = {"type": "image", "image_urls": full_image_urls}
-            
+
             # We form a markdown text with variation buttons
             if len(full_image_urls) == 1:
                 text_response = f"![Image]({full_image_urls[0]}) `[_V1_]`"
@@ -2308,16 +2322,16 @@ def generate_image():
             else:
                 # We form a text with images and buttons of variations on one line
                 image_lines = []
-                
+
                 for i, url in enumerate(full_image_urls):
-                    image_lines.append(f"![Image {i+1}]({url}) `[_V{i+1}_]`")
-                
+                    image_lines.append(f"![Image {i + 1}]({url}) `[_V{i + 1}_]`")
+
                 # Combine lines with a new line between them
                 text_response = "\n".join(image_lines)
-                
+
                 # Add a hint about the creation of variations
                 text_response += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
-                
+
             openai_response["choices"] = [
                 {
                     "message": {
@@ -2368,7 +2382,7 @@ def image_variations():
         redirect_request_id = request.args.get('request_id')
         variation_key = f"variation:{redirect_request_id}"
         variation_data_json = safe_memcached_operation('get', variation_key)
-        
+
         if variation_data_json:
             try:
                 if isinstance(variation_data_json, str):
@@ -2377,34 +2391,35 @@ def image_variations():
                     variation_data = json.loads(variation_data_json.decode('utf-8'))
                 else:
                     variation_data = variation_data_json
-                
+
                 # We get the way to the temporary file, model and number of variations
                 temp_file_path = variation_data.get("temp_file")
                 model = variation_data.get("model")
                 n = variation_data.get("n", 1)
                 # We get a relative path from the data if it was preserved
                 image_path = variation_data.get("image_path")
-                
-                logger.debug(f"[{request_id}] Retrieved variation data from memcached: model={model}, n={n}, temp_file={temp_file_path}")
+
+                logger.debug(
+                    f"[{request_id}] Retrieved variation data from memcached: model={model}, n={n}, temp_file={temp_file_path}")
                 if image_path:
                     logger.debug(f"[{request_id}] Retrieved image path from memcached: {image_path}")
-                
+
                 # We check that the file exists
                 if os.path.exists(temp_file_path):
                     # We download the file and process directly
                     try:
                         with open(temp_file_path, 'rb') as f:
                             file_data = f.read()
-                            
+
                         # Create a temporary file for processing a request
                         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                         temp_file.write(file_data)
                         temp_file.close()
-                        
+
                         # Create a file object for the Image_variations route
                         from io import BytesIO
                         file_data_io = BytesIO(file_data)
-                        
+
                         # We register the file in Request.files via Workraund
                         from werkzeug.datastructures import FileStorage
                         file_storage = FileStorage(
@@ -2412,28 +2427,28 @@ def image_variations():
                             filename="variation.png",
                             content_type="image/png",
                         )
-                        
+
                         # We process a request with a new temporary file
                         request.files = {"image": file_storage}
-                        
+
                         # Create a form with the necessary parameters
                         form_data = [("model", model), ("n", str(n))]
-                        
+
                         # If there is a relative path, add it to the form
                         if image_path:
                             form_data.append(("image_path", image_path))
-                            
+
                         request.form = MultiDict(form_data)
-                        
+
                         logger.info(f"[{request_id}] Using file from memcached for image variations")
-                        
+
                         # We delete the original temporary file
                         try:
                             os.unlink(temp_file_path)
                             logger.debug(f"[{request_id}] Deleted original temporary file: {temp_file_path}")
                         except Exception as e:
                             logger.warning(f"[{request_id}] Failed to delete original temporary file: {str(e)}")
-                            
+
                         # We will use the original temporary file instead of creating a new
                         # to avoid problems with the closing of the flow
                     except Exception as e:
@@ -2455,28 +2470,29 @@ def image_variations():
     original_model = request.form.get("model", "dall-e-2").strip()
     n = int(request.form.get("n", 1))
     size = request.form.get("size", "1024x1024")
-    prompt_text = request.form.get("prompt", "")  # We extract the industrial plane from the request if it is
+    prompt_text = request.form.get("prompt", "")  # We extract the prompt plane from the request if it is
     mode = request.form.get("mode", "relax")  # We get a regime from a request
-    
+
     # We check whether the relative path to the image in the Form-data has been transmitted
     relative_image_path = request.form.get("image_path")
     if relative_image_path:
         logger.debug(f"[{request_id}] Using relative image path from form: {relative_image_path}")
 
     logger.debug(f"[{request_id}] Original model requested: {original_model} for image variations")
-    
+
     # Determine the order of models for Fallback
     fallback_models = ["midjourney_6_1", "midjourney", "clipdrop", "dall-e-2"]
-    
+
     # If the requested model supports variations, we try it first
     if original_model in IMAGE_VARIATION_MODELS:
         # We start with the requested model, then we try others, excluding the already requested
         models_to_try = [original_model] + [m for m in fallback_models if m != original_model]
     else:
         # If the requested model does not support variations, we start with Fallback models
-        logger.warning(f"[{request_id}] Model {original_model} does not support image variations. Will try fallback models")
+        logger.warning(
+            f"[{request_id}] Model {original_model} does not support image variations. Will try fallback models")
         models_to_try = fallback_models
-    
+
     # We save a temporary file for multiple use
     try:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
@@ -2485,12 +2501,12 @@ def image_variations():
     except Exception as e:
         logger.error(f"[{request_id}] Failed to save temporary file: {str(e)}")
         return jsonify({"error": "Failed to process image file"}), 500
-    
+
     # Create a session to download the image
     session = create_session()
     headers = {"API-KEY": api_key}
-    
-    # We extract the ratio of the parties from the industrial plane if it is
+
+    # We extract the ratio of the parties from the prompt plane if it is
     aspect_width = 1
     aspect_height = 1
     if "--ar" in prompt_text:
@@ -2499,36 +2515,36 @@ def image_variations():
             aspect_width = int(ar_match.group(1))
             aspect_height = int(ar_match.group(2))
             logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_width}:{aspect_height}")
-    
+
     # Initialize the variable for variations in front of the cycle
     variation_urls = []
     current_model = None
-    
+
     # We try each model in turn
     for model in models_to_try:
         logger.info(f"[{request_id}] Trying model: {model} for image variations")
         current_model = model
-        
+
         try:
             # Special processing for Dall-E 2
             if model == "dall-e-2":
                 # For Dall-E 2, you need to use a special Openai and direct file transfer
                 logger.debug(f"[{request_id}] Special handling for DALL-E 2 variations")
-                
+
                 # Open the image file and create a request
                 with open(temp_file.name, 'rb') as img_file:
                     # Openai expects a file directly to Form-Data
                     dalle_files = {
                         'image': (os.path.basename(temp_file.name), img_file, 'image/png')
                     }
-                    
+
                     # Request parameters
                     dalle_form_data = {
                         'n': n,
                         'size': size,
                         'model': 'dall-e-2'
                     }
-                    
+
                     # We create a request for variation directly to Openai API
                     try:
                         # Try to use a direct connection to Openai if available
@@ -2536,7 +2552,7 @@ def image_variations():
                         if openai_api_key:
                             openai_headers = {"Authorization": f"Bearer {openai_api_key}"}
                             openai_url = "https://api.openai.com/v1/images/variations"
-                            
+
                             logger.debug(f"[{request_id}] Trying direct OpenAI API for DALL-E 2 variations")
                             variation_response = requests.post(
                                 openai_url,
@@ -2545,19 +2561,20 @@ def image_variations():
                                 headers=openai_headers,
                                 timeout=300
                             )
-                            
+
                             if variation_response.status_code == 200:
                                 logger.debug(f"[{request_id}] OpenAI API variation successful")
                                 variation_data = variation_response.json()
-                                
+
                                 # We extract the URL from the answer
                                 if "data" in variation_data and isinstance(variation_data["data"], list):
                                     for item in variation_data["data"]:
                                         if "url" in item:
                                             variation_urls.append(item["url"])
-                                
+
                                 if variation_urls:
-                                    logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via OpenAI API")
+                                    logger.info(
+                                        f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via OpenAI API")
                                     # We form an answer in Openai API format
                                     response_data = {
                                         "created": int(time.time()),
@@ -2565,18 +2582,19 @@ def image_variations():
                                     }
                                     return jsonify(response_data)
                             else:
-                                logger.error(f"[{request_id}] OpenAI API variation failed: {variation_response.status_code}, {variation_response.text}")
+                                logger.error(
+                                    f"[{request_id}] OpenAI API variation failed: {variation_response.status_code}, {variation_response.text}")
                     except Exception as e:
                         logger.error(f"[{request_id}] Error trying direct OpenAI API: {str(e)}")
-                    
+
                     # If the direct request to Openai failed, we try through 1min.ai API
                     try:
                         # We reject the file because it could be read in the previous request
                         img_file.seek(0)
-                        
+
                         # We draw a request through our own and 1min.ai and dall-e 2
                         onemin_url = "https://api.1min.ai/api/features/images/variations"
-                        
+
                         logger.debug(f"[{request_id}] Trying 1min.ai API for DALL-E 2 variations")
                         dalle_onemin_headers = {"API-KEY": api_key}
                         variation_response = requests.post(
@@ -2586,19 +2604,20 @@ def image_variations():
                             headers=dalle_onemin_headers,
                             timeout=300
                         )
-                        
+
                         if variation_response.status_code == 200:
                             logger.debug(f"[{request_id}] 1min.ai API variation successful")
                             variation_data = variation_response.json()
-                            
+
                             # We extract the URL from the answer
                             if "data" in variation_data and isinstance(variation_data["data"], list):
                                 for item in variation_data["data"]:
                                     if "url" in item:
                                         variation_urls.append(item["url"])
-                            
+
                             if variation_urls:
-                                logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via 1min.ai API")
+                                logger.info(
+                                    f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via 1min.ai API")
                                 # We form an answer in Openai API format
                                 response_data = {
                                     "created": int(time.time()),
@@ -2606,19 +2625,20 @@ def image_variations():
                                 }
                                 return jsonify(response_data)
                         else:
-                            logger.error(f"[{request_id}] 1min.ai API variation failed: {variation_response.status_code}, {variation_response.text}")
+                            logger.error(
+                                f"[{request_id}] 1min.ai API variation failed: {variation_response.status_code}, {variation_response.text}")
                     except Exception as e:
                         logger.error(f"[{request_id}] Error trying 1min.ai API: {str(e)}")
-                
+
                 # If you could not create a variation with Dall-E 2, we continue with other models
                 logger.warning(f"[{request_id}] Failed to create variations with DALL-E 2, trying next model")
                 continue
-            
+
             # For other models, we use standard logic
             # Image loading in 1min.ai
             with open(temp_file.name, 'rb') as img_file:
                 files = {"asset": (os.path.basename(temp_file.name), img_file, "image/png")}
-                
+
                 asset_response = session.post(
                     ONE_MIN_ASSET_URL, files=files, headers=headers
                 )
@@ -2648,7 +2668,7 @@ def image_variations():
                     image_id = asset_data["fileContent"]["id"]
                 elif "fileContent" in asset_data and "uuid" in asset_data["fileContent"]:
                     image_id = asset_data["fileContent"]["uuid"]
-                
+
                 # We are looking for an absolute URL (location) for image
                 if "asset" in asset_data and "location" in asset_data["asset"]:
                     image_location = asset_data["asset"]["location"]
@@ -2687,7 +2707,7 @@ def image_variations():
                             "mode": mode or "relax",
                             "n": 4,
                             "isNiji6": False,
-                            "aspect_width": aspect_width or 1, 
+                            "aspect_width": aspect_width or 1,
                             "aspect_height": aspect_height or 1,
                             "maintainModeration": True
                         }
@@ -2722,22 +2742,25 @@ def image_variations():
                             "n": int(n)
                         }
                     }
-                
+
                 # Remove the initial slash in Imageurl if it is
-                if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"] and isinstance(payload["promptObject"]["imageUrl"], str) and payload["promptObject"]["imageUrl"].startswith('/'):
+                if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"] and isinstance(
+                        payload["promptObject"]["imageUrl"], str) and payload["promptObject"]["imageUrl"].startswith(
+                    '/'):
                     payload["promptObject"]["imageUrl"] = payload["promptObject"]["imageUrl"][1:]
-                    logger.debug(f"[{request_id}] Removed leading slash from imageUrl: {payload['promptObject']['imageUrl']}")
+                    logger.debug(
+                        f"[{request_id}] Removed leading slash from imageUrl: {payload['promptObject']['imageUrl']}")
 
                 # For VIP users, add Credit to the request
                 if api_key.startswith("vip-"):
                     payload["credits"] = 90000  # Standard number of loans for VIP
-                
+
                 # Detailed Payload logistics for debugging
                 logger.info(f"[{request_id}] {model} variation payload: {json.dumps(payload, indent=2)}")
 
                 # Using Timeout for all models (10 minutes)
                 timeout = MIDJOURNEY_TIMEOUT
-                    
+
                 logger.debug(f"[{request_id}] Sending variation request to {ONE_MIN_API_URL}")
 
                 # We send a request to create a variation
@@ -2752,13 +2775,16 @@ def image_variations():
                 if variation_response.status_code != 200:
                     # We process the 504 error for Midjourney in a special way
                     if variation_response.status_code == 504 and model.startswith("midjourney"):
-                        logger.error(f"[{request_id}] Received a 504 Gateway Timeout for Midjourney variations. Returning the error to the client.")
+                        logger.error(
+                            f"[{request_id}] Received a 504 Gateway Timeout for Midjourney variations. Returning the error to the client.")
                         return (
-                            jsonify({"error": "Gateway Timeout (504) occurred while processing image variation request."}),
+                            jsonify(
+                                {"error": "Gateway Timeout (504) occurred while processing image variation request."}),
                             504,
                         )
                     # For other errors, we continue to try the next model
-                    logger.error(f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
+                    logger.error(
+                        f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
                     continue
 
                 # We process the answer and form the result
@@ -2767,7 +2793,7 @@ def image_variations():
 
                 # We extract the URL variations - initialize an empty array before searching
                 variation_urls = []
-                
+
                 # We are trying to find URL variations in the answer - various structures for different models
                 if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                     record_detail = variation_data["aiRecord"]["aiRecordDetail"]
@@ -2777,7 +2803,7 @@ def image_variations():
                             variation_urls = result
                         elif isinstance(result, str):
                             variation_urls = [result]
-                
+
                 # An alternative search path
                 if not variation_urls and "resultObject" in variation_data:
                     result = variation_data["resultObject"]
@@ -2785,7 +2811,7 @@ def image_variations():
                         variation_urls = result
                     elif isinstance(result, str):
                         variation_urls = [result]
-                        
+
                 # Search in Data.URL for Dall-E 2
                 if not variation_urls and "data" in variation_data and isinstance(variation_data["data"], list):
                     for item in variation_data["data"]:
@@ -2799,30 +2825,30 @@ def image_variations():
                 # Successfully received variations, we leave the cycle
                 logger.info(f"[{request_id}] Successfully generated variations with model {model}")
                 break
-                
+
         except Exception as e:
             logger.error(f"[{request_id}] Exception during variation request with model {model}: {str(e)}")
             continue  # We try the next model
-    
+
     # Clean the temporary file
     try:
         os.unlink(temp_file.name)
     except:
         pass
-    
+
     # We check if you managed to get variations from any of the models
     if not variation_urls:
         session.close()
         return jsonify({"error": "Failed to create image variations with any available model"}), 500
-    
+
     # We form complete URL for variations
     full_variation_urls = []
     asset_host = "https://asset.1min.ai"
-    
+
     for url in variation_urls:
         if not url:
             continue
-            
+
         # We save the relative path for the API, but create a full URL for display
         relative_url = url
         # If the URL contains a domain, we extract a relative path
@@ -2834,7 +2860,7 @@ def image_variations():
         # If the URL is already without a domain, but starts with the slashus, we remove the slash
         elif url.startswith('/'):
             relative_url = url[1:]
-        
+
         # Create a full URL to display the user
         if not url.startswith("http"):
             if url.startswith("/"):
@@ -2843,7 +2869,7 @@ def image_variations():
                 full_url = f"{asset_host}/{url}"
         else:
             full_url = url
-            
+
         # We keep the relative path and full URL
         full_variation_urls.append({
             "relative_path": relative_url,
@@ -2871,16 +2897,16 @@ def image_variations():
     else:
         # We form a text with images and buttons of variations on one line
         image_lines = []
-        
+
         for i, url_data in enumerate(full_variation_urls):
             # We use the full URL to display
-            image_lines.append(f"![Variation {i+1}]({url_data['full_url']}) `[_V{i+1}_]`")
-        
+            image_lines.append(f"![Variation {i + 1}]({url_data['full_url']}) `[_V{i + 1}_]`")
+
         # Combine lines with a new line between them
         markdown_text = "\n".join(image_lines)
         # Add a hint to create variations
         markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
-    
+
     openai_response["choices"] = [
         {
             "message": {
@@ -2893,7 +2919,8 @@ def image_variations():
     ]
 
     session.close()
-    logger.info(f"[{request_id}] Successfully generated {len(openai_data)} image variations using model {current_model}")
+    logger.info(
+        f"[{request_id}] Successfully generated {len(openai_data)} image variations using model {current_model}")
     return jsonify(openai_response), 200
 
 
@@ -3065,7 +3092,7 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     Stream received from 1min.ai response in a format compatible with Openai API.
     """
     all_chunks = ""
-    
+
     # We send the first fragment: the role of the message
     first_chunk = {
         "id": f"chatcmpl-{uuid.uuid4()}",
@@ -3080,9 +3107,9 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
             }
         ],
     }
-    
+
     yield f"data: {json.dumps(first_chunk)}\n\n"
-    
+
     # Simple implementation for content processing
     for chunk in response.iter_content(chunk_size=1024):
         finish_reason = None
@@ -3104,11 +3131,11 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
         }
         all_chunks += chunk.decode('utf-8')
         yield f"data: {json.dumps(return_chunk)}\n\n"
-    
+
     tokens = calculate_token(all_chunks)
     logger.debug(f"Finished processing streaming response. Completion tokens: {str(tokens)}")
     logger.debug(f"Total tokens: {str(tokens + prompt_tokens)}")
-    
+
     # Final cup denoting the end of the flow
     final_chunk = {
         "id": f"chatcmpl-{uuid.uuid4()}",
@@ -3119,7 +3146,7 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
             {
                 "index": 0,
                 "delta": {
-                    "content": ""    
+                    "content": ""
                 },
                 "finish_reason": "stop"
             }
@@ -3256,8 +3283,8 @@ def retry_image_upload(image_url, api_key, request_id=None):
 
                 # We get the path to the file from FileContent
                 if (
-                    "fileContent" in upload_data
-                    and "path" in upload_data["fileContent"]
+                        "fileContent" in upload_data
+                        and "path" in upload_data["fileContent"]
                 ):
                     url = upload_data["fileContent"]["path"]
                     logger.info(f"[{request_id}] Image uploaded successfully: {url}")
@@ -3392,12 +3419,12 @@ def upload_document(file_data, file_name, api_key, request_id=None):
                 file_id = response_data["id"]
                 logger.debug(f"[{request_id}] Found file ID at top level: {file_id}")
             elif (
-                "fileContent" in response_data and "id" in response_data["fileContent"]
+                    "fileContent" in response_data and "id" in response_data["fileContent"]
             ):
                 file_id = response_data["fileContent"]["id"]
                 logger.debug(f"[{request_id}] Found file ID in fileContent: {file_id}")
             elif (
-                "fileContent" in response_data and "uuid" in response_data["fileContent"]
+                    "fileContent" in response_data and "uuid" in response_data["fileContent"]
             ):
                 file_id = response_data["fileContent"]["uuid"]
                 logger.debug(f"[{request_id}] Found file ID (uuid) in fileContent: {file_id}")
@@ -3495,7 +3522,7 @@ def upload_file():
                 # We get the current user's current files or create a new list
                 user_files_json = safe_memcached_operation('get', user_key)
                 user_files = []
-                
+
                 if user_files_json:
                     try:
                         if isinstance(user_files_json, str):
@@ -3505,26 +3532,26 @@ def upload_file():
                     except Exception as e:
                         logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
                         user_files = []
-                        
+
                 # Add a new file
                 file_info = {
                     "id": file_id,
                     "filename": file_name,
                     "uploaded_at": int(time.time())
                 }
-                
+
                 # Check that a file with such an ID is not yet on the list
                 if not any(f.get("id") == file_id for f in user_files):
                     user_files.append(file_info)
-                
+
                 # We save the updated file list
                 safe_memcached_operation('set', user_key, json.dumps(user_files))
                 logger.info(f"[{request_id}] Saved file ID {file_id} for user in memcached")
-                
+
                 # Add the user to the list of well -known users for cleaning function
                 known_users_list_json = safe_memcached_operation('get', 'known_users_list')
                 known_users_list = []
-                
+
                 if known_users_list_json:
                     try:
                         if isinstance(known_users_list_json, str):
@@ -3533,7 +3560,7 @@ def upload_file():
                             known_users_list = json.loads(known_users_list_json.decode('utf-8'))
                     except Exception as e:
                         logger.error(f"[{request_id}] Error parsing known users list: {str(e)}")
-                
+
                 # Add the API key to the list of famous users if it is not yet
                 if api_key not in known_users_list:
                     known_users_list.append(api_key)
@@ -3551,7 +3578,7 @@ def upload_file():
             "filename": file_name,
             "purpose": request.form.get("purpose", "assistants")
         }
-        
+
         return jsonify(response_data)
     except Exception as e:
         logger.error(f"[{request_id}] Exception during file upload: {str(e)}")
@@ -3573,7 +3600,7 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
     """
     # We break the answer to fragments by ~ 5 words
     words = full_content.split()
-    chunks = [" ".join(words[i : i + 5]) for i in range(0, len(words), 5)]
+    chunks = [" ".join(words[i: i + 5]) for i in range(0, len(words), 5)]
 
     for chunk in chunks:
         return_chunk = {
@@ -3611,14 +3638,14 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
 
 
 # A function for performing a request to the API with a new session
-def api_request(req_method, url, headers=None, 
-                requester_ip=None, data=None, 
-                files=None, stream=False, 
+def api_request(req_method, url, headers=None,
+                requester_ip=None, data=None,
+                files=None, stream=False,
                 timeout=None, json=None, **kwargs):
     """Performs the HTTP request to the API with the normalization of the URL and error processing"""
     req_url = url.strip()
     logger.debug(f"API request URL: {req_url}")
-    
+
     # Request parameters
     req_params = {}
     if headers:
@@ -3631,10 +3658,10 @@ def api_request(req_method, url, headers=None,
         req_params["stream"] = stream
     if json:
         req_params["json"] = json
-    
+
     # Add other parameters
     req_params.update(kwargs)
-    
+
     # We check whether the request is an operation with images
     is_image_operation = False
     if json and isinstance(json, dict):
@@ -3642,14 +3669,14 @@ def api_request(req_method, url, headers=None,
         if operation_type in [IMAGE_GENERATOR, IMAGE_VARIATOR]:
             is_image_operation = True
             logger.debug(f"Detected image operation: {operation_type}, using extended timeout")
-    
+
     # We use increased timaut for operations with images
     if is_image_operation:
         req_params["timeout"] = timeout or MIDJOURNEY_TIMEOUT
         logger.debug(f"Using extended timeout for image operation: {MIDJOURNEY_TIMEOUT}s")
     else:
         req_params["timeout"] = timeout or DEFAULT_TIMEOUT
-        
+
     # We fulfill the request
     try:
         response = requests.request(req_method, req_url, **req_params)
@@ -3772,8 +3799,8 @@ def audio_transcriptions():
             result_text = ""
 
             if (
-                "aiRecord" in one_min_response
-                and "aiRecordDetail" in one_min_response["aiRecord"]
+                    "aiRecord" in one_min_response
+                    and "aiRecordDetail" in one_min_response["aiRecord"]
             ):
                 result_text = one_min_response["aiRecord"]["aiRecordDetail"].get(
                     "resultObject", [""]
@@ -3807,16 +3834,16 @@ def audio_transcriptions():
 
             # The most simple and reliable response format
             logger.info(f"[{request_id}] Successfully processed audio transcription: {result_text}")
-            
+
             # Create json strictly in Openai API format
             response_data = {"text": result_text}
-            
+
             # Add Cors headlines
             response = jsonify(response_data)
             response.headers["Access-Control-Allow-Origin"] = "*"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
-            
+
             return response
 
         except Exception as e:
@@ -3934,8 +3961,8 @@ def audio_translations():
             result_text = ""
 
             if (
-                "aiRecord" in one_min_response
-                and "aiRecordDetail" in one_min_response["aiRecord"]
+                    "aiRecord" in one_min_response
+                    and "aiRecordDetail" in one_min_response["aiRecord"]
             ):
                 result_text = one_min_response["aiRecord"]["aiRecordDetail"].get(
                     "resultObject", [""]
@@ -3955,16 +3982,16 @@ def audio_translations():
 
             # The most simple and reliable response format
             logger.info(f"[{request_id}] Successfully processed audio translation: {result_text}")
-            
+
             # Create json strictly in Openai API format
             response_data = {"text": result_text}
-            
+
             # Add Cors headlines
             response = jsonify(response_data)
             response.headers["Access-Control-Allow-Origin"] = "*"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
-            
+
             return response
 
         except Exception as e:
@@ -4011,7 +4038,7 @@ def text_to_speech():
     if not input_text:
         logger.error(f"[{request_id}] No input text provided")
         return jsonify({"error": "No input text provided"}), 400
-        
+
     try:
         # We form Payload for request_to_Speech
         payload = {
@@ -4043,11 +4070,11 @@ def text_to_speech():
 
         # We process the answer
         one_min_response = response.json()
-        
+
         try:
             # We get a URL audio from the answer
             audio_url = ""
-            
+
             if "aiRecord" in one_min_response and "aiRecordDetail" in one_min_response["aiRecord"]:
                 result_object = one_min_response["aiRecord"]["aiRecordDetail"].get("resultObject", "")
                 if isinstance(result_object, list) and result_object:
@@ -4060,33 +4087,33 @@ def text_to_speech():
                     audio_url = result_object[0]
                 else:
                     audio_url = result_object
-            
+
             if not audio_url:
                 logger.error(f"[{request_id}] Could not extract audio URL from API response")
                 return jsonify({"error": "Could not extract audio URL"}), 500
-            
+
             # We get audio data by URL
             audio_response = api_request("GET", f"https://asset.1min.ai/{audio_url}")
-            
+
             if audio_response.status_code != 200:
                 logger.error(f"[{request_id}] Failed to download audio: {audio_response.status_code}")
                 return jsonify({"error": "Failed to download audio"}), 500
-            
+
             # We return the audio to the client
             logger.info(f"[{request_id}] Successfully generated speech audio")
-            
+
             # We create an answer with audio and correct MIME-type
             content_type = "audio/mpeg" if response_format == "mp3" else f"audio/{response_format}"
             response = make_response(audio_response.content)
             response.headers["Content-Type"] = content_type
             set_response_headers(response)
-            
+
             return response
-            
+
         except Exception as e:
             logger.error(f"[{request_id}] Error processing TTS response: {str(e)}")
             return jsonify({"error": str(e)}), 500
-            
+
     except Exception as e:
         logger.error(f"[{request_id}] Exception during TTS request: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -4103,14 +4130,14 @@ def handle_files():
         return handle_options_request()
 
     request_id = str(uuid.uuid4())[:8]
-    
+
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         logger.error(f"[{request_id}] Invalid Authentication")
         return ERROR_HANDLER(1021)
 
     api_key = auth_header.split(" ")[1]
-    
+
     # Get - getting a list of files
     if request.method == "GET":
         logger.info(f"[{request_id}] Received request: GET /v1/files")
@@ -4121,7 +4148,7 @@ def handle_files():
                 try:
                     user_key = f"user:{api_key}"
                     user_files_json = safe_memcached_operation('get', user_key)
-                    
+
                     if user_files_json:
                         try:
                             if isinstance(user_files_json, str):
@@ -4130,7 +4157,7 @@ def handle_files():
                                 user_files = json.loads(user_files_json.decode('utf-8'))
                             else:
                                 user_files = user_files_json
-                                
+
                             # Let's convert files about files to API response format
                             for file_info in user_files:
                                 if isinstance(file_info, dict) and "id" in file_info:
@@ -4148,7 +4175,7 @@ def handle_files():
                             logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
-            
+
             # We form an answer in Openai API format
             response_data = {
                 "data": files,
@@ -4160,31 +4187,31 @@ def handle_files():
         except Exception as e:
             logger.error(f"[{request_id}] Exception during files list request: {str(e)}")
             return jsonify({"error": str(e)}), 500
-    
+
     # Post - downloading a new file
     elif request.method == "POST":
         logger.info(f"[{request_id}] Received request: POST /v1/files")
-        
+
         # Checking a file
         if "file" not in request.files:
             logger.error(f"[{request_id}] No file provided")
             return jsonify({"error": "No file provided"}), 400
-            
+
         file = request.files["file"]
         purpose = request.form.get("purpose", "assistants")
-        
+
         try:
             # We get the contents of the file
             file_data = file.read()
             file_name = file.filename
-            
+
             # We get a loaded file ID
             file_id = upload_document(file_data, file_name, api_key, request_id)
-            
+
             if not file_id:
                 logger.error(f"[{request_id}] Failed to upload file")
                 return jsonify({"error": "Failed to upload file"}), 500
-                
+
             # We form an answer in Openai API format
             response_data = {
                 "id": file_id,
@@ -4195,12 +4222,12 @@ def handle_files():
                 "purpose": purpose,
                 "status": "processed"
             }
-            
+
             logger.info(f"[{request_id}] File uploaded successfully: {file_id}")
             response = make_response(jsonify(response_data))
             set_response_headers(response)
             return response
-            
+
         except Exception as e:
             logger.error(f"[{request_id}] Exception during file upload: {str(e)}")
             return jsonify({"error": str(e)}), 500
@@ -4216,14 +4243,14 @@ def handle_file(file_id):
         return handle_options_request()
 
     request_id = str(uuid.uuid4())[:8]
-    
+
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         logger.error(f"[{request_id}] Invalid Authentication")
         return ERROR_HANDLER(1021)
 
     api_key = auth_header.split(" ")[1]
-    
+
     # Get - obtaining file information
     if request.method == "GET":
         logger.info(f"[{request_id}] Received request: GET /v1/files/{file_id}")
@@ -4234,7 +4261,7 @@ def handle_file(file_id):
                 try:
                     user_key = f"user:{api_key}"
                     user_files_json = safe_memcached_operation('get', user_key)
-                    
+
                     if user_files_json:
                         try:
                             if isinstance(user_files_json, str):
@@ -4243,7 +4270,7 @@ def handle_file(file_id):
                                 user_files = json.loads(user_files_json.decode('utf-8'))
                             else:
                                 user_files = user_files_json
-                                
+
                             # Looking for a file with the specified ID
                             for file_item in user_files:
                                 if file_item.get("id") == file_id:
@@ -4254,7 +4281,7 @@ def handle_file(file_id):
                             logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
-            
+
             # If the file is not found, we return the filler
             if not file_info:
                 logger.debug(f"[{request_id}] File not found in memcached, using placeholder: {file_id}")
@@ -4264,7 +4291,7 @@ def handle_file(file_id):
                     "created_at": int(time.time()),
                     "filename": f"file_{file_id}"
                 }
-            
+
             # We form an answer in Openai API format
             response_data = {
                 "id": file_info.get("id"),
@@ -4275,15 +4302,15 @@ def handle_file(file_id):
                 "purpose": "assistants",
                 "status": "processed"
             }
-            
+
             response = make_response(jsonify(response_data))
             set_response_headers(response)
             return response
-            
+
         except Exception as e:
             logger.error(f"[{request_id}] Exception during file info request: {str(e)}")
             return jsonify({"error": str(e)}), 500
-    
+
     # Delete - File deletion
     elif request.method == "DELETE":
         logger.info(f"[{request_id}] Received request: DELETE /v1/files/{file_id}")
@@ -4294,7 +4321,7 @@ def handle_file(file_id):
                 try:
                     user_key = f"user:{api_key}"
                     user_files_json = safe_memcached_operation('get', user_key)
-                    
+
                     if user_files_json:
                         try:
                             if isinstance(user_files_json, str):
@@ -4303,10 +4330,10 @@ def handle_file(file_id):
                                 user_files = json.loads(user_files_json.decode('utf-8'))
                             else:
                                 user_files = user_files_json
-                                
+
                             # We filter the list, excluding the file with the specified ID
                             new_user_files = [f for f in user_files if f.get("id") != file_id]
-                            
+
                             # If the list has changed, we save the updated list
                             if len(new_user_files) < len(user_files):
                                 safe_memcached_operation('set', user_key, json.dumps(new_user_files))
@@ -4316,18 +4343,18 @@ def handle_file(file_id):
                             logger.error(f"[{request_id}] Error updating user files in memcached: {str(e)}")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error retrieving user files from memcached: {str(e)}")
-            
+
             # Return the answer about successful removal (even if the file was not found)
             response_data = {
                 "id": file_id,
                 "object": "file",
                 "deleted": True
             }
-            
+
             response = make_response(jsonify(response_data))
             set_response_headers(response)
             return response
-            
+
         except Exception as e:
             logger.error(f"[{request_id}] Exception during file deletion: {str(e)}")
             return jsonify({"error": str(e)}), 500
@@ -4344,20 +4371,20 @@ def handle_file_content(file_id):
 
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Received request: GET /v1/files/{file_id}/content")
-    
+
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         logger.error(f"[{request_id}] Invalid Authentication")
         return ERROR_HANDLER(1021)
 
     api_key = auth_header.split(" ")[1]
-    
+
     try:
         # In 1min.ai there is no API to obtain the contents of the file by ID
         # Return the error
         logger.error(f"[{request_id}] File content retrieval not supported")
         return jsonify({"error": "File content retrieval not supported"}), 501
-        
+
     except Exception as e:
         logger.error(f"[{request_id}] Exception during file content request: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -4367,23 +4394,23 @@ def handle_file_content(file_id):
 def safe_memcached_operation(operation, *args, **kwargs):
     """
     Safely performs the operation with Memcache, processing possible errors.
-    
+
     Args:
         Operation: The name of the Memcached method to execute
         *args, ** kwargs: arguments for the method
-        
+
     Returns:
         Operation result or None in case of error
     """
     if 'MEMCACHED_CLIENT' not in globals() or MEMCACHED_CLIENT is None:
         return None
-        
+
     try:
         method = getattr(MEMCACHED_CLIENT, operation, None)
         if method is None:
             logger.error(f"Memcached operation '{operation}' not found")
             return None
-            
+
         return method(*args, **kwargs)
     except Exception as e:
         logger.error(f"Error in memcached operation '{operation}': {str(e)}")
@@ -4396,14 +4423,14 @@ def delete_all_files_task():
     """
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Starting scheduled files cleanup task")
-    
+
     try:
         # We get all users with files from MemcacheD
         if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
             # We get all the keys that begin with "user:"
             try:
                 keys = []
-                
+
                 # Instead of scanning Slabs, we use a list of famous users
                 # which should be saved when uploading files
                 known_users = safe_memcached_operation('get', 'known_users_list')
@@ -4415,25 +4442,25 @@ def delete_all_files_task():
                             user_list = json.loads(known_users.decode('utf-8'))
                         else:
                             user_list = known_users
-                            
+
                         for user in user_list:
                             user_key = f"user:{user}" if not user.startswith("user:") else user
                             if user_key not in keys:
                                 keys.append(user_key)
                     except Exception as e:
                         logger.warning(f"[{request_id}] Failed to parse known users list: {str(e)}")
-                
+
                 logger.info(f"[{request_id}] Found {len(keys)} user keys for cleanup")
-                
+
                 # We delete files for each user
                 for user_key in keys:
                     try:
                         api_key = user_key.replace("user:", "")
                         user_files_json = safe_memcached_operation('get', user_key)
-                        
+
                         if not user_files_json:
                             continue
-                            
+
                         user_files = []
                         try:
                             if isinstance(user_files_json, str):
@@ -4444,9 +4471,9 @@ def delete_all_files_task():
                                 user_files = user_files_json
                         except:
                             continue
-                        
+
                         logger.info(f"[{request_id}] Cleaning up {len(user_files)} files for user {api_key[:8]}...")
-                        
+
                         # We delete each file
                         for file_info in user_files:
                             file_id = file_info.get("id")
@@ -4454,16 +4481,18 @@ def delete_all_files_task():
                                 try:
                                     delete_url = f"{ONE_MIN_ASSET_URL}/{file_id}"
                                     headers = {"API-KEY": api_key}
-                                    
+
                                     delete_response = api_request("DELETE", delete_url, headers=headers)
-                                    
+
                                     if delete_response.status_code == 200:
                                         logger.info(f"[{request_id}] Scheduled cleanup: deleted file {file_id}")
                                     else:
-                                        logger.error(f"[{request_id}] Scheduled cleanup: failed to delete file {file_id}: {delete_response.status_code}")
+                                        logger.error(
+                                            f"[{request_id}] Scheduled cleanup: failed to delete file {file_id}: {delete_response.status_code}")
                                 except Exception as e:
-                                    logger.error(f"[{request_id}] Scheduled cleanup: error deleting file {file_id}: {str(e)}")
-                        
+                                    logger.error(
+                                        f"[{request_id}] Scheduled cleanup: error deleting file {file_id}: {str(e)}")
+
                         # Cleaning the list of user files
                         safe_memcached_operation('set', user_key, json.dumps([]))
                         logger.info(f"[{request_id}] Cleared files list for user {api_key[:8]}")
@@ -4473,7 +4502,7 @@ def delete_all_files_task():
                 logger.error(f"[{request_id}] Error getting keys from memcached: {str(e)}")
     except Exception as e:
         logger.error(f"[{request_id}] Error in scheduled cleanup task: {str(e)}")
-    
+
     # Plan the following execution in an hour
     cleanup_timer = threading.Timer(3600, delete_all_files_task)
     cleanup_timer.daemon = True
@@ -4484,28 +4513,28 @@ def delete_all_files_task():
 def split_text_for_streaming(text, chunk_size=6):
     """
     It breaks the text into small parts to emulate streaming output.
-    
+
     Args:
         Text (str): text for breakdown
         chunk_size (int): the approximate size of the parts in words
-        
+
     Returns:
         List: List of parts of the text
     """
     if not text:
         return [""]
-    
+
     # We break the text into sentences
     sentences = re.split(r'(?<=[.!?])\s+', text)
-    
+
     # We are grouping sentences to champs
     chunks = []
     current_chunk = []
     current_word_count = 0
-    
+
     for sentence in sentences:
         words_in_sentence = len(sentence.split())
-        
+
         # If the current cup is empty or the addition of a sentence does not exceed the limit of words
         if not current_chunk or current_word_count + words_in_sentence <= chunk_size:
             current_chunk.append(sentence)
@@ -4515,25 +4544,27 @@ def split_text_for_streaming(text, chunk_size=6):
             chunks.append(" ".join(current_chunk))
             current_chunk = [sentence]
             current_word_count = words_in_sentence
-    
+
     # Add the last cup if it is not empty
     if current_chunk:
         chunks.append(" ".join(current_chunk))
-    
+
     # If there is no Cankov (breakdown did not work), we return the entire text entirely
     if not chunks:
         return [text]
-    
+
     return chunks
 
-def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
+
+def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None,
+                            request_id=None):
     """
     Creates variations based on the original image, taking into account the specifics of each model.
     """
     # Initialize the URL list in front of the cycle
     variation_urls = []
     current_model = None
-    
+
     # We use a temporary ID request if it was not provided
     if request_id is None:
         request_id = str(uuid.uuid4())
@@ -4560,7 +4591,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
             aspect_width = generation_params.get("aspect_width")
             aspect_height = generation_params.get("aspect_height")
             logger.debug(f"[{request_id}] Using saved aspect ratio: {aspect_width}:{aspect_height}")
-        
+
         # We take the mode of saved parameters if it is
         if "mode" in generation_params:
             mode = generation_params.get("mode")
@@ -4572,7 +4603,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         variation_models.append(user_model)
     variation_models.extend([m for m in ["midjourney_6_1", "midjourney", "clipdrop", "dall-e-2"] if m != user_model])
     variation_models = list(dict.fromkeys(variation_models))
-    
+
     logger.info(f"[{request_id}] Trying image variations with models: {variation_models}")
 
     # Create a session to download the image
@@ -4601,18 +4632,18 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                     content_type = "image/jpeg"
                 elif image_url.lower().endswith(".gif"):
                     content_type = "image/gif"
-                
+
                 # Determine the appropriate extension for the file
                 ext = "png"
                 if "webp" in content_type:
                     ext = "webp"
                 elif "jpeg" in content_type or "jpg" in content_type:
-                    ext = "jpg" 
+                    ext = "jpg"
                 elif "gif" in content_type:
                     ext = "gif"
-                
+
                 logger.debug(f"[{request_id}] Detected image type: {content_type}, extension: {ext}")
-                
+
                 # We load the image to the server with the correct MIME type
                 files = {"asset": (f"variation.{ext}", image_response.content, content_type)}
                 upload_response = session.post(ONE_MIN_ASSET_URL, files=files, headers=headers)
@@ -4643,16 +4674,16 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                     if image_url and isinstance(image_url, str) and 'asset.1min.ai/' in image_url:
                         image_url = image_url.split('asset.1min.ai/', 1)[1]
                         logger.debug(f"[{request_id}] Extracted path from image_url: {image_url}")
-                    
+
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": model,
                         "promptObject": {
                             "imageUrl": image_url if image_url else image_location,
-                            "mode": mode or request_data.get("mode", "relax"),  # We use the mode from the industrial
+                            "mode": mode or request_data.get("mode", "relax"),  # We use the mode from the prompt
                             "n": 4,
                             "isNiji6": False,
-                            "aspect_width": aspect_width or 1, 
+                            "aspect_width": aspect_width or 1,
                             "aspect_height": aspect_height or 1,
                             "maintainModeration": True
                         }
@@ -4672,7 +4703,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         }
                     }
                     logger.info(f"[{request_id}] DALL-E 2 variation payload: {json.dumps(payload, indent=2)}")
-                    
+
                     # We send a request through the main API URL
                     variation_response = api_request(
                         "POST",
@@ -4681,14 +4712,15 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         json=payload,
                         timeout=300
                     )
-                    
+
                     if variation_response.status_code != 200:
-                        logger.error(f"[{request_id}] DALL-E 2 variation failed: {variation_response.status_code}, {variation_response.text}")
+                        logger.error(
+                            f"[{request_id}] DALL-E 2 variation failed: {variation_response.status_code}, {variation_response.text}")
                         continue
-                        
+
                     # We process the answer
                     variation_data = variation_response.json()
-                    
+
                     # We extract the URL from the answer
                     if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                         result_object = variation_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
@@ -4702,9 +4734,10 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                             variation_urls.extend(result_object)
                         elif isinstance(result_object, str):
                             variation_urls.append(result_object)
-                            
+
                     if variation_urls:
-                        logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2")
+                        logger.info(
+                            f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2")
                         break
                     else:
                         logger.warning(f"[{request_id}] No variation URLs found in DALL-E 2 response")
@@ -4719,7 +4752,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         }
                     }
                     logger.info(f"[{request_id}] Clipdrop variation payload: {json.dumps(payload, indent=2)}")
-                    
+
                     # We send a request through the main API URL
                     variation_response = api_request(
                         "POST",
@@ -4728,14 +4761,15 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         json=payload,
                         timeout=300
                     )
-                    
+
                     if variation_response.status_code != 200:
-                        logger.error(f"[{request_id}] Clipdrop variation failed: {variation_response.status_code}, {variation_response.text}")
+                        logger.error(
+                            f"[{request_id}] Clipdrop variation failed: {variation_response.status_code}, {variation_response.text}")
                         continue
-                        
+
                     # We process the answer
                     variation_data = variation_response.json()
-                    
+
                     # We extract the URL from the answer
                     if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                         result_object = variation_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
@@ -4749,9 +4783,10 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                             variation_urls.extend(result_object)
                         elif isinstance(result_object, str):
                             variation_urls.append(result_object)
-                            
+
                     if variation_urls:
-                        logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with Clipdrop")
+                        logger.info(
+                            f"[{request_id}] Successfully created {len(variation_urls)} variations with Clipdrop")
                         break
                     else:
                         logger.warning(f"[{request_id}] No variation URLs found in Clipdrop response")
@@ -4762,7 +4797,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 # We send a request to create a variation
                 timeout = MIDJOURNEY_TIMEOUT if model.startswith("midjourney") else DEFAULT_TIMEOUT
                 logger.debug(f"Using extended timeout for Midjourney: {timeout}s")
-                
+
                 variation_response = api_request(
                     "POST",
                     ONE_MIN_API_URL,
@@ -4772,12 +4807,13 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 )
 
                 if variation_response.status_code != 200:
-                    logger.error(f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
+                    logger.error(
+                        f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
                     continue
 
                 # We process the answer
                 variation_data = variation_response.json()
-                
+
                 # We extract the URL variations from the answer
                 if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                     result_object = variation_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
@@ -4812,21 +4848,22 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
             "created": int(time.time()),
             "data": []
         }
-        
+
         for url in variation_urls:
             openai_data = {
                 "url": url
             }
             openai_response["data"].append(openai_data)
-        
+
         # We form a markdown text with a hint
         text_lines = []
         for i, url in enumerate(variation_urls, 1):
             text_lines.append(f"Image {i} ({url}) [_V{i}_]")
-        text_lines.append("\n> To generate **variants** of **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**")
-        
+        text_lines.append(
+            "\n> To generate **variants** of **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**")
+
         text_response = "\n".join(text_lines)
-        
+
         openai_response["choices"] = [{
             "message": {
                 "role": "assistant",
@@ -4835,9 +4872,9 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
             "index": 0,
             "finish_reason": "stop"
         }]
-        
+
         logger.info(f"[{request_id}] Returning {len(variation_urls)} variation URLs to client")
-        
+
         response = jsonify(openai_response)
         return set_response_headers(response)
 
@@ -4853,7 +4890,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
 if __name__ == "__main__":
     # Launch the task of deleting files
     delete_all_files_task()
-    
+
     # Run the application
     internal_ip = socket.gethostbyname(socket.gethostname())
     try:
@@ -4861,7 +4898,7 @@ if __name__ == "__main__":
         public_ip = response.text
     except:
         public_ip = "Не удалось определить"
-        
+
     logger.info(
         f"""{printedcolors.Color.fg.lightcyan}  
 Server is ready to serve at:
@@ -4873,7 +4910,7 @@ If does not work, try:
 {internal_ip}:{PORT}/v1/chat/completions
 {printedcolors.Color.reset}"""
     )
-    
+
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
