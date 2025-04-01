@@ -1139,27 +1139,89 @@ def conversation():
 
         # For speech generation models (TTS)
         if model in TEXT_TO_SPEECH_MODELS:
-            logger.info(f"[{request_id}] Redirecting text-to-speech model to /v1/audio/speech")
-            # Add the text to a request for speech synthesis
-            if prompt_text:
-                request_data["input"] = prompt_text
-                logger.debug(f"[{request_id}] Setting TTS input: {prompt_text[:100]}..." if len(
-                    prompt_text) > 100 else f"[{request_id}] Setting TTS input: {prompt_text}")
+            logger.info(f"[{request_id}] Processing text-to-speech request directly")
             
-            # Сохраняем данные запроса в сессии Flask вместо request.environ
-            tts_session_key = f"tts_request_{request_id}"
-            session = {}
-            if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
-                try:
-                    session_data = json.dumps(request_data)
-                    safe_memcached_operation('set', tts_session_key, session_data, time=300)  # 5 минут срок годности
-                    logger.debug(f"[{request_id}] Saved TTS request data to memcached with key: {tts_session_key}")
-                except Exception as e:
-                    logger.error(f"[{request_id}] Error saving TTS session data: {str(e)}")
+            if not prompt_text:
+                logger.error(f"[{request_id}] No input text provided for TTS")
+                return jsonify({"error": "No input text provided"}), 400
+                
+            logger.debug(f"[{request_id}] TTS input text: {prompt_text[:100]}..." if len(prompt_text) > 100 else f"[{request_id}] TTS input text: {prompt_text}")
             
-            # Добавляем request_id как URL параметр для получения данных в /v1/audio/speech
-            redirect_url = url_for('text_to_speech', request_id=request_id)
-            return redirect(redirect_url, code=307)
+            voice = request_data.get("voice", "alloy")
+            response_format = request_data.get("response_format", "mp3")
+            speed = request_data.get("speed", 1.0)
+            
+            # Формируем payload для запроса к API 1min.ai согласно документации
+            payload = {
+                "type": "TEXT_TO_SPEECH",
+                "model": model,
+                "promptObject": {
+                    "text": prompt_text,
+                    "voice": voice,
+                    "response_format": response_format,
+                    "speed": speed
+                }
+            }
+            
+            headers = {"API-KEY": api_key, "Content-Type": "application/json"}
+            
+            try:
+                # Отправляем запрос напрямую
+                logger.debug(f"[{request_id}] Sending direct TTS request to {ONE_MIN_API_URL}")
+                response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
+                logger.debug(f"[{request_id}] TTS response status code: {response.status_code}")
+                
+                if response.status_code != 200:
+                    if response.status_code == 401:
+                        return ERROR_HANDLER(1020, key=api_key)
+                    logger.error(f"[{request_id}] Error in TTS response: {response.text[:200]}")
+                    return (
+                        jsonify({"error": response.json().get("error", "Unknown error")}),
+                        response.status_code,
+                    )
+                
+                # Получаем URL аудио из ответа
+                one_min_response = response.json()
+                audio_url = ""
+                
+                if "aiRecord" in one_min_response and "aiRecordDetail" in one_min_response["aiRecord"]:
+                    result_object = one_min_response["aiRecord"]["aiRecordDetail"].get("resultObject", "")
+                    if isinstance(result_object, list) and result_object:
+                        audio_url = result_object[0]
+                    else:
+                        audio_url = result_object
+                elif "resultObject" in one_min_response:
+                    result_object = one_min_response["resultObject"]
+                    if isinstance(result_object, list) and result_object:
+                        audio_url = result_object[0]
+                    else:
+                        audio_url = result_object
+                
+                if not audio_url:
+                    logger.error(f"[{request_id}] Could not extract audio URL from API response")
+                    return jsonify({"error": "Could not extract audio URL"}), 500
+                
+                # Получаем аудио данные по URL
+                audio_response = api_request("GET", f"https://asset.1min.ai/{audio_url}")
+                
+                if audio_response.status_code != 200:
+                    logger.error(f"[{request_id}] Failed to download audio: {audio_response.status_code}")
+                    return jsonify({"error": "Failed to download audio"}), 500
+                
+                # Возвращаем аудио клиенту
+                logger.info(f"[{request_id}] Successfully generated speech audio")
+                
+                # Создаем ответ с аудио и правильным MIME-type
+                content_type = "audio/mpeg" if response_format == "mp3" else f"audio/{response_format}"
+                response_obj = make_response(audio_response.content)
+                response_obj.headers["Content-Type"] = content_type
+                set_response_headers(response_obj)
+                
+                return response_obj
+                
+            except Exception as e:
+                logger.error(f"[{request_id}] Exception during TTS request: {str(e)}")
+                return jsonify({"error": str(e)}), 500
 
         # For models of audio transcription (STT)
         if model in SPEECH_TO_TEXT_MODELS:
