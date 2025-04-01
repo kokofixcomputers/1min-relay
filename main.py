@@ -1204,8 +1204,55 @@ def conversation():
                 # Вместо скачивания аудио, формируем ответ с markdown-ссылкой
                 logger.info(f"[{request_id}] Successfully generated speech audio URL: {audio_url}")
                 
-                # Полный URL для аудио
-                full_audio_url = f"https://asset.1min.ai/{audio_url}"
+                # Получаем подписанную URL-ссылку для доступа к аудиофайлу
+                try:
+                    # Проверяем, есть ли в ответе ссылка с подписью
+                    signed_url = None
+                    
+                    # Проверяем разные форматы ответа для поиска подписанной ссылки
+                    if "aiRecord" in one_min_response and "aiRecordDetail" in one_min_response["aiRecord"]:
+                        if "signedUrls" in one_min_response["aiRecord"]["aiRecordDetail"]:
+                            signed_urls = one_min_response["aiRecord"]["aiRecordDetail"]["signedUrls"]
+                            if isinstance(signed_urls, list) and signed_urls:
+                                signed_url = signed_urls[0]
+                            elif isinstance(signed_urls, str):
+                                signed_url = signed_urls
+                    
+                    # Если не нашли подписанную ссылку, делаем дополнительный запрос для получения подписанной ссылки
+                    if not signed_url:
+                        # Формируем запрос на получение подписанной ссылки
+                        signed_url_payload = {
+                            "type": "GET_SIGNED_URL",
+                            "paths": [audio_url]
+                        }
+                        
+                        signed_url_response = api_request("POST", ONE_MIN_API_URL, json=signed_url_payload, headers=headers)
+                        
+                        if signed_url_response.status_code == 200:
+                            signed_url_data = signed_url_response.json()
+                            if "data" in signed_url_data and signed_url_data["data"]:
+                                if isinstance(signed_url_data["data"], list) and signed_url_data["data"]:
+                                    signed_url = signed_url_data["data"][0]
+                                else:
+                                    signed_url = signed_url_data["data"]
+                        
+                        if not signed_url:
+                            logger.warning(f"[{request_id}] Could not get signed URL, using fallback S3 URL")
+                    
+                    # Если получили подписанную ссылку, используем её
+                    if signed_url:
+                        full_audio_url = signed_url
+                        logger.debug(f"[{request_id}] Using signed URL for audio: {signed_url[:100]}...")
+                    else:
+                        # Если не удалось получить подписанную ссылку, используем стандартный формат S3 URL, который может потребовать аутентификации
+                        # Это фолбэк, который может не работать, но стоит попробовать
+                        full_audio_url = f"https://s3.us-east-1.amazonaws.com/asset.1min.ai/{audio_url}"
+                        logger.warning(f"[{request_id}] Using fallback S3 URL for audio: {full_audio_url}")
+                
+                except Exception as e:
+                    logger.error(f"[{request_id}] Error getting signed URL: {str(e)}")
+                    # В случае ошибки используем стандартный URL (хотя он может не работать)
+                    full_audio_url = f"https://asset.1min.ai/{audio_url}"
                 
                 # Формируем ответ в формате, аналогичном chat completions
                 completion_response = {
