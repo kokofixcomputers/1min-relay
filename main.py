@@ -1660,12 +1660,21 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         Request_id (Str, Optional): ID Request for Logging
         
     Returns:
-        tuple: (modified Prompt, parties ratio, image size, error message)
+        tuple: (modified Prompt, parties ratio, image size, error message, mode)
     """
     # Default values
     aspect_ratio = None
     size = request_data.get("size", "1024x1024")
     ar_error = None
+    mode = None
+    
+    # Ищем параметры режима в тексте
+    mode_match = re.search(r'(--|\u2014)(fast|relax)\s*', prompt)
+    if mode_match:
+        mode = mode_match.group(2)
+        # Удаляем параметр режима из промпта
+        prompt = re.sub(r'(--|\u2014)(fast|relax)\s*', '', prompt).strip()
+        logger.debug(f"[{request_id}] Extracted mode from prompt: {mode}")
     
     # We are trying to extract the ratio of the parties from Prompt
     ar_match = re.search(r'(--|\u2014)ar\s+(\d+):(\d+)', prompt)
@@ -1677,13 +1686,13 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         if max(width, height) / min(width, height) > 2:
             ar_error = "Aspect ratio cannot exceed 2:1 or 1:2"
             logger.error(f"[{request_id}] Invalid aspect ratio: {width}:{height} - {ar_error}")
-            return prompt, None, size, ar_error
+            return prompt, None, size, ar_error, mode
         
         # We check that the values ​​in the permissible range
         if width < 1 or width > 10000 or height < 1 or height > 10000:
             ar_error = "Aspect ratio values must be between 1 and 10000"
             logger.error(f"[{request_id}] Invalid aspect ratio values: {width}:{height} - {ar_error}")
-            return prompt, None, size, ar_error
+            return prompt, None, size, ar_error, mode
         
         # Install the ratio of the parties
         aspect_ratio = f"{width}:{height}"
@@ -1701,7 +1710,7 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         if not re.match(r'^\d+:\d+$', aspect_ratio):
             ar_error = "Aspect ratio must be in format width:height"
             logger.error(f"[{request_id}] Invalid aspect ratio format: {aspect_ratio} - {ar_error}")
-            return prompt, None, size, ar_error
+            return prompt, None, size, ar_error, mode
         
         width, height = map(int, aspect_ratio.split(':'))
         
@@ -1709,13 +1718,13 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         if max(width, height) / min(width, height) > 2:
             ar_error = "Aspect ratio cannot exceed 2:1 or 1:2"
             logger.error(f"[{request_id}] Invalid aspect ratio: {width}:{height} - {ar_error}")
-            return prompt, None, size, ar_error
+            return prompt, None, size, ar_error, mode
         
         # We check that the values ​​in the permissible range
         if width < 1 or width > 10000 or height < 1 or height > 10000:
             ar_error = "Aspect ratio values must be between 1 and 10000"
             logger.error(f"[{request_id}] Invalid aspect ratio values: {width}:{height} - {ar_error}")
-            return prompt, None, size, ar_error
+            return prompt, None, size, ar_error, mode
             
         logger.debug(f"[{request_id}] Using aspect ratio from request: {aspect_ratio}")
     
@@ -1774,7 +1783,7 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
                 
         logger.debug(f"[{request_id}] Adjusted size for Leonardo model: {size}, aspect_ratio: {aspect_ratio}")
     
-    return prompt, aspect_ratio, size, ar_error
+    return prompt, aspect_ratio, size, ar_error, mode
 
 
 @app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
@@ -1824,7 +1833,7 @@ def generate_image():
         prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
 
     # We process the ratio of the parties and the size
-    prompt, aspect_ratio, size, ar_error = parse_aspect_ratio(prompt, model, request_data, request_id)
+    prompt, aspect_ratio, size, ar_error, mode = parse_aspect_ratio(prompt, model, request_data, request_id)
     
     # If there was an error in processing the ratio of the parties, we return it to the user
     if ar_error:
@@ -1856,7 +1865,7 @@ def generate_image():
                     negative_prompt = no_match.group(2).strip()
                 
                 # We re -process the industrial plate to delete modifiers
-                prompt, aspect_ratio, size, ar_error = parse_aspect_ratio(prompt, model, request_data, request_id)
+                prompt, aspect_ratio, size, ar_error, mode = parse_aspect_ratio(prompt, model, request_data, request_id)
                 
                 if ar_error:
                     return jsonify({"error": ar_error}), 400
@@ -3581,40 +3590,24 @@ def api_request(req_method, url, headers=None,
     # Add other parameters
     req_params.update(kwargs)
     
-    # We use increased timaut for Midjourney requests
-    is_midjourney = False
+    # Проверяем, является ли запрос операцией с изображениями
     is_image_operation = False
-    
-    # Check JSON for Midjourney mention and operations
     if json and isinstance(json, dict):
-        model_name = json.get("model", "")
-        prompt_type = json.get("type", "")
-        if "midjourney" in model_name.lower():
-            is_midjourney = True
-        if prompt_type in [IMAGE_GENERATOR, IMAGE_VARIATOR]:
+        operation_type = json.get("type", "")
+        if operation_type in [IMAGE_GENERATOR, IMAGE_VARIATOR]:
             is_image_operation = True
-            if "midjourney" in str(json).lower():
-                is_midjourney = True
+            logger.debug(f"Detected image operation: {operation_type}, using extended timeout")
     
-    # We check all the parameters of the request for the mentions of Midjourney
-    if not is_midjourney and "midjourney" in str(req_params).lower():
-        is_midjourney = True
-        
-    if is_midjourney:
+    # Используем увеличенный таймаут для операций с изображениями
+    if is_image_operation:
         req_params["timeout"] = timeout or MIDJOURNEY_TIMEOUT
-        logger.debug(f"Using extended timeout for Midjourney: {MIDJOURNEY_TIMEOUT}s")
+        logger.debug(f"Using extended timeout for image operation: {MIDJOURNEY_TIMEOUT}s")
     else:
         req_params["timeout"] = timeout or DEFAULT_TIMEOUT
         
     # We fulfill the request
     try:
         response = requests.request(req_method, req_url, **req_params)
-        
-        # For error 504 with Midjourney, we just return the answer without repeated attempts
-        # It's just a signal that you need to continue to wait until the complete timeout
-        if is_midjourney and is_image_operation and response.status_code == 504:
-            logger.warning(f"Получен 504 Gateway Timeout для Midjourney. Это нормально - продолжаем ожидание полного таймаута.")
-            
         return response
     except Exception as e:
         logger.error(f"API request error: {str(e)}")
