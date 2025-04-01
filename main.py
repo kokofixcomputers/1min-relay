@@ -2724,7 +2724,7 @@ def image_variations():
                 # Detailed Payload logistics for debugging
                 logger.info(f"[{request_id}] {model} variation payload: {json.dumps(payload, indent=2)}")
 
-                # Using Timeout for all models (15 minutes)
+                # Using Timeout for all models (10 minutes)
                 timeout = MIDJOURNEY_TIMEOUT
                     
                 logger.debug(f"[{request_id}] Sending variation request to {ONE_MIN_API_URL}")
@@ -2741,9 +2741,9 @@ def image_variations():
                 if variation_response.status_code != 200:
                     # We process the 504 error for Midjourney in a special way
                     if variation_response.status_code == 504 and model.startswith("midjourney"):
-                        logger.warning(f"[{request_id}] Получен 504 Gateway Timeout для вариаций Midjourney. Продолжаем ожидание.")
+                        logger.error(f"[{request_id}] Received a 504 Gateway Timeout for Midjourney variations. Returning the error to the client.")
                         return (
-                            jsonify({"error": "Image variation is still in progress. Please check back later."}),
+                            jsonify({"error": "Gateway Timeout (504) occurred while processing image variation request."}),
                             504,
                         )
                     # For other errors, we continue to try the next model
