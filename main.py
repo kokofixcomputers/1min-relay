@@ -3140,7 +3140,7 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     
     yield f"data: {json.dumps(first_chunk)}\n\n"
     
-    # Simpler implementation from Main (6) .py for content processing
+    # Simple implementation for content processing
     for chunk in response.iter_content(chunk_size=1024):
         finish_reason = None
 
