@@ -1205,62 +1205,64 @@ def conversation():
                 # Вместо скачивания аудио, формируем ответ с markdown-ссылкой
                 logger.info(f"[{request_id}] Successfully generated speech audio URL: {audio_url}")
                 
-                # Получаем подписанную URL-ссылку для доступа к аудиофайлу
+                # Получаем полный URL для аудиофайла
                 try:
                     # Проверяем наличие полной подписанной ссылки в ответе API
                     signed_url = None
                     
-                    # Проверяем различные поля ответа, где может содержаться подписанная ссылка
-                    if "aiRecord" in one_min_response and "aiRecordDetail" in one_min_response["aiRecord"]:
-                        if "signedUrls" in one_min_response["aiRecord"]["aiRecordDetail"]:
-                            signed_urls = one_min_response["aiRecord"]["aiRecordDetail"]["signedUrls"]
+                    # Проверяем наличие поля temporaryUrl в ответе (согласно формату ответа API)
+                    if "temporaryUrl" in one_min_response:
+                        signed_url = one_min_response["temporaryUrl"]
+                        logger.debug(f"[{request_id}] Found temporaryUrl in API response root")
+                    elif "result" in one_min_response and "resultList" in one_min_response["result"]:
+                        # Проверяем в списке результатов
+                        for item in one_min_response["result"]["resultList"]:
+                            if item.get("type") == "TEXT_TO_SPEECH" and "temporaryUrl" in item:
+                                signed_url = item["temporaryUrl"]
+                                logger.debug(f"[{request_id}] Found temporaryUrl in resultList")
+                                break
+                    
+                    # Проверка в aiRecord, если ссылки нет в основных местах
+                    if not signed_url and "aiRecord" in one_min_response:
+                        if "temporaryUrl" in one_min_response["aiRecord"]:
+                            signed_url = one_min_response["aiRecord"]["temporaryUrl"]
+                            logger.debug(f"[{request_id}] Found temporaryUrl in aiRecord")
+                    
+                    # Проверяем и другие возможные поля для обратной совместимости
+                    if not signed_url:
+                        # Ищем в различных местах в формате ответа API
+                        if "aiRecord" in one_min_response and "aiRecordDetail" in one_min_response["aiRecord"]:
+                            if "signedUrls" in one_min_response["aiRecord"]["aiRecordDetail"]:
+                                signed_urls = one_min_response["aiRecord"]["aiRecordDetail"]["signedUrls"]
+                                if isinstance(signed_urls, list) and signed_urls:
+                                    signed_url = signed_urls[0]
+                                elif isinstance(signed_urls, str):
+                                    signed_url = signed_urls
+                            elif "signedUrl" in one_min_response["aiRecord"]["aiRecordDetail"]:
+                                signed_url = one_min_response["aiRecord"]["aiRecordDetail"]["signedUrl"]
+                        elif "signedUrls" in one_min_response:
+                            signed_urls = one_min_response["signedUrls"]
                             if isinstance(signed_urls, list) and signed_urls:
                                 signed_url = signed_urls[0]
                             elif isinstance(signed_urls, str):
                                 signed_url = signed_urls
+                        elif "signedUrl" in one_min_response:
+                            signed_url = one_min_response["signedUrl"]
                     
-                    # Если в ответе нет подписанной ссылки, формируем её вручную, используя известный формат
-                    if not signed_url:
-                        # Формируем текущую дату/время в формате AWS
-                        current_time = datetime.datetime.now(datetime.timezone.utc)
-                        amz_date = current_time.strftime("%Y%m%dT%H%M%SZ")
-                        # Дата без времени
-                        date_stamp = current_time.strftime("%Y%m%d")
-                        
-                        # Формируем S3 URL с подписью на основе известного формата
-                        # Указываем срок действия ссылки - 7 дней (604800 секунд)
-                        s3_bucket = "asset.1min.ai"
-                        s3_region = "us-east-1"
-                        s3_access_key = "AKIAVRUVQEFILUPKRNEY"  # Публичный ключ из примера пользователя
-                        
-                        # Генерируем случайную подпись для URL (это не настоящая подпись AWS, но достаточно для тестирования)
-                        # В реальной ситуации подпись должна генерироваться с использованием правильного алгоритма AWS
-                        import hashlib
-                        random_signature = hashlib.md5((audio_url + amz_date).encode()).hexdigest()
-                        
-                        # Формируем полный URL с параметрами подписи
-                        full_audio_url = (
-                            f"https://s3.{s3_region}.amazonaws.com/{s3_bucket}/{audio_url}"
-                            f"?X-Amz-Algorithm=AWS4-HMAC-SHA256"
-                            f"&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD"
-                            f"&X-Amz-Credential={s3_access_key}%2F{date_stamp}%2F{s3_region}%2Fs3%2Faws4_request"
-                            f"&X-Amz-Date={amz_date}"
-                            f"&X-Amz-Expires=604800"
-                            f"&X-Amz-Signature={random_signature}"
-                            f"&X-Amz-SignedHeaders=host"
-                            f"&x-amz-checksum-mode=ENABLED"
-                            f"&x-id=GetObject"
-                        )
-                        logger.debug(f"[{request_id}] Generated signed S3 URL: {full_audio_url[:100]}...")
-                    else:
+                    # Используем полученную подписанную ссылку или базовый URL
+                    if signed_url:
                         full_audio_url = signed_url
-                        logger.debug(f"[{request_id}] Using signed URL from API response: {signed_url[:100]}...")
+                        logger.debug(f"[{request_id}] Using signed URL from API: {signed_url[:100]}...")
+                    else:
+                        # Если подписанной ссылки нет, используем базовый URL в формате S3
+                        # Хотя без подписи он, скорее всего, не будет работать
+                        full_audio_url = f"https://s3.us-east-1.amazonaws.com/asset.1min.ai/{audio_url}"
+                        logger.warning(f"[{request_id}] No signed URL found, using base S3 URL: {full_audio_url}")
                 
                 except Exception as e:
-                    logger.error(f"[{request_id}] Error creating signed URL: {str(e)}")
-                    # В случае ошибки добавляем запрос прямой загрузки аудио вместо воспроизведения по ссылке
-                    full_audio_url = f"/v1/audio/speech/download?path={audio_url}&request_id={request_id}"
-                    logger.warning(f"[{request_id}] Using local download URL: {full_audio_url}")
+                    logger.error(f"[{request_id}] Error processing audio URL: {str(e)}")
+                    full_audio_url = f"https://asset.1min.ai/{audio_url}"
+                    logger.warning(f"[{request_id}] Error occurred, using fallback URL: {full_audio_url}")
                 
                 # Формируем ответ в формате, аналогичном chat completions
                 completion_response = {
@@ -5051,75 +5053,6 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
     finally:
         session.close()
 
-@app.route("/v1/audio/speech/download", methods=["GET"])
-@limiter.limit("60 per minute")
-def download_audio_file():
-    """
-    Маршрут для загрузки аудиофайлов по их пути в хранилище
-    Используется как запасной вариант, если не удается создать подписанную ссылку S3
-    """
-    path = request.args.get('path')
-    request_id = request.args.get('request_id', str(uuid.uuid4())[:8])
-    
-    if not path:
-        logger.error(f"[{request_id}] No audio path provided for download")
-        return jsonify({"error": "No audio path provided"}), 400
-    
-    # Получаем API ключ из заголовка запроса
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        logger.warning(f"[{request_id}] No API key in download request, trying without authentication")
-        api_key = None
-    else:
-        api_key = auth_header.split(" ")[1]
-    
-    try:
-        # Формируем заголовки запроса
-        headers = {}
-        if api_key:
-            headers["API-KEY"] = api_key
-        
-        # Пытаемся получить аудиофайл напрямую из хранилища
-        audio_url = f"https://asset.1min.ai/{path}"
-        logger.debug(f"[{request_id}] Attempting to download audio from: {audio_url}")
-        
-        response = api_request("GET", audio_url, headers=headers)
-        
-        if response.status_code != 200:
-            logger.error(f"[{request_id}] Failed to download audio: {response.status_code}")
-            
-            # Пробуем альтернативный URL для S3
-            s3_url = f"https://s3.us-east-1.amazonaws.com/asset.1min.ai/{path}"
-            logger.debug(f"[{request_id}] Trying alternate S3 URL: {s3_url}")
-            
-            response = api_request("GET", s3_url, headers=headers)
-            
-            if response.status_code != 200:
-                logger.error(f"[{request_id}] Failed to download audio from S3: {response.status_code}")
-                return jsonify({"error": "Failed to download audio"}), 500
-        
-        # Формируем MIME-тип на основе расширения файла
-        content_type = "audio/mpeg"
-        if path.lower().endswith('.mp3'):
-            content_type = "audio/mpeg"
-        elif path.lower().endswith('.wav'):
-            content_type = "audio/wav"
-        elif path.lower().endswith('.ogg'):
-            content_type = "audio/ogg"
-        
-        # Возвращаем аудиофайл пользователю
-        logger.info(f"[{request_id}] Successfully downloaded audio file: {path}")
-        
-        response_obj = make_response(response.content)
-        response_obj.headers["Content-Type"] = content_type
-        set_response_headers(response_obj)
-        
-        return response_obj
-        
-    except Exception as e:
-        logger.error(f"[{request_id}] Error downloading audio file: {str(e)}")
-        return jsonify({"error": f"Error downloading audio: {str(e)}"}), 500
-
 
 # Run the task at the start of the server
 if __name__ == "__main__":
@@ -5149,3 +5082,4 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
+
