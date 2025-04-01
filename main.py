@@ -895,6 +895,9 @@ def conversation():
     old_variation_match = None
     image_url = None
     variation_number = None
+    
+    # We use a local storage for the current request
+    current_request_data = {"urls": {}}
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -1042,38 +1045,47 @@ def conversation():
                     current_image_url = None
                     
                     # Looking for all URL images in previous messages of the assistant
-                    image_urls = []
+                    all_urls = []
                     
                     for msg in reversed(request_data.get("messages", [])):
                         if msg.get("role") == "assistant" and msg.get("content"):
                             content = msg.get("content", "")
                             
-                            # Looking for all images with variations in format! [Variation X] (url)
+                            # Find all the images and their numbers, first we look for the format! [Variation X] (url)
                             numbered_urls = {}
                             for match in re.finditer(r'!\[Variation\s*(\d+)\]\((https?://[^\s)]+)', content):
                                 try:
                                     var_num = int(match.group(1))
                                     var_url = match.group(2)
                                     numbered_urls[var_num] = var_url
+                                    all_urls.append(var_url)
                                     logger.debug(f"[{request_id}] Found numbered variation {var_num}: {var_url}")
                                 except ValueError:
                                     pass
                             
-                            # If you find the desired number, we use it
-                            if current_variation_number in numbered_urls:
-                                current_image_url = numbered_urls[current_variation_number]
-                                logger.info(f"[{request_id}] Using image URL #{current_variation_number}: {current_image_url}")
-                                break
-                            
-                            # If you have not found numbers, we are looking for all images in a row
-                            if not current_image_url:
-                                all_urls = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
-                                if all_urls and len(all_urls) >= current_variation_number:
-                                    current_image_url = all_urls[current_variation_number - 1]
-                                    logger.info(f"[{request_id}] Using image URL from position #{current_variation_number}: {current_image_url}")
+                            # If you find numbered images, we use them
+                            if numbered_urls:
+                                # If you find the desired number, we use it
+                                if current_variation_number in numbered_urls:
+                                    current_image_url = numbered_urls[current_variation_number]
+                                    logger.info(f"[{request_id}] Found exact matching variation #{current_variation_number}: {current_image_url}")
                                     break
-                                elif all_urls:
-                                    logger.warning(f"[{request_id}] Not enough URLs for variation #{current_variation_number}, found only {len(all_urls)}")
+                                # If there is no accurate coincidence, we use the first url
+                                else:
+                                    logger.warning(f"[{request_id}] Requested variation #{current_variation_number} not found in numbered variations.")
+                            
+                            # If the numbered URLs are not found, we are looking for ordinary images
+                            if not current_image_url and not numbered_urls:
+                                simple_urls = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
+                                if simple_urls:
+                                    all_urls.extend(simple_urls)
+                                    logger.debug(f"[{request_id}] Found {len(simple_urls)} unnumbered images")
+                                    if len(simple_urls) >= current_variation_number:
+                                        current_image_url = simple_urls[current_variation_number - 1]
+                                        logger.info(f"[{request_id}] Using image URL from position #{current_variation_number}: {current_image_url}")
+                                        break
+                                    else:
+                                        logger.warning(f"[{request_id}] Not enough unnumbered images for variation #{current_variation_number}, found only {len(simple_urls)}")
                     
                     # If you find a URL, we save it and information about the variation
                     if current_image_url:
@@ -1081,6 +1093,15 @@ def conversation():
                         variation_number = current_variation_number
                         variation_match = square_variation_match
                         logger.info(f"[{request_id}] Detected square bracket variation command: {variation_number} for URL: {image_url}")
+                    elif all_urls and len(all_urls) > 0:
+                        # We use the first URL of all found if the requested number was not found
+                        idx = min(current_variation_number - 1, len(all_urls) - 1)
+                        image_url = all_urls[idx]
+                        variation_number = current_variation_number
+                        variation_match = square_variation_match
+                        logger.warning(f"[{request_id}] Using fallback image URL (index {idx}): {image_url}")
+                    else:
+                        logger.error(f"[{request_id}] No valid image URLs found in message history")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error processing variation command: {str(e)}")
             # If the old format is found, we use it
