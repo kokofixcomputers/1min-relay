@@ -1032,64 +1032,195 @@ def conversation():
 
                 logger.info(f"[{request_id}] Processing variation for image: {image_url}")
 
-                # We convert the full URL to a relative path if it corresponds to the Asset.1Min.Ai format
-                image_path = None
-                if "asset.1min.ai" in image_url:
-                    # We extract part of the path /images /...
-                    path_match = re.search(r'(?:asset\.1min\.ai)(/images/[^?#]+)', image_url)
+                # Для моделей Midjourney добавляем прямой вызов API без скачивания изображения
+                if model.startswith("midjourney") and "asset.1min.ai" in image_url:
+                    # Извлекаем относительный путь из URL
+                    path_match = re.search(r'(?:asset\.1min\.ai)/?(images/[^?#]+)', image_url)
                     if path_match:
-                        image_path = path_match.group(1)
-                        # We remove the initial slash if it is
-                        if image_path.startswith('/'):
-                            image_path = image_path[1:]
-                    else:
-                        # We try to extract the path from the URL in general
-                        path_match = re.search(r'/images/[^?#]+', image_url)
+                        relative_path = path_match.group(1)
+                        logger.info(f"[{request_id}] Detected Midjourney variation with relative path: {relative_path}")
+                        
+                        # Формируем payload для вариации
+                        payload = {
+                            "type": "IMAGE_VARIATOR",
+                            "model": model,
+                            "promptObject": {
+                                "imageUrl": relative_path,
+                                "mode": "relax",  # Всегда используем relax
+                                "n": 4,
+                                "isNiji6": False,
+                                "maintainModeration": True
+                            }
+                        }
+                        
+                        # Для VIP пользователей добавляем кредиты
+                        if api_key.startswith("vip-"):
+                            payload["credits"] = 90000  # Стандартное количество кредитов для VIP
+                        
+                        # Отправляем запрос на вариацию напрямую
+                        logger.info(f"[{request_id}] Sending direct Midjourney variation request: {json.dumps(payload)}")
+                        
+                        try:
+                            variation_response = api_request(
+                                "POST",
+                                f"{ONE_MIN_API_URL}",
+                                headers={"API-KEY": api_key, "Content-Type": "application/json"},
+                                json=payload,
+                                timeout=MIDJOURNEY_TIMEOUT
+                            )
+                            
+                            if variation_response.status_code == 200:
+                                # Обрабатываем успешный ответ
+                                variation_data = variation_response.json()
+                                logger.info(f"[{request_id}] Received Midjourney variation response: {json.dumps(variation_data)}")
+                                
+                                # Извлекаем URL вариаций
+                                variation_urls = []
+                                
+                                # Структура для Midjourney модели
+                                if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
+                                    record_detail = variation_data["aiRecord"]["aiRecordDetail"]
+                                    if "resultObject" in record_detail:
+                                        result = record_detail["resultObject"]
+                                        if isinstance(result, list):
+                                            variation_urls = result
+                                        elif isinstance(result, str):
+                                            variation_urls = [result]
+                                
+                                # Альтернативный путь поиска
+                                if not variation_urls and "resultObject" in variation_data:
+                                    result = variation_data["resultObject"]
+                                    if isinstance(result, list):
+                                        variation_urls = result
+                                    elif isinstance(result, str):
+                                        variation_urls = [result]
+                                
+                                if variation_urls:
+                                    logger.info(f"[{request_id}] Found {len(variation_urls)} variation URLs")
+                                    
+                                    # Формируем полные URL для отображения
+                                    full_variation_urls = []
+                                    asset_host = "https://asset.1min.ai"
+                                    
+                                    for url in variation_urls:
+                                        # Создаем полный URL для отображения
+                                        if not url.startswith("http"):
+                                            full_url = f"{asset_host}/{url}"
+                                        else:
+                                            full_url = url
+                                        
+                                        full_variation_urls.append(full_url)
+                                    
+                                    # Формируем ответ в формате Markdown
+                                    markdown_text = ""
+                                    if len(full_variation_urls) == 1:
+                                        markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
+                                        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
+                                    else:
+                                        image_lines = []
+                                        for i, url in enumerate(full_variation_urls):
+                                            image_lines.append(f"![Variation {i + 1}]({url}) `[_V{i + 1}_]`")
+                                        
+                                        markdown_text = "\n".join(image_lines)
+                                        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
+                                    
+                                    # Формируем ответ в формате OpenAI
+                                    openai_response = {
+                                        "id": f"chatcmpl-{uuid.uuid4()}",
+                                        "object": "chat.completion",
+                                        "created": int(time.time()),
+                                        "model": model,
+                                        "choices": [
+                                            {
+                                                "index": 0,
+                                                "message": {
+                                                    "role": "assistant",
+                                                    "content": markdown_text
+                                                },
+                                                "finish_reason": "stop"
+                                            }
+                                        ],
+                                        "usage": {
+                                            "prompt_tokens": 0,
+                                            "completion_tokens": 0,
+                                            "total_tokens": 0
+                                        }
+                                    }
+                                    
+                                    return jsonify(openai_response), 200
+                                else:
+                                    logger.error(f"[{request_id}] No variation URLs found in response")
+                            else:
+                                logger.error(f"[{request_id}] Direct variation request failed: {variation_response.status_code} - {variation_response.text}")
+                        except Exception as e:
+                            logger.error(f"[{request_id}] Exception during direct variation request: {str(e)}")
+                            # Продолжаем стандартным путем, если прямой запрос не удался
+                    
+                    # We convert the full URL to a relative path if it corresponds to the Asset.1Min.Ai format
+                    image_path = None
+                    if "asset.1min.ai" in image_url:
+                        # We extract part of the path /images /...
+                        path_match = re.search(r'(?:asset\.1min\.ai)(/images/[^?#]+)', image_url)
                         if path_match:
-                            image_path = path_match.group(0)
+                            image_path = path_match.group(1)
                             # We remove the initial slash if it is
                             if image_path.startswith('/'):
                                 image_path = image_path[1:]
+                        else:
+                            # We try to extract the path from the URL in general
+                            path_match = re.search(r'/images/[^?#]+', image_url)
+                            if path_match:
+                                image_path = path_match.group(0)
+                                # We remove the initial slash if it is
+                                if image_path.startswith('/'):
+                                    image_path = image_path[1:]
 
-                # If you find a relative path, we use it instead of a complete URL
-                download_url = image_url
-                if image_path:
-                    logger.debug(f"[{request_id}] Extracted relative path from image URL: {image_path}")
-                    # We use the full URL for loading, but we keep the relative path
+                    # If you find a relative path, we use it instead of a complete URL
+                    download_url = image_url
+                    if image_path:
+                        logger.debug(f"[{request_id}] Extracted relative path from image URL: {image_path}")
+                        # We use the full URL for loading, but we keep the relative path
 
-                # Download the image to a temporary file and send a redirection
-                # On the route/v1/images/variations by analogy s/v1/images/generations
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                img_response = requests.get(download_url, stream=True)
+                    # Download the image to a temporary file and send a redirection
+                    # On the route/v1/images/variations by analogy s/v1/images/generations
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+                    img_response = requests.get(download_url, stream=True)
 
-                if img_response.status_code != 200:
-                    return jsonify(
-                        {"error": f"Failed to download image from URL. Status code: {img_response.status_code}"}), 400
+                    if img_response.status_code != 200:
+                        return jsonify(
+                            {"error": f"Failed to download image from URL. Status code: {img_response.status_code}"}), 400
 
-                with open(temp_file.name, 'wb') as f:
-                    for chunk in img_response.iter_content(chunk_size=8192):
-                        f.write(chunk)
+                    with open(temp_file.name, 'wb') as f:
+                        for chunk in img_response.iter_content(chunk_size=8192):
+                            f.write(chunk)
 
-                # We save the path to the temporary file in memory for use in the route/v1/images/variations
-                if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
-                    variation_key = f"variation:{request_id}"
-                    variation_data = {
-                        "temp_file": temp_file.name,
-                        "model": model,
-                        "n": request_data.get("n", 1),
-                        "image_path": image_path  # We keep the relative path if it is
-                    }
-                    safe_memcached_operation('set', variation_key, json.dumps(variation_data),
-                                             expire=300)  # Store 5 minutes
-                    logger.debug(f"[{request_id}] Saved variation data to memcached with key: {variation_key}")
+                    # We save the path to the temporary file in memory for use in the route/v1/images/variations
+                    if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+                        variation_key = f"variation:{request_id}"
+                        variation_data = {
+                            "temp_file": temp_file.name,
+                            "model": model,
+                            "n": request_data.get("n", 1),
+                            "image_path": image_path  # We keep the relative path if it is
+                        }
+                        safe_memcached_operation('set', variation_key, json.dumps(variation_data),
+                                                 expire=300)  # Store 5 minutes
+                        logger.debug(f"[{request_id}] Saved variation data to memcached with key: {variation_key}")
 
-                # We redirect the route/v1/images/variations
-                logger.info(f"[{request_id}] Redirecting to /v1/images/variations with model {model}")
-                return redirect(url_for('image_variations', request_id=request_id), code=307)
+                    # We redirect the route/v1/images/variations
+                    logger.info(f"[{request_id}] Redirecting to /v1/images/variations with model {model}")
+                    
+                    # Добавляем детальное логирование для диагностики
+                    logger.info(f"[{request_id}] Temp file path: {temp_file.name}, exists: {os.path.exists(temp_file.name)}")
+                    logger.info(f"[{request_id}] Image path: {image_path}")
+                    logger.info(f"[{request_id}] Variation data in memcached: {variation_data}")
+                    
+                    return redirect(url_for('image_variations', request_id=request_id), code=307)
 
             except Exception as e:
                 logger.error(f"[{request_id}] Error processing variation command: {str(e)}")
                 return jsonify({"error": f"Failed to process variation command: {str(e)}"}), 500
+
 
         # We log in the extracted Prompt for debugging
         logger.debug(f"[{request_id}] Extracted prompt text: {prompt_text[:100]}..." if len(
@@ -2525,9 +2656,12 @@ def image_variations():
         # We get data on variation from MemcacheD
         redirect_request_id = request.args.get('request_id')
         variation_key = f"variation:{redirect_request_id}"
+        logger.info(f"[{request_id}] Looking for variation data in memcached with key: {variation_key}")
+        
         variation_data_json = safe_memcached_operation('get', variation_key)
-
+        
         if variation_data_json:
+            logger.info(f"[{request_id}] Found variation data in memcached: {variation_data_json}")
             try:
                 if isinstance(variation_data_json, str):
                     variation_data = json.loads(variation_data_json)
@@ -2549,16 +2683,23 @@ def image_variations():
                     logger.debug(f"[{request_id}] Retrieved image path from memcached: {image_path}")
 
                 # We check that the file exists
-                if os.path.exists(temp_file_path):
+                file_exists = os.path.exists(temp_file_path)
+                logger.info(f"[{request_id}] Temporary file exists: {file_exists}, path: {temp_file_path}")
+                
+                if file_exists:
                     # We download the file and process directly
                     try:
                         with open(temp_file_path, 'rb') as f:
                             file_data = f.read()
+                        
+                        file_size = len(file_data)
+                        logger.info(f"[{request_id}] Read temporary file, size: {file_size} bytes")
 
                         # Create a temporary file for processing a request
                         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                         temp_file.write(file_data)
                         temp_file.close()
+                        logger.info(f"[{request_id}] Created new temporary file: {temp_file.name}")
 
                         # Create a file object for the Image_variations route
                         from io import BytesIO
@@ -2571,9 +2712,12 @@ def image_variations():
                             filename="variation.png",
                             content_type="image/png",
                         )
+                        
+                        logger.info(f"[{request_id}] Created FileStorage object for image")
 
                         # We process a request with a new temporary file
                         request.files = {"image": file_storage}
+                        logger.info(f"[{request_id}] Added file to request.files")
 
                         # Create a form with the necessary parameters
                         form_data = [("model", model), ("n", str(n))]
@@ -2581,8 +2725,10 @@ def image_variations():
                         # If there is a relative path, add it to the form
                         if image_path:
                             form_data.append(("image_path", image_path))
+                            logger.info(f"[{request_id}] Added image_path to form_data: {image_path}")
 
                         request.form = MultiDict(form_data)
+                        logger.info(f"[{request_id}] Set request.form with data: {form_data}")
 
                         logger.info(f"[{request_id}] Using file from memcached for image variations")
 
@@ -2604,6 +2750,9 @@ def image_variations():
             except Exception as e:
                 logger.error(f"[{request_id}] Error processing variation data: {str(e)}")
                 return jsonify({"error": f"Error processing variation request: {str(e)}"}), 500
+        else:
+            logger.error(f"[{request_id}] No variation data found in memcached with key: {variation_key}")
+            return jsonify({"error": "No variation data found"}), 400
 
     # Getting an image file
     if "image" not in request.files:
@@ -5098,4 +5247,3 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
-
