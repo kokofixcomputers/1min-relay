@@ -1973,19 +1973,20 @@ def generate_image():
                     "aspect_height": aspect_height,
                     "isNiji6": request_data.get("isNiji6", False),
                     "maintainModeration": request_data.get("maintainModeration", True),
-                    "negativePrompt": negative_prompt or request_data.get("negativePrompt", ""),
-                    "no": request_data.get("no", no_param),
                     "image_weight": request_data.get("image_weight", 1),
                     "weird": request_data.get("weird", 0),
                 },
             }
-            # Если negativePrompt или no пустые, удаляем эти поля
-            if not payload["promptObject"]["negativePrompt"]:
-                del payload["promptObject"]["negativePrompt"]
-            if not payload["promptObject"]["no"]:
-                del payload["promptObject"]["no"]
+            
+            # Добавляем negativePrompt и no только если они не пустые
+            if negative_prompt or request_data.get("negativePrompt"):
+                payload["promptObject"]["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
+            
+            no_param = request_data.get("no", "")
+            if no_param:
+                payload["promptObject"]["no"] = no_param
 
-            # Подробное логирование для Midjourney
+            # Подробное логирование для Midjourney - ТОЛЬКО ОДИН РАЗ!
             logger.info(f"[{request_id}] Midjourney promptObject: {json.dumps(payload['promptObject'], indent=2)}")
         elif model in ["black-forest-labs/flux-schnell", "flux-schnell"]:
             payload = {
@@ -2708,7 +2709,7 @@ def image_variations():
                                 payload["promptObject"]["imageUrl"] = img_url.split('asset.1min.ai/', 1)[1]
                                 logger.debug(f"[{request_id}] Extracted path from URL: {payload['promptObject']['imageUrl']}")
                         
-                        # Подробное логирование для Midjourney
+                        # Логирование Midjourney ОДИН РАЗ!
                         logger.info(f"[{request_id}] Midjourney variation payload:")
                         logger.info(f"[{request_id}] promptObject: {json.dumps(payload['promptObject'], indent=2)}")
                     elif model == "dall-e-2":
@@ -2758,25 +2759,27 @@ def image_variations():
                     if api_key.startswith("vip-"):
                         payload["credits"] = 90000  # Standard number of loans for VIP
                     
-                    # Detailed Payload logistics for debugging
-                    if model.startswith("midjourney"):
-                        logger.info(f"[{request_id}] Midjourney variation payload:")
-                        logger.info(f"[{request_id}] promptObject: {json.dumps(payload['promptObject'], indent=2)}")
-                    else:
-                        logger.info(f"[{request_id}] {model} variation payload: {json.dumps(payload, indent=2)}")
+                    # Детальное логирование для отладки - УБИРАЕМ ДУБЛИРОВАНИЕ!
+                    # Удаляем дублирующее логирование
+                    # if model.startswith("midjourney"):
+                    #     logger.info(f"[{request_id}] Midjourney variation payload:")
+                    #     logger.info(f"[{request_id}] promptObject: {json.dumps(payload['promptObject'], indent=2)}")
+                    # else:
+                    #     logger.info(f"[{request_id}] {model} variation payload: {json.dumps(payload, indent=2)}")
 
                     # Using Timeout for all models (15 minutes)
                     timeout = MIDJOURNEY_TIMEOUT
 
                     logger.debug(f"Using extended timeout for Midjourney: {timeout}s")
                     
+                    # Убираем дублирующий код преобразования URL
                     # Преобразуем полный URL в относительный путь для всех моделей
-                    if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"]:
-                        img_url = payload["promptObject"]["imageUrl"]
-                        if isinstance(img_url, str) and 'asset.1min.ai/' in img_url:
-                            payload["promptObject"]["imageUrl"] = img_url.split('asset.1min.ai/', 1)[1]
-                            logger.debug(f"[{request_id}] Extracted path from imageUrl: {payload['promptObject']['imageUrl']}")
-                    
+                    # if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"]:
+                    #     img_url = payload["promptObject"]["imageUrl"]
+                    #     if isinstance(img_url, str) and 'asset.1min.ai/' in img_url:
+                    #         payload["promptObject"]["imageUrl"] = img_url.split('asset.1min.ai/', 1)[1]
+                    #         logger.debug(f"[{request_id}] Extracted path from imageUrl: {payload['promptObject']['imageUrl']}")
+
                     variation_response = api_request(
                         "POST",
                         ONE_MIN_API_URL,
@@ -2856,7 +2859,8 @@ def image_variations():
         return set_response_headers(response)
 
     except Exception as e:
-        logger.exception(f"[{request_id}] Exception during image variation: {str(e)}")
+        logger.error(f"[{request_id}] Exception during image variation: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
     finally:
         session.close()
