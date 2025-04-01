@@ -1275,7 +1275,7 @@ def conversation():
                             "index": 0,
                             "message": {
                                 "role": "assistant", 
-                                "content": f"🔊 [Audio file]({full_audio_url})"
+                                "content": f"🔊 [Аудио сообщение]({full_audio_url})"
                             },
                             "finish_reason": "stop"
                         }
@@ -2842,12 +2842,25 @@ def image_variations():
                 # We form Payload for image variation
                 # We determine which model to use
                 if model.startswith("midjourney"):
+                    # Проверяем, содержит ли URL домен asset.1min.ai
+                    if image_url and "asset.1min.ai/" in image_url:
+                        # Извлекаем только относительный путь из URL
+                        relative_image_url = image_url.split('asset.1min.ai/', 1)[1]
+                        # Удаляем начальный слеш, если он есть
+                        if relative_image_url.startswith('/'):
+                            relative_image_url = relative_image_url[1:]
+                        logger.info(f"[{request_id}] Extracted relative URL for Midjourney: {relative_image_url}")
+                    else:
+                        relative_image_url = image_url if image_url else image_location
+                        if relative_image_url and relative_image_url.startswith('/'):
+                            relative_image_url = relative_image_url[1:]
+                    
                     # For Midjourney
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": model,
                         "promptObject": {
-                            "imageUrl": image_url if image_url else image_location,
+                            "imageUrl": relative_image_url,
                             "mode": mode or "relax",
                             "n": 4,
                             "isNiji6": False,
@@ -2933,6 +2946,9 @@ def image_variations():
 
                 # We process the answer and form the result
                 variation_data = variation_response.json()
+                # Добавляем детальный лог для midjourney модели
+                if model.startswith("midjourney"):
+                    logger.info(f"[{request_id}] Full Midjourney variation response: {json.dumps(variation_data, indent=2)}")
                 logger.debug(f"[{request_id}] Variation response: {variation_data}")
 
                 # We extract the URL variations - initialize an empty array before searching
@@ -5082,3 +5098,4 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
+
