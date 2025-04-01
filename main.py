@@ -49,10 +49,6 @@ warnings.filterwarnings(
 # Create a logger object
 logger = logging.getLogger("1min-relay")
 
-# Удаляем все существующие обработчики, чтобы избежать дублирования
-for handler in logger.handlers[:]:
-    logger.removeHandler(handler)
-
 # Install coloredlogs with desired log level
 coloredlogs.install(level="DEBUG", logger=logger)
 
