@@ -1152,9 +1152,18 @@ def conversation():
                                     logger.error(f"[{request_id}] No variation URLs found in response")
                             else:
                                 logger.error(f"[{request_id}] Direct variation request failed: {variation_response.status_code} - {variation_response.text}")
+                                # При ошибке Gateway Timeout (504) возвращаем ошибку сразу, а не продолжаем обработку
+                                if variation_response.status_code == 504:
+                                    logger.error(f"[{request_id}] Midjourney API timeout (504). Returning error to client instead of fallback.")
+                                    return jsonify({
+                                        "error": "Gateway Timeout (504) occurred while processing image variation request. Try again later."
+                                    }), 504
                         except Exception as e:
                             logger.error(f"[{request_id}] Exception during direct variation request: {str(e)}")
-                            # Продолжаем стандартным путем, если прямой запрос не удался
+                            # Возвращаем ошибку напрямую клиенту вместо перехода к резервному пути
+                            return jsonify({
+                                "error": f"Error processing direct variation request: {str(e)}"
+                            }), 500
                     
                     # We convert the full URL to a relative path if it corresponds to the Asset.1Min.Ai format
                     image_path = None
@@ -1213,7 +1222,7 @@ def conversation():
                     # Добавляем детальное логирование для диагностики
                     logger.info(f"[{request_id}] Temp file path: {temp_file.name}, exists: {os.path.exists(temp_file.name)}")
                     logger.info(f"[{request_id}] Image path: {image_path}")
-                    logger.info(f"[{request_id}] Variation data in memcached: {variation_data}")
+                    logger.info(f"[{request_id}] Variation data prepared with temp file and image path")
                     
                     return redirect(url_for('image_variations', request_id=request_id), code=307)
 
@@ -5247,3 +5256,4 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
+
