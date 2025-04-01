@@ -1024,30 +1024,61 @@ def conversation():
                 variation_number = int(square_variation_match.group(1))
                 logger.debug(f"[{request_id}] Found square bracket format variation command: {variation_number}")
 
-                # Looking for the necessary URL in previous messages of the assistant
+                # Очищаем кэшированное значение image_url для нового запроса
                 image_url = None
+                
+                # Looking for the necessary URL in previous messages of the assistant
                 for msg in reversed(request_data.get("messages", [])):
                     if msg.get("role") == "assistant" and msg.get("content"):
                         # Looking for all URL images in the content of the assistant message
                         content = msg.get("content", "")
-                        url_matches = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
-
-                        if url_matches:
-                            # Check the number of URL found
-                            if len(url_matches) >= variation_number:
-                                # We take the URL corresponding to the requested number
-                                image_url = url_matches[variation_number - 1]
+                        # Используем более специфичное регулярное выражение для поиска изображений с соответствующими номерами
+                        image_urls = []
+                        # Сначала ищем все URL изображений в стандартном формате Markdown
+                        url_matches = re.findall(r'!\[(?:Variation\s*(\d+)|[^]]*)\]\((https?://[^\s)]+)', content)
+                        
+                        # Преобразуем результаты в список с учетом номеров вариаций
+                        for match in url_matches:
+                            # Если есть номер вариации, используем его для индексации
+                            variation_num = None
+                            if match[0]:  # Если был найден номер вариации
+                                try:
+                                    variation_num = int(match[0].strip())
+                                except ValueError:
+                                    pass
+                            
+                            # URL всегда второй элемент группы
+                            url = match[1]
+                            
+                            # Добавляем в список с соответствующим индексом или просто добавляем в конец
+                            if variation_num and 0 < variation_num <= 10:  # Ограничиваем до 10 вариаций максимум
+                                # Расширяем список до нужной длины, если необходимо
+                                while len(image_urls) < variation_num:
+                                    image_urls.append(None)
+                                image_urls[variation_num-1] = url
+                            else:
+                                image_urls.append(url)
+                        
+                        # Удаляем все None значения из списка
+                        image_urls = [url for url in image_urls if url is not None]
+                        
+                        if image_urls:
+                            # Проверяем номер URL
+                            if len(image_urls) >= variation_number:
+                                # Берем URL соответствующий запрошенному номеру
+                                image_url = image_urls[variation_number - 1]
                                 logger.debug(
                                     f"[{request_id}] Found image URL #{variation_number} in assistant message: {image_url}")
                                 break
                             else:
-                                # Not enough URL for the requested number, we take the first
-                                image_url = url_matches[0]
+                                # Недостаточно URL для запрошенного номера, берем первый
+                                image_url = image_urls[0]
                                 logger.warning(
-                                    f"[{request_id}] Requested variation #{variation_number} but only found {len(url_matches)} URLs. Using first URL: {image_url}")
+                                    f"[{request_id}] Requested variation #{variation_number} but only found {len(image_urls)} URLs. Using first URL: {image_url}")
                                 break
 
                 if image_url:
+                    # Очищаем предыдущий variation_match, чтобы использовать новый
                     variation_match = square_variation_match
                     logger.info(
                         f"[{request_id}] Detected square bracket variation command: {variation_number} for URL: {image_url}")
