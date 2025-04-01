@@ -1,5 +1,5 @@
-# version 1.0.0 #increment every time you make changes
-# 2025-04-02 01:22 #change to actual date and time every time you make changes
+# version 1.0.1 #increment every time you make changes
+# 2025-04-02 01:30 #change to actual date and time every time you make changes
 import base64
 import hashlib
 import json
@@ -720,7 +720,7 @@ def prepare_payload(
     if image_paths:
         # Even if the model does not support images, we try to send as a text request
         if capabilities["vision"]:
-            # Add instructions to the industrial plane
+            # Add instructions to the prompt field
             enhanced_prompt = all_messages
             if not enhanced_prompt.strip().startswith(IMAGE_DESCRIPTION_INSTRUCTION):
                 enhanced_prompt = f"{IMAGE_DESCRIPTION_INSTRUCTION}\n\n{all_messages}"
@@ -1386,7 +1386,7 @@ def conversation():
                 if "--no" in prompt_text or "\u2014no" in prompt_text:
                     logger.debug(f"[{request_id}] Found negative prompt parameter in prompt")
                 elif request_data.get("negative_prompt"):
-                    # Add negative industrial plane as a separate parameter
+                    # Add negative prompt field as a separate parameter
                     image_request["negative_prompt"] = request_data.get("negative_prompt")
 
             # We delete messages from the request to avoid combining history
@@ -2065,7 +2065,7 @@ def conversation():
 
 def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     """
-    Extracts the ratio of the parties from the request or industrial and checks its validity
+    Extracts the ratio of the parties from the request or prompt and checks its validity
 
     Args:
         PROMPT (STR): Request text
@@ -2086,7 +2086,7 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     mode_match = re.search(r'(--|\u2014)(fast|relax)\s*', prompt)
     if mode_match:
         mode = mode_match.group(2)
-        # We delete the parameter of the process from the industrial
+        # We delete the parameter of the process from the prompt
         prompt = re.sub(r'(--|\u2014)(fast|relax)\s*', '', prompt).strip()
         logger.debug(f"[{request_id}] Extracted mode from prompt: {mode}")
 
@@ -2111,7 +2111,7 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         # Install the ratio of the parties
         aspect_ratio = f"{width}:{height}"
 
-        # We delete the parameter from industrial
+        # We delete the parameter from prompt
         prompt = re.sub(r'(--|\u2014)ar\s+\d+:\d+\s*', '', prompt).strip()
 
         logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_ratio}")
@@ -2143,7 +2143,7 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         logger.debug(f"[{request_id}] Using aspect ratio from request: {aspect_ratio}")
 
     # We delete all other possible modifiers of parameters
-    # Remove negative industrialists (-no or –no)
+    # Remove negative promptists (-no or –no)
     prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
 
     # For models Dall-E 3, set the corresponding dimensions
@@ -2236,14 +2236,14 @@ def generate_image():
     # We must take only the last request of the user without history
     if request.environ.get("HTTP_REFERER") and "chat/completions" in request.environ.get("HTTP_REFERER"):
         logger.debug(f"[{request_id}] Request came from chat completions, isolating the prompt")
-        # We do not combine industrial depths, but we take only the last user request
+        # We do not combine prompt depths, but we take only the last user request
 
-    # Determine the presence of negative industrials (if any)
+    # Determine the presence of negative prompts (if any)
     negative_prompt = None
     no_match = re.search(r'(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)', prompt)
     if no_match:
         negative_prompt = no_match.group(2).strip()
-        # We delete negative industrial plate from the main text
+        # We delete negative prompt plate from the main text
         prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
 
     # We process the ratio of the parties and the size
@@ -2253,7 +2253,7 @@ def generate_image():
     if ar_error:
         return jsonify({"error": ar_error}), 400
 
-    # Checking the availability of industrialpus
+    # Checking the availability of promptpus
     if not prompt:
         # We check if there is a prompt in messages
         messages = request_data.get("messages", [])
@@ -2278,7 +2278,7 @@ def generate_image():
                 if no_match:
                     negative_prompt = no_match.group(2).strip()
 
-                # We re -process the industrial plate to delete modifiers
+                # We re -process the prompt plate to delete modifiers
                 prompt, aspect_ratio, size, ar_error, mode = parse_aspect_ratio(prompt, model, request_data, request_id)
 
                 if ar_error:
@@ -2383,7 +2383,7 @@ def generate_image():
                 "promptObject": {
                     "prompt": prompt,
                     "mode": mode or request_data.get("mode", "fast"),
-                    # We use the mode of industrial plate or from REQUEST_DATA
+                    # We use the mode of prompt plate or from REQUEST_DATA
                     "n": 4,  # Midjourney always generates 4 images
                     "aspect_width": aspect_width,
                     "aspect_height": aspect_height,
@@ -2925,7 +2925,7 @@ def image_variations():
     original_model = request.form.get("model", "dall-e-2").strip()
     n = int(request.form.get("n", 1))
     size = request.form.get("size", "1024x1024")
-    prompt_text = request.form.get("prompt", "")  # We extract the industrial plane from the request if it is
+    prompt_text = request.form.get("prompt", "")  # We extract the prompt field from the request if it is
     # mode = request.form.get("mode", "relax")  # We get a regime from a request
 
     # We check whether the relative path to the image in the Form-data has been transmitted
@@ -2961,7 +2961,7 @@ def image_variations():
     session = create_session()
     headers = {"API-KEY": api_key}
 
-    # We extract the ratio of the parties from the industrial plane if it is
+    # We extract the ratio of the parties from the prompt field if it is
     aspect_width = 1
     aspect_height = 1
     if "--ar" in prompt_text:
@@ -5208,7 +5208,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         "model": model,
                         "promptObject": {
                             "imageUrl": image_url if image_url else image_location,
-                            "mode": mode or request_data.get("mode", "fast"),  # We use the mode from the industrial
+                            "mode": mode or request_data.get("mode", "fast"),  # We use the mode from the prompt
                             "n": 4,
                             "isNiji6": False,
                             "aspect_width": aspect_width or 1,
@@ -5442,7 +5442,6 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
-
 
 
 
