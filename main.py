@@ -1065,7 +1065,7 @@ def conversation():
                             "model": model,
                             "promptObject": {
                                 "imageUrl": relative_path,
-                                "mode": "relax",  # По умолчанию режим relax
+                                "mode": "fast",  # По умолчанию режим relax
                                 "n": 4,
                                 "isNiji6": False,
                                 "aspect_width": 1,  # По умолчанию квадратное соотношение
@@ -2841,7 +2841,7 @@ def image_variations():
     n = int(request.form.get("n", 1))
     size = request.form.get("size", "1024x1024")
     prompt_text = request.form.get("prompt", "")  # We extract the industrial plane from the request if it is
-    mode = request.form.get("mode", "relax")  # We get a regime from a request
+    #mode = request.form.get("mode", "relax")  # We get a regime from a request
 
     # We check whether the relative path to the image in the Form-data has been transmitted
     relative_image_path = request.form.get("image_path")
@@ -5090,7 +5090,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         "model": model,
                         "promptObject": {
                             "imageUrl": image_url if image_url else image_location,
-                            "mode": mode or request_data.get("mode", "relax"),  # We use the mode from the industrial
+                            "mode": mode or request_data.get("mode", "fast"),  # We use the mode from the industrial
                             "n": 4,
                             "isNiji6": False,
                             "aspect_width": aspect_width or 1,
