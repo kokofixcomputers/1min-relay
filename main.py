@@ -1026,10 +1026,10 @@ def conversation():
                             "model": model,
                             "promptObject": {
                                 "imageUrl": relative_path,
-                                "mode": "relax",  # Default mode
+                                "mode": "fast",  # По умолчанию режим fast вместо relax
                                 "n": 4,
                                 "isNiji6": False,
-                                "aspect_width": 1,  # Default square aspect ratio
+                                "aspect_width": 1,  # По умолчанию квадратное соотношение
                                 "aspect_height": 1,
                                 "maintainModeration": True
                             }
