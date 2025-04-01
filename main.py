@@ -1040,13 +1040,32 @@ def conversation():
                         relative_path = path_match.group(1)
                         logger.info(f"[{request_id}] Detected Midjourney variation with relative path: {relative_path}")
                         
+                        # Получаем сохраненные параметры генерации из memcached по request_id
+                        saved_params = None
+                        if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+                            try:
+                                # Извлекаем image_id из пути изображения для поиска параметров
+                                image_id_match = re.search(r'images/(\w+)/', relative_path)
+                                if image_id_match:
+                                    image_id = image_id_match.group(1)
+                                    gen_params_key = f"gen_params:{image_id}"
+                                    params_json = safe_memcached_operation('get', gen_params_key)
+                                    if params_json:
+                                        if isinstance(params_json, str):
+                                            saved_params = json.loads(params_json)
+                                        elif isinstance(params_json, bytes):
+                                            saved_params = json.loads(params_json.decode('utf-8'))
+                                        logger.info(f"[{request_id}] Retrieved generation parameters from memcached for image {image_id}: {saved_params}")
+                            except Exception as e:
+                                logger.error(f"[{request_id}] Error retrieving generation parameters: {str(e)}")
+                        
                         # Формируем payload для вариации
                         payload = {
                             "type": "IMAGE_VARIATOR",
                             "model": model,
                             "promptObject": {
                                 "imageUrl": relative_path,
-                                "mode": "relax",  # Всегда используем relax
+                                "mode": "relax",  # По умолчанию режим relax
                                 "n": 4,
                                 "isNiji6": False,
                                 "aspect_width": 1,  # По умолчанию квадратное соотношение
@@ -1055,23 +1074,18 @@ def conversation():
                             }
                         }
                         
-                        # Пытаемся извлечь соотношение сторон из запроса, если оно есть
-                        if request_data and "messages" and len(request_data.get("messages", [])) > 0:
-                            last_message = request_data["messages"][-1]
-                            if last_message.get("role") == "user" and last_message.get("content"):
-                                content = last_message.get("content", "")
-                                # Ищем в сообщении параметр --ar
-                                ar_match = re.search(r'--ar\s+(\d+):(\d+)', content)
-                                if ar_match:
-                                    aspect_width = int(ar_match.group(1))
-                                    aspect_height = int(ar_match.group(2))
-                                    payload["promptObject"]["aspect_width"] = aspect_width
-                                    payload["promptObject"]["aspect_height"] = aspect_height
-                                    logger.info(f"[{request_id}] Found aspect ratio in message: {aspect_width}:{aspect_height}")
-                                    
-                        # Для VIP пользователей добавляем кредиты
-                        if api_key.startswith("vip-"):
-                            payload["credits"] = 90000  # Стандартное количество кредитов для VIP
+                        # Используем параметры из memcached, если они доступны
+                        if saved_params:
+                            # Используем сохраненный режим
+                            if "mode" in saved_params:
+                                payload["promptObject"]["mode"] = saved_params["mode"]
+                                logger.info(f"[{request_id}] Using saved mode: {saved_params['mode']}")
+                            
+                            # Используем сохраненное соотношение сторон
+                            if "aspect_width" in saved_params and "aspect_height" in saved_params:
+                                payload["promptObject"]["aspect_width"] = saved_params["aspect_width"]
+                                payload["promptObject"]["aspect_height"] = saved_params["aspect_height"]
+                                logger.info(f"[{request_id}] Using saved aspect ratio: {saved_params['aspect_width']}:{saved_params['aspect_height']}")
                         
                         # Отправляем запрос на вариацию напрямую
                         logger.info(f"[{request_id}] Sending direct Midjourney variation request: {json.dumps(payload)}")
@@ -2580,8 +2594,32 @@ def generate_image():
             logger.debug(
                 f"[{request_id}] Successfully generated {len(image_urls)} images"
             )
+            
+            # Сохраняем параметры генерации изображения в memcached для последующего использования в вариациях
+            if model in ["midjourney", "midjourney_6_1"] and 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+                try:
+                    # Сохраняем параметры для каждого сгенерированного изображения
+                    for url in image_urls:
+                        if url:
+                            # Извлекаем ID изображения из URL
+                            image_id_match = re.search(r'images/(\w+)/', url)
+                            if image_id_match:
+                                image_id = image_id_match.group(1)
+                                
+                                # Сохраняем только необходимые параметры
+                                gen_params = {
+                                    "mode": payload["promptObject"].get("mode", "relax"),
+                                    "aspect_width": payload["promptObject"].get("aspect_width", 1),
+                                    "aspect_height": payload["promptObject"].get("aspect_height", 1)
+                                }
+                                
+                                gen_params_key = f"gen_params:{image_id}"
+                                safe_memcached_operation('set', gen_params_key, json.dumps(gen_params), time=3600*24*7)  # Храним 7 дней
+                                logger.info(f"[{request_id}] Saved generation parameters for image {image_id}: {gen_params}")
+                except Exception as e:
+                    logger.error(f"[{request_id}] Error saving generation parameters: {str(e)}")
 
-            # We form full URLs for all images
+            # Формируем полные URL для всех изображений
             full_image_urls = []
             asset_host = "https://asset.1min.ai"
 
