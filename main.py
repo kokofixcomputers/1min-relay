@@ -1958,12 +1958,16 @@ def generate_image():
             
             model_name = "midjourney" if model == "midjourney" else "midjourney_6_1"
             
+            # Добавляем логирование для режима
+            logger.info(f"[{request_id}] Midjourney generation payload:")
+            logger.info(f"[{request_id}] Using mode from prompt: {mode}")
+            
             payload = {
                 "type": "IMAGE_GENERATOR",
                 "model": model_name,
                 "promptObject": {
                     "prompt": prompt,
-                    "mode": request_data.get("mode", "relax"),
+                    "mode": mode or request_data.get("mode", "relax"),  # Используем режим из промпта или из request_data
                     "n": 4,  # Midjourney always generates 4 images
                     "aspect_width": aspect_width,
                     "aspect_height": aspect_height,
@@ -1975,11 +1979,14 @@ def generate_image():
                     "weird": request_data.get("weird", 0),
                 },
             }
-            # If negativePrompt or no, we delete these fields
+            # Если negativePrompt или no пустые, удаляем эти поля
             if not payload["promptObject"]["negativePrompt"]:
                 del payload["promptObject"]["negativePrompt"]
             if not payload["promptObject"]["no"]:
                 del payload["promptObject"]["no"]
+
+            # Подробное логирование для Midjourney
+            logger.info(f"[{request_id}] Midjourney promptObject: {json.dumps(payload['promptObject'], indent=2)}")
         elif model in ["black-forest-labs/flux-schnell", "flux-schnell"]:
             payload = {
                 "type": "IMAGE_GENERATOR",
@@ -2495,51 +2502,93 @@ def image_variations():
     # Initialize the variable for variations in front of the cycle
     variation_urls = []
     current_model = None
-    
-    # We try each model in turn
-    for model in models_to_try:
-        logger.info(f"[{request_id}] Trying model: {model} for image variations")
-        current_model = model
-        
-        try:
-            # Special processing for Dall-E 2
-            if model == "dall-e-2":
-                # For Dall-E 2, you need to use a special Openai and direct file transfer
-                logger.debug(f"[{request_id}] Special handling for DALL-E 2 variations")
-                
-                # Open the image file and create a request
-                with open(temp_file.name, 'rb') as img_file:
-                    # Openai expects a file directly to Form-Data
-                    dalle_files = {
-                        'image': (os.path.basename(temp_file.name), img_file, 'image/png')
-                    }
+
+    try:
+        # We try each model in turn
+        for model in models_to_try:
+            logger.info(f"[{request_id}] Trying model: {model} for image variations")
+            current_model = model
+            
+            try:
+                # Special processing for Dall-E 2
+                if model == "dall-e-2":
+                    # For Dall-E 2, you need to use a special Openai and direct file transfer
+                    logger.debug(f"[{request_id}] Special handling for DALL-E 2 variations")
                     
-                    # Request parameters
-                    dalle_form_data = {
-                        'n': n,
-                        'size': size,
-                        'model': 'dall-e-2'
-                    }
-                    
-                    # We create a request for variation directly to Openai API
-                    try:
-                        # Try to use a direct connection to Openai if available
-                        openai_api_key = os.environ.get("OPENAI_API_KEY")
-                        if openai_api_key:
-                            openai_headers = {"Authorization": f"Bearer {openai_api_key}"}
-                            openai_url = "https://api.openai.com/v1/images/variations"
+                    # Open the image file and create a request
+                    with open(temp_file.name, 'rb') as img_file:
+                        # Openai expects a file directly to Form-Data
+                        dalle_files = {
+                            'image': (os.path.basename(temp_file.name), img_file, 'image/png')
+                        }
+                        
+                        # Request parameters
+                        dalle_form_data = {
+                            'n': n,
+                            'size': size,
+                            'model': 'dall-e-2'
+                        }
+                        
+                        # We create a request for variation directly to Openai API
+                        try:
+                            # Try to use a direct connection to Openai if available
+                            openai_api_key = os.environ.get("OPENAI_API_KEY")
+                            if openai_api_key:
+                                openai_headers = {"Authorization": f"Bearer {openai_api_key}"}
+                                openai_url = "https://api.openai.com/v1/images/variations"
+                                
+                                logger.debug(f"[{request_id}] Trying direct OpenAI API for DALL-E 2 variations")
+                                variation_response = requests.post(
+                                    openai_url,
+                                    files=dalle_files,
+                                    data=dalle_form_data,
+                                    headers=openai_headers,
+                                    timeout=300
+                                )
+                                
+                                if variation_response.status_code == 200:
+                                    logger.debug(f"[{request_id}] OpenAI API variation successful")
+                                    variation_data = variation_response.json()
+                                    
+                                    # We extract the URL from the answer
+                                    if "data" in variation_data and isinstance(variation_data["data"], list):
+                                        for item in variation_data["data"]:
+                                            if "url" in item:
+                                                variation_urls.append(item["url"])
+                                    
+                                    if variation_urls:
+                                        logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via OpenAI API")
+                                        # We form an answer in Openai API format
+                                        response_data = {
+                                            "created": int(time.time()),
+                                            "data": [{"url": url} for url in variation_urls]
+                                        }
+                                        return jsonify(response_data)
+                                else:
+                                    logger.error(f"[{request_id}] OpenAI API variation failed: {variation_response.status_code}, {variation_response.text}")
+                        except Exception as e:
+                            logger.error(f"[{request_id}] Error trying direct OpenAI API: {str(e)}")
+                        
+                        # If the direct request to Openai failed, we try through 1min.ai API
+                        try:
+                            # We reject the file because it could be read in the previous request
+                            img_file.seek(0)
                             
-                            logger.debug(f"[{request_id}] Trying direct OpenAI API for DALL-E 2 variations")
+                            # We draw a request through our own and 1min.ai and dall-e 2
+                            onemin_url = "https://api.1min.ai/api/features/images/variations"
+                            
+                            logger.debug(f"[{request_id}] Trying 1min.ai API for DALL-E 2 variations")
+                            dalle_onemin_headers = {"API-KEY": api_key}
                             variation_response = requests.post(
-                                openai_url,
+                                onemin_url,
                                 files=dalle_files,
                                 data=dalle_form_data,
-                                headers=openai_headers,
+                                headers=dalle_onemin_headers,
                                 timeout=300
                             )
                             
                             if variation_response.status_code == 200:
-                                logger.debug(f"[{request_id}] OpenAI API variation successful")
+                                logger.debug(f"[{request_id}] 1min.ai API variation successful")
                                 variation_data = variation_response.json()
                                 
                                 # We extract the URL from the answer
@@ -2549,7 +2598,7 @@ def image_variations():
                                             variation_urls.append(item["url"])
                                 
                                 if variation_urls:
-                                    logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via OpenAI API")
+                                    logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via 1min.ai API")
                                     # We form an answer in Openai API format
                                     response_data = {
                                         "created": int(time.time()),
@@ -2557,299 +2606,260 @@ def image_variations():
                                     }
                                     return jsonify(response_data)
                             else:
-                                logger.error(f"[{request_id}] OpenAI API variation failed: {variation_response.status_code}, {variation_response.text}")
-                    except Exception as e:
-                        logger.error(f"[{request_id}] Error trying direct OpenAI API: {str(e)}")
+                                logger.error(f"[{request_id}] 1min.ai API variation failed: {variation_response.status_code}, {variation_response.text}")
+                        except Exception as e:
+                            logger.error(f"[{request_id}] Error trying 1min.ai API: {str(e)}")
                     
-                    # If the direct request to Openai failed, we try through 1min.ai API
-                    try:
-                        # We reject the file because it could be read in the previous request
-                        img_file.seek(0)
-                        
-                        # We draw a request through our own and 1min.ai and dall-e 2
-                        onemin_url = "https://api.1min.ai/api/features/images/variations"
-                        
-                        logger.debug(f"[{request_id}] Trying 1min.ai API for DALL-E 2 variations")
-                        dalle_onemin_headers = {"API-KEY": api_key}
-                        variation_response = requests.post(
-                            onemin_url,
-                            files=dalle_files,
-                            data=dalle_form_data,
-                            headers=dalle_onemin_headers,
-                            timeout=300
-                        )
-                        
-                        if variation_response.status_code == 200:
-                            logger.debug(f"[{request_id}] 1min.ai API variation successful")
-                            variation_data = variation_response.json()
-                            
-                            # We extract the URL from the answer
-                            if "data" in variation_data and isinstance(variation_data["data"], list):
-                                for item in variation_data["data"]:
-                                    if "url" in item:
-                                        variation_urls.append(item["url"])
-                            
-                            if variation_urls:
-                                logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with DALL-E 2 via 1min.ai API")
-                                # We form an answer in Openai API format
-                                response_data = {
-                                    "created": int(time.time()),
-                                    "data": [{"url": url} for url in variation_urls]
-                                }
-                                return jsonify(response_data)
-                        else:
-                            logger.error(f"[{request_id}] 1min.ai API variation failed: {variation_response.status_code}, {variation_response.text}")
-                    except Exception as e:
-                        logger.error(f"[{request_id}] Error trying 1min.ai API: {str(e)}")
-                
-                # If you could not create a variation with Dall-E 2, we continue with other models
-                logger.warning(f"[{request_id}] Failed to create variations with DALL-E 2, trying next model")
-                continue
-            
-            # For other models, we use standard logic
-            # Image loading in 1min.ai
-            with open(temp_file.name, 'rb') as img_file:
-                files = {"asset": (os.path.basename(temp_file.name), img_file, "image/png")}
-                
-                asset_response = session.post(
-                    ONE_MIN_ASSET_URL, files=files, headers=headers
-                )
-                logger.debug(
-                    f"[{request_id}] Image upload response status code: {asset_response.status_code}"
-                )
-
-                if asset_response.status_code != 200:
-                    logger.error(
-                        f"[{request_id}] Failed to upload image: {asset_response.status_code} - {asset_response.text}"
-                    )
-                    continue  # We try the next model
-
-                # Extract an ID of a loaded image and a full URL
-                asset_data = asset_response.json()
-                logger.debug(f"[{request_id}] Asset upload response: {asset_data}")
-
-                # We get a URL or ID image
-                image_id = None
-                image_url = None
-                image_location = None
-
-                # We are looking for ID in different places of the response structure
-                if "id" in asset_data:
-                    image_id = asset_data["id"]
-                elif "fileContent" in asset_data and "id" in asset_data["fileContent"]:
-                    image_id = asset_data["fileContent"]["id"]
-                elif "fileContent" in asset_data and "uuid" in asset_data["fileContent"]:
-                    image_id = asset_data["fileContent"]["uuid"]
-                
-                # We are looking for an absolute URL (location) for image
-                if "asset" in asset_data and "location" in asset_data["asset"]:
-                    image_location = asset_data["asset"]["location"]
-                
-                # If there is a Path, we use it as a URL image
-                if "fileContent" in asset_data and "path" in asset_data["fileContent"]:
-                    image_url = asset_data["fileContent"]["path"]
-                    # Add the host if the path is relative
-                    if not image_url.startswith("http"):
-                        image_url = f"https://asset.1min.ai{image_url if image_url.startswith('/') else '/' + image_url}"
-
-                if not (image_id or image_url or image_location):
-                    logger.error(f"[{request_id}] Failed to extract image information from response")
-                    continue  # We try the next model
-
-                # We form Payload for image variation
-                # We determine which model to use
-                if model.startswith("midjourney"):
-                    # For Midjourney
-                    payload = {
-                        "type": "IMAGE_VARIATOR",
-                        "model": model,
-                        "promptObject": {
-                            "imageUrl": image_url if image_url else image_location,
-                            "mode": mode or "relax",
-                            "n": 4,
-                            "isNiji6": False,
-                            "aspect_width": aspect_width or 1, 
-                            "aspect_height": aspect_height or 1,
-                            "maintainModeration": True
-                        }
-                    }
-                elif model == "dall-e-2":
-                    # For Dall-E 2
-                    payload = {
-                        "type": "IMAGE_VARIATOR",
-                        "model": "dall-e-2",
-                        "promptObject": {
-                            "imageUrl": image_url if image_url else image_location,
-                            "n": 1,
-                            "size": "1024x1024"
-                        }
-                    }
-                elif model == "clipdrop":
-                    # For Clipdrop (Stable Diffusion)
-                    payload = {
-                        "type": "IMAGE_VARIATOR",
-                        "model": "clipdrop",
-                        "promptObject": {
-                            "imageUrl": image_url if image_url else image_location
-                        }
-                    }
-                else:
-                    # For all other models, we use minimal parameters
-                    payload = {
-                        "type": "IMAGE_VARIATOR",
-                        "model": model,
-                        "promptObject": {
-                            "imageUrl": image_url if image_url else image_location,
-                            "n": int(n)
-                        }
-                    }
-                
-                # Remove the initial slash in Imageurl if it is
-                if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"] and isinstance(payload["promptObject"]["imageUrl"], str) and payload["promptObject"]["imageUrl"].startswith('/'):
-                    payload["promptObject"]["imageUrl"] = payload["promptObject"]["imageUrl"][1:]
-                    logger.debug(f"[{request_id}] Removed leading slash from imageUrl: {payload['promptObject']['imageUrl']}")
-
-                # For VIP users, add Credit to the request
-                if api_key.startswith("vip-"):
-                    payload["credits"] = 90000  # Standard number of loans for VIP
-                
-                # Detailed Payload logistics for debugging
-                logger.info(f"[{request_id}] {model} variation payload: {json.dumps(payload, indent=2)}")
-
-                # Using Timeout for all models (15 minutes)
-                timeout = MIDJOURNEY_TIMEOUT
-                    
-                logger.debug(f"[{request_id}] Sending variation request to {ONE_MIN_API_URL}")
-
-                # We send a request to create a variation
-                variation_response = api_request(
-                    "POST",
-                    f"{ONE_MIN_API_URL}",
-                    headers={"API-KEY": api_key, "Content-Type": "application/json"},
-                    json=payload,
-                    timeout=timeout
-                )
-
-                if variation_response.status_code != 200:
-                    # Для любых ошибок, включая 504, просто пробуем следующую модель
-                    logger.error(f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
+                    # If you could not create a variation with Dall-E 2, we continue with other models
+                    logger.warning(f"[{request_id}] Failed to create variations with DALL-E 2, trying next model")
                     continue
-
-                # We process the answer and form the result
-                variation_data = variation_response.json()
-                logger.debug(f"[{request_id}] Variation response: {variation_data}")
-
-                # We extract the URL variations - initialize an empty array before searching
-                variation_urls = []
                 
-                # We are trying to find URL variations in the answer - various structures for different models
-                if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
-                    record_detail = variation_data["aiRecord"]["aiRecordDetail"]
-                    if "resultObject" in record_detail:
-                        result = record_detail["resultObject"]
-                        if isinstance(result, list):
-                            variation_urls = result
-                        elif isinstance(result, str):
-                            variation_urls = [result]
-                
-                # An alternative search path
-                if not variation_urls and "resultObject" in variation_data:
-                    result = variation_data["resultObject"]
-                    if isinstance(result, list):
-                        variation_urls = result
-                    elif isinstance(result, str):
-                        variation_urls = [result]
+                # For other models, we use standard logic
+                # Image loading in 1min.ai
+                with open(temp_file.name, 'rb') as img_file:
+                    files = {"asset": (os.path.basename(temp_file.name), img_file, "image/png")}
+                    
+                    asset_response = session.post(
+                        ONE_MIN_ASSET_URL, files=files, headers=headers
+                    )
+                    logger.debug(
+                        f"[{request_id}] Image upload response status code: {asset_response.status_code}"
+                    )
+
+                    if asset_response.status_code != 200:
+                        logger.error(
+                            f"[{request_id}] Failed to upload image: {asset_response.status_code} - {asset_response.text}"
+                        )
+                        continue  # We try the next model
+
+                    # Extract an ID of a loaded image and a full URL
+                    asset_data = asset_response.json()
+                    logger.debug(f"[{request_id}] Asset upload response: {asset_data}")
+
+                    # We get a URL or ID image
+                    image_id = None
+                    image_url = None
+                    image_location = None
+
+                    # We are looking for ID in different places of the response structure
+                    if "id" in asset_data:
+                        image_id = asset_data["id"]
+                    elif "fileContent" in asset_data and "id" in asset_data["fileContent"]:
+                        image_id = asset_data["fileContent"]["id"]
+                    elif "fileContent" in asset_data and "uuid" in asset_data["fileContent"]:
+                        image_id = asset_data["fileContent"]["uuid"]
+                    
+                    # We are looking for an absolute URL (location) for image
+                    if "asset" in asset_data and "location" in asset_data["asset"]:
+                        image_location = asset_data["asset"]["location"]
+                    
+                    # If there is a Path, we use it as a URL image
+                    if "fileContent" in asset_data and "path" in asset_data["fileContent"]:
+                        image_url = asset_data["fileContent"]["path"]
+                        # Add the host if the path is relative
+                        if not image_url.startswith("http"):
+                            image_url = f"https://asset.1min.ai{image_url if image_url.startswith('/') else '/' + image_url}"
+
+                    if not (image_id or image_url or image_location):
+                        logger.error(f"[{request_id}] Failed to extract image information from response")
+                        continue  # We try the next model
+
+                    # We form Payload for image variation
+                    # We determine which model to use
+                    if model.startswith("midjourney"):
+                        # For Midjourney
+                        # Извлекаем только путь из полного URL, если необходимо
+                        if image_url and 'asset.1min.ai/' in image_url:
+                            # Извлекаем только путь после asset.1min.ai/
+                            image_path = image_url.split('asset.1min.ai/', 1)[1]
+                            logger.debug(f"[{request_id}] Extracted path from URL: {image_path}")
+                        else:
+                            image_path = image_url if image_url else image_location
                         
-                # Search in Data.URL for Dall-E 2
-                if not variation_urls and "data" in variation_data and isinstance(variation_data["data"], list):
-                    for item in variation_data["data"]:
-                        if "url" in item:
-                            variation_urls.append(item["url"])
+                        # Убедимся, что у нас только относительный путь без домена
+                        if image_path and image_path.startswith('http'):
+                            logger.warning(f"[{request_id}] Image path still contains full URL: {image_path}")
+                            # Попытка извлечь только имя файла, если это полный URL
+                            image_path = image_path.split('/')[-1]
+                            if image_path.startswith('images/'):
+                                logger.debug(f"[{request_id}] Using extracted file path: {image_path}")
+                            else:
+                                image_path = f"images/{image_path}"
+                                logger.debug(f"[{request_id}] Modified to relative path: {image_path}")
+                        
+                        payload = {
+                            "type": "IMAGE_VARIATOR",
+                            "model": model,
+                            "promptObject": {
+                                "imageUrl": image_url if image_url else image_location,
+                                "mode": mode or request_data.get("mode", "relax"),  # Используем режим из промпта
+                                "n": 4,
+                                "isNiji6": False,
+                                "aspect_width": aspect_width or 1, 
+                                "aspect_height": aspect_height or 1,
+                                "maintainModeration": True
+                            }
+                        }
+                        
+                        # Преобразуем полный URL в относительный путь для Midjourney
+                        if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"]:
+                            img_url = payload["promptObject"]["imageUrl"]
+                            if isinstance(img_url, str) and 'asset.1min.ai/' in img_url:
+                                payload["promptObject"]["imageUrl"] = img_url.split('asset.1min.ai/', 1)[1]
+                                logger.debug(f"[{request_id}] Extracted path from URL: {payload['promptObject']['imageUrl']}")
+                        
+                        # Подробное логирование для Midjourney
+                        logger.info(f"[{request_id}] Midjourney variation payload:")
+                        logger.info(f"[{request_id}] promptObject: {json.dumps(payload['promptObject'], indent=2)}")
+                    elif model == "dall-e-2":
+                        # For Dall-E 2
+                        payload = {
+                            "type": "IMAGE_VARIATOR",
+                            "model": "dall-e-2",
+                            "promptObject": {
+                                "imageUrl": image_url if image_url else image_location,
+                            }
+                        }
+                        logger.info(f"[{request_id}] DALL-E 2 variation payload: {json.dumps(payload, indent=2)}")
+                    elif model == "clipdrop":
+                        # For Clipdrop
+                        payload = {
+                            "type": "IMAGE_VARIATOR",
+                            "model": "clipdrop",
+                            "promptObject": {
+                                "imageUrl": image_url if image_url else image_location,
+                            }
+                        }
+                        logger.info(f"[{request_id}] Clipdrop variation payload: {json.dumps(payload, indent=2)}")
+                    else:
+                        # For all other models, we use minimal parameters
+                        payload = {
+                            "type": "IMAGE_VARIATOR",
+                            "model": model,
+                            "promptObject": {
+                                "imageUrl": image_url if image_url else image_location,
+                                "n": int(n)
+                            }
+                        }
+                    
+                    # Преобразуем полный URL в относительный путь для всех моделей
+                    if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"]:
+                        img_url = payload["promptObject"]["imageUrl"]
+                        if isinstance(img_url, str) and 'asset.1min.ai/' in img_url:
+                            payload["promptObject"]["imageUrl"] = img_url.split('asset.1min.ai/', 1)[1]
+                            logger.debug(f"[{request_id}] Extracted path from URL: {payload['promptObject']['imageUrl']}")
+                    
+                    # Remove the initial slash in Imageurl if it is
+                    if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"] and isinstance(payload["promptObject"]["imageUrl"], str) and payload["promptObject"]["imageUrl"].startswith('/'):
+                        payload["promptObject"]["imageUrl"] = payload["promptObject"]["imageUrl"][1:]
+                        logger.debug(f"[{request_id}] Removed leading slash from imageUrl: {payload['promptObject']['imageUrl']}")
 
-                if not variation_urls:
-                    logger.error(f"[{request_id}] No variation URLs found in response with model {model}")
-                    continue  # We try the next model
+                    # For VIP users, add Credit to the request
+                    if api_key.startswith("vip-"):
+                        payload["credits"] = 90000  # Standard number of loans for VIP
+                    
+                    # Detailed Payload logistics for debugging
+                    if model.startswith("midjourney"):
+                        logger.info(f"[{request_id}] Midjourney variation payload:")
+                        logger.info(f"[{request_id}] promptObject: {json.dumps(payload['promptObject'], indent=2)}")
+                    else:
+                        logger.info(f"[{request_id}] {model} variation payload: {json.dumps(payload, indent=2)}")
 
-                # Successfully received variations, we leave the cycle
-                logger.info(f"[{request_id}] Successfully generated variations with model {model}")
-                break
-                
-        except Exception as e:
-            logger.error(f"[{request_id}] Exception during variation request with model {model}: {str(e)}")
-            continue  # We try the next model
-    
-    # Clean the temporary file
-    try:
-        os.unlink(temp_file.name)
-    except:
-        pass
-    
-    # We check if you managed to get variations from any of the models
-    if not variation_urls:
-        session.close()
-        return jsonify({"error": "Failed to create image variations with any available model"}), 500
-    
-    # We form complete URL for variations
-    full_variation_urls = []
-    asset_host = "https://asset.1min.ai"
-    
-    for url in variation_urls:
-        if not url:
-            continue
-            
-        # If the URL is not complete, add the host
-        if not url.startswith("http"):
-            if url.startswith("/"):
-                full_url = f"{asset_host}{url}"
-            else:
-                full_url = f"{asset_host}/{url}"
-        else:
-            full_url = url
-            
-        full_variation_urls.append(full_url)
+                    # Using Timeout for all models (15 minutes)
+                    timeout = MIDJOURNEY_TIMEOUT
 
-    # We form an answer in Openai format
-    openai_data = []
-    for url in full_variation_urls:
-        openai_data.append({"url": url})
+                    logger.debug(f"Using extended timeout for Midjourney: {timeout}s")
+                    
+                    # Преобразуем полный URL в относительный путь для всех моделей
+                    if "imageUrl" in payload["promptObject"] and payload["promptObject"]["imageUrl"]:
+                        img_url = payload["promptObject"]["imageUrl"]
+                        if isinstance(img_url, str) and 'asset.1min.ai/' in img_url:
+                            payload["promptObject"]["imageUrl"] = img_url.split('asset.1min.ai/', 1)[1]
+                            logger.debug(f"[{request_id}] Extracted path from imageUrl: {payload['promptObject']['imageUrl']}")
+                    
+                    variation_response = api_request(
+                        "POST",
+                        ONE_MIN_API_URL,
+                        headers=headers,
+                        json=payload,
+                        timeout=timeout
+                    )
 
-    openai_response = {
-        "created": int(time.time()),
-        "data": openai_data,
-    }
+                    if variation_response.status_code != 200:
+                        logger.error(f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
+                        continue
 
-    # Add the text with variation buttons for Markdown Object
-    markdown_text = ""
-    if len(full_variation_urls) == 1:
-        markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
-        # Add a hint to create variations
-        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
-    else:
-        # We form a text with images and buttons of variations on one line
-        image_lines = []
+                    # We process the answer
+                    variation_data = variation_response.json()
+                    
+                    # We extract the URL variations from the answer
+                    if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
+                        result_object = variation_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
+                        if isinstance(result_object, list):
+                            variation_urls.extend(result_object)
+                        elif isinstance(result_object, str):
+                            variation_urls.append(result_object)
+                    elif "resultObject" in variation_data:
+                        result_object = variation_data["resultObject"]
+                        if isinstance(result_object, list):
+                            variation_urls.extend(result_object)
+                        elif isinstance(result_object, str):
+                            variation_urls.append(result_object)
+
+                    if variation_urls:
+                        logger.info(f"[{request_id}] Successfully created {len(variation_urls)} variations with {model}")
+                        break
+                    else:
+                        logger.warning(f"[{request_id}] No variation URLs found in response for model {model}")
+
+            except Exception as e:
+                logger.error(f"[{request_id}] Error with model {model}: {str(e)}")
+                continue
+
+        # If you could not create variations with any model
+        if not variation_urls:
+            logger.error(f"[{request_id}] Failed to create variations with any available model")
+            return jsonify({"error": "Failed to create image variations with any available model"}), 500
+
+        # We form an answer
+        openai_response = {
+            "created": int(time.time()),
+            "data": []
+        }
         
-        for i, url in enumerate(full_variation_urls):
-            image_lines.append(f"![Variation {i+1}]({url}) `[_V{i+1}_]`")
+        for url in variation_urls:
+            openai_data = {
+                "url": url
+            }
+            openai_response["data"].append(openai_data)
         
-        # Combine lines with a new line between them
-        markdown_text = "\n".join(image_lines)
-        # Add a hint to create variations
-        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
-    
-    openai_response["choices"] = [
-        {
+        # We form a markdown text with a hint
+        text_lines = []
+        for i, url in enumerate(variation_urls, 1):
+            text_lines.append(f"Image {i} ({url}) [_V{i}_]")
+        text_lines.append("\n> To generate **variants** of **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**")
+        
+        text_response = "\n".join(text_lines)
+        
+        openai_response["choices"] = [{
             "message": {
                 "role": "assistant",
-                "content": markdown_text
+                "content": text_response
             },
             "index": 0,
             "finish_reason": "stop"
-        }
-    ]
+        }]
+        
+        logger.info(f"[{request_id}] Returning {len(variation_urls)} variation URLs to client")
+        
+        response = jsonify(openai_response)
+        return set_response_headers(response)
 
-    session.close()
-    logger.info(f"[{request_id}] Successfully generated {len(openai_data)} image variations using model {current_model}")
-    return jsonify(openai_response), 200
+    except Exception as e:
+        logger.exception(f"[{request_id}] Exception during image variation: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        session.close()
 
 
 @app.route("/v1/assistants", methods=["POST", "OPTIONS"])
@@ -4593,21 +4603,28 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
 
                 # We form Payload depending on the model
                 if model in ["midjourney_6_1", "midjourney"]:
+                    # For Midjourney
+                    # Добавляем преобразование URL
+                    if image_url and isinstance(image_url, str) and 'asset.1min.ai/' in image_url:
+                        image_url = image_url.split('asset.1min.ai/', 1)[1]
+                        logger.debug(f"[{request_id}] Extracted path from image_url: {image_url}")
+                    
                     payload = {
                         "type": "IMAGE_VARIATOR",
                         "model": model,
                         "promptObject": {
-                            "imageUrl": image_path,
-                            "mode": mode or "relax",
+                            "imageUrl": image_url if image_url else image_location,
+                            "mode": mode or request_data.get("mode", "relax"),  # Используем режим из промпта
                             "n": 4,
                             "isNiji6": False,
-                            "maintainModeration": True,
                             "aspect_width": aspect_width or 1, 
                             "aspect_height": aspect_height or 1,
                             "maintainModeration": True
                         }
                     }
-                    logger.info(f"[{request_id}] Midjourney variation payload: {json.dumps(payload, indent=2)}")
+                    # Подробное логирование для Midjourney
+                    logger.info(f"[{request_id}] Midjourney variation payload:")
+                    logger.info(f"[{request_id}] promptObject: {json.dumps(payload['promptObject'], indent=2)}")
                 elif model == "dall-e-2":
                     # For Dall-E 2
                     payload = {
