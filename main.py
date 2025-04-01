@@ -2652,13 +2652,24 @@ def image_variations():
                 # We are looking for an absolute URL (location) for image
                 if "asset" in asset_data and "location" in asset_data["asset"]:
                     image_location = asset_data["asset"]["location"]
-                
+                    # Extract a relative path if the URL contains the domain
+                    if image_location and "asset.1min.ai/" in image_location:
+                        image_location = image_location.split('asset.1min.ai/', 1)[1]
+                    # Remove the initial slash if necessary
+                    if image_location and image_location.startswith('/'):
+                        image_location = image_location[1:]
+                    logger.debug(f"[{request_id}] Using relative path for image location: {image_location}")
+
                 # If there is a Path, we use it as a URL image
                 if "fileContent" in asset_data and "path" in asset_data["fileContent"]:
                     image_url = asset_data["fileContent"]["path"]
-                    # Add the host if the path is relative
-                    if not image_url.startswith("http"):
-                        image_url = f"https://asset.1min.ai{image_url if image_url.startswith('/') else '/' + image_url}"
+                    # Extract a relative path if the URL contains the domain
+                    if "asset.1min.ai/" in image_url:
+                        image_url = image_url.split('asset.1min.ai/', 1)[1]
+                    # Remove the initial slash if necessary
+                    if image_url.startswith('/'):
+                        image_url = image_url[1:]
+                    logger.debug(f"[{request_id}] Using relative path for image: {image_url}")
 
                 if not (image_id or image_url or image_location):
                     logger.error(f"[{request_id}] Failed to extract image information from response")
@@ -2812,16 +2823,18 @@ def image_variations():
         if not url:
             continue
             
-        # If the URL is not complete, add the host
-        if not url.startswith("http"):
-            if url.startswith("/"):
-                full_url = f"{asset_host}{url}"
-            else:
-                full_url = f"{asset_host}/{url}"
+        # Если URL содержит домен, извлекаем относительный путь
+        if "asset.1min.ai/" in url:
+            relative_url = url.split('asset.1min.ai/', 1)[1]
+            # Удаляем начальный слеш, если он есть
+            if relative_url.startswith('/'):
+                relative_url = relative_url[1:]
+            full_variation_urls.append(relative_url)
+        # Если URL уже без домена, но начинается со слеша, убираем слеш
+        elif url.startswith('/'):
+            full_variation_urls.append(url[1:])
         else:
-            full_url = url
-            
-        full_variation_urls.append(full_url)
+            full_variation_urls.append(url)
 
     # We form an answer in Openai format
     openai_data = []
