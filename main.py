@@ -1,3 +1,5 @@
+# version 1.0.0 #increment every time you make changes
+# 2025-04-02 01:22 #change to actual date and time every time you make changes
 import base64
 import hashlib
 import json
@@ -4902,7 +4904,7 @@ def safe_memcached_operation(operation, key, value=None, expiry=3600):
             return MEMORY_STORAGE.get(key, None)
         elif operation == 'set':
             MEMORY_STORAGE[key] = value
-            logger.info(f"Сохранено в MEMORY_STORAGE: ключ={key}")
+            logger.info(f"Saved in MEMORY_STORAGE: key={key}")
             return True
         elif operation == 'delete':
             if key in MEMORY_STORAGE:
@@ -4933,7 +4935,7 @@ def safe_memcached_operation(operation, key, value=None, expiry=3600):
             return MEMORY_STORAGE.get(key, None)
         elif operation == 'set':
             MEMORY_STORAGE[key] = value
-            logger.info(f"Сохранено в MEMORY_STORAGE из-за ошибки memcached: ключ={key}")
+            logger.info(f"Saved in MEMORY_STORAGE due to memcached error: key={key}")
             return True
         elif operation == 'delete':
             if key in MEMORY_STORAGE:
@@ -5423,7 +5425,7 @@ if __name__ == "__main__":
         response = requests.get("https://api.ipify.org")
         public_ip = response.text
     except:
-        public_ip = "Не удалось определить"
+        public_ip = "not found"
 
     logger.info(
         f"""{printedcolors.Color.fg.lightcyan}  
@@ -5440,3 +5442,8 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
+
+
+
+
+
