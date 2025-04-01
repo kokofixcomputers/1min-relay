@@ -49,10 +49,6 @@ warnings.filterwarnings(
 # Create a logger object
 logger = logging.getLogger("1min-relay")
 
-# Удаляем все существующие обработчики, чтобы избежать дублирования
-for handler in logger.handlers[:]:
-    logger.removeHandler(handler)
-
 # Install coloredlogs with desired log level
 coloredlogs.install(level="DEBUG", logger=logger)
 
@@ -271,7 +267,7 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # "stable-diffusion-xl-1024-v1-0", # stabilityi - images generation
     # "stable-diffusion-v1-6",         # stabilityi - images generation
     # "esrgan-v1-x2plus",              # stabilityai-Improving images
-    # "stable-video-diffusion",        # stabilityai-video generation  
+    # "stable-video-diffusion",        # stabilityai-video generation
     "phoenix",         # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
     "lightning-xl",    # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
     "anime-xl",        # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
@@ -1672,11 +1668,11 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     ar_error = None
     mode = None
     
-    # Ищем параметры режима в тексте
+    # We are looking for the parameters of the mode in the text
     mode_match = re.search(r'(--|\u2014)(fast|relax)\s*', prompt)
     if mode_match:
         mode = mode_match.group(2)
-        # Удаляем параметр режима из промпта
+        # We delete the parameter of the process from the industrial
         prompt = re.sub(r'(--|\u2014)(fast|relax)\s*', '', prompt).strip()
         logger.debug(f"[{request_id}] Extracted mode from prompt: {mode}")
     
@@ -1962,7 +1958,7 @@ def generate_image():
             
             model_name = "midjourney" if model == "midjourney" else "midjourney_6_1"
             
-            # Добавляем логирование для режима
+            # Add logistics for the mode
             logger.info(f"[{request_id}] Midjourney generation payload:")
             logger.info(f"[{request_id}] Using mode from prompt: {mode}")
             
@@ -1971,7 +1967,7 @@ def generate_image():
                 "model": model_name,
                 "promptObject": {
                     "prompt": prompt,
-                    "mode": mode or request_data.get("mode", "relax"),  # Используем режим из промпта или из request_data
+                    "mode": mode or request_data.get("mode", "relax"),  # We use the mode of industrial plate or from REQUEST_DATA
                     "n": 4,  # Midjourney always generates 4 images
                     "aspect_width": aspect_width,
                     "aspect_height": aspect_height,
@@ -1982,7 +1978,7 @@ def generate_image():
                 },
             }
             
-            # Добавляем negativePrompt и no только если они не пустые
+            # Add NegativePrompt and No only if they are not empty
             if negative_prompt or request_data.get("negativePrompt"):
                 payload["promptObject"]["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
             
@@ -1990,7 +1986,7 @@ def generate_image():
             if no_param:
                 payload["promptObject"]["no"] = no_param
 
-            # Подробное логирование для Midjourney - ТОЛЬКО ОДИН РАЗ!
+            # Detailed logging for Midjourney - only once!
             logger.info(f"[{request_id}] Midjourney promptObject: {json.dumps(payload['promptObject'], indent=2)}")
         elif model in ["black-forest-labs/flux-schnell", "flux-schnell"]:
             payload = {
@@ -2182,12 +2178,12 @@ def generate_image():
         logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:500]}")
 
         # We set parameters for repeated attempts
-        max_retries = 1  # Только одна попытка для всех моделей
+        max_retries = 1  # Only one attempt for all models
         retry_count = 0
-        start_time = time.time()  # Запоминаем время начала для отслеживания общего времени ожидания
+        start_time = time.time()  # We remember the start time to track the total waiting time
 
         try:
-            # Отправляем запрос с таймаутом
+            # We send a request with a timeout
             response = api_request(
                 "POST", 
                 api_url, 
@@ -2199,11 +2195,11 @@ def generate_image():
             
             logger.debug(f"[{request_id}] Response status code: {response.status_code}")
             
-            # Если получен успешный ответ, обрабатываем его
+            # If a successful answer is received, we process it
             if response.status_code == 200:
                 one_min_response = response.json()
             else:
-                # Для любых ошибок сразу возвращаем ответ
+                # For any errors, we immediately return the answer
                 error_msg = "Unknown error"
                 try:
                     error_data = response.json()
@@ -2225,7 +2221,7 @@ def generate_image():
             return jsonify({"error": f"API request failed: {str(e)}"}), 500
 
         try:
-            # Получаем все URL изображений если они доступны
+            # We get all the URL images if they are available
             image_urls = []
             
             # Check if the response of an array of URL images
@@ -2827,19 +2823,19 @@ def image_variations():
         if not url:
             continue
             
-        # Сохраняем относительный путь для API, но создаем полный URL для отображения
+        # We save the relative path for the API, but create a full URL for display
         relative_url = url
-        # Если URL содержит домен, извлекаем относительный путь
+        # If the URL contains a domain, we extract a relative path
         if "asset.1min.ai/" in url:
             relative_url = url.split('asset.1min.ai/', 1)[1]
-            # Удаляем начальный слеш, если он есть
+            # Remove the initial slash if it is
             if relative_url.startswith('/'):
                 relative_url = relative_url[1:]
-        # Если URL уже без домена, но начинается со слеша, убираем слеш
+        # If the URL is already without a domain, but starts with the slashus, we remove the slash
         elif url.startswith('/'):
             relative_url = url[1:]
         
-        # Создаем полный URL для отображения пользователю
+        # Create a full URL to display the user
         if not url.startswith("http"):
             if url.startswith("/"):
                 full_url = f"{asset_host}{url}"
@@ -2848,7 +2844,7 @@ def image_variations():
         else:
             full_url = url
             
-        # Сохраняем относительный путь и полный URL
+        # We keep the relative path and full URL
         full_variation_urls.append({
             "relative_path": relative_url,
             "full_url": full_url
@@ -2857,7 +2853,7 @@ def image_variations():
     # We form an answer in Openai format
     openai_data = []
     for url_data in full_variation_urls:
-        # Используем относительный путь для API
+        # We use the relative path for the API
         openai_data.append({"url": url_data["relative_path"]})
 
     openai_response = {
@@ -2868,7 +2864,7 @@ def image_variations():
     # Add the text with variation buttons for Markdown Object
     markdown_text = ""
     if len(full_variation_urls) == 1:
-        # Используем полный URL для отображения
+        # We use the full URL to display
         markdown_text = f"![Variation]({full_variation_urls[0]['full_url']}) `[_V1_]`"
         # Add a hint to create variations
         markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
@@ -2877,7 +2873,7 @@ def image_variations():
         image_lines = []
         
         for i, url_data in enumerate(full_variation_urls):
-            # Используем полный URL для отображения
+            # We use the full URL to display
             image_lines.append(f"![Variation {i+1}]({url_data['full_url']}) `[_V{i+1}_]`")
         
         # Combine lines with a new line between them
@@ -3639,7 +3635,7 @@ def api_request(req_method, url, headers=None,
     # Add other parameters
     req_params.update(kwargs)
     
-    # Проверяем, является ли запрос операцией с изображениями
+    # We check whether the request is an operation with images
     is_image_operation = False
     if json and isinstance(json, dict):
         operation_type = json.get("type", "")
@@ -3647,7 +3643,7 @@ def api_request(req_method, url, headers=None,
             is_image_operation = True
             logger.debug(f"Detected image operation: {operation_type}, using extended timeout")
     
-    # Используем увеличенный таймаут для операций с изображениями
+    # We use increased timaut for operations with images
     if is_image_operation:
         req_params["timeout"] = timeout or MIDJOURNEY_TIMEOUT
         logger.debug(f"Using extended timeout for image operation: {MIDJOURNEY_TIMEOUT}s")
@@ -4487,14 +4483,14 @@ def delete_all_files_task():
 
 def split_text_for_streaming(text, chunk_size=6):
     """
-    Разбивает текст на небольшие части для эмуляции потокового вывода.
+    It breaks the text into small parts to emulate streaming output.
     
     Args:
-        text (str): Текст для разбиения
-        chunk_size (int): Приблизительный размер частей в словах
+        Text (str): text for breakdown
+        chunk_size (int): the approximate size of the parts in words
         
     Returns:
-        list: Список частей текста
+        List: List of parts of the text
     """
     if not text:
         return [""]
@@ -4532,7 +4528,7 @@ def split_text_for_streaming(text, chunk_size=6):
 
 def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
     """
-    Создает вариации на основе исходного изображения с учетом специфики каждой модели.
+    Creates variations based on the original image, taking into account the specifics of each model.
     """
     # Initialize the URL list in front of the cycle
     variation_urls = []
@@ -4643,7 +4639,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                 # We form Payload depending on the model
                 if model in ["midjourney_6_1", "midjourney"]:
                     # For Midjourney
-                    # Добавляем преобразование URL
+                    # Add the URL transformation
                     if image_url and isinstance(image_url, str) and 'asset.1min.ai/' in image_url:
                         image_url = image_url.split('asset.1min.ai/', 1)[1]
                         logger.debug(f"[{request_id}] Extracted path from image_url: {image_url}")
@@ -4653,7 +4649,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         "model": model,
                         "promptObject": {
                             "imageUrl": image_url if image_url else image_location,
-                            "mode": mode or request_data.get("mode", "relax"),  # Используем режим из промпта
+                            "mode": mode or request_data.get("mode", "relax"),  # We use the mode from the industrial
                             "n": 4,
                             "isNiji6": False,
                             "aspect_width": aspect_width or 1, 
@@ -4661,7 +4657,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                             "maintainModeration": True
                         }
                     }
-                    # Подробное логирование для Midjourney
+                    # Detailed logistics for Midjourney
                     logger.info(f"[{request_id}] Midjourney variation payload:")
                     logger.info(f"[{request_id}] promptObject: {json.dumps(payload['promptObject'], indent=2)}")
                 elif model == "dall-e-2":
