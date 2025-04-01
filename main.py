@@ -62,14 +62,14 @@ def check_memcached_connection():
     Returns:
         Tuple: (Bool, Str) - (Is Memcache available, connection line or none)
     """
-    # Импортируем Client здесь, чтобы избежать ошибки name 'Client' is not defined
+    # I import Client here to avoid Name 'Client' Is Not Defined error
     try:
         from pymemcache.client.base import Client
     except ImportError:
         try:
             from memcache import Client
         except ImportError:
-            logger.error("Не удалось импортировать Client из pymemcache или memcache")
+            logger.error("Failed to import Client from pymemcache or memcache")
             return False, None
             
     # Check Docker Memcache
@@ -203,7 +203,7 @@ ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/strea
 DEFAULT_TIMEOUT = 120 # 120 seconds for regular requests
 MIDJOURNEY_TIMEOUT = 900  # 15 minutes for requests for Midjourney
 
-# Глобальное хранилище для использования, когда memcached недоступен
+# Global storage for use when MemcacheD is not available
 MEMORY_STORAGE = {}
 
 # Constants for query types
@@ -1045,63 +1045,73 @@ def conversation():
 
                 logger.info(f"[{request_id}] Processing variation for image: {image_url}")
 
-                # Для моделей Midjourney добавляем прямой вызов API без скачивания изображения
+                # For Midjourney models, add a direct call of the API without downloading the image
                 if model.startswith("midjourney") and "asset.1min.ai" in image_url:
-                    # Извлекаем относительный путь из URL
+                    # We extract a relative path from the URL
                     path_match = re.search(r'(?:asset\.1min\.ai)/?(images/[^?#]+)', image_url)
                     if path_match:
                         relative_path = path_match.group(1)
                         logger.info(f"[{request_id}] Detected Midjourney variation with relative path: {relative_path}")
                         
-                        # Получаем сохраненные параметры генерации из memcached по request_id
+                        # We get the saved generation parameters from Memcached by Request_id
                         saved_params = None
-                        if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
-                            try:
-                                # Извлекаем image_id из пути изображения для поиска параметров
-                                image_id_match = re.search(r'images/(\w+)/', relative_path)
-                                if image_id_match:
-                                    image_id = image_id_match.group(1)
-                                    gen_params_key = f"gen_params:{image_id}"
-                                    params_json = safe_memcached_operation('get', gen_params_key)
-                                    if params_json:
-                                        if isinstance(params_json, str):
+                        try:
+                            # We extract image_id from the image path for searching for parameters
+                            image_id_match = re.search(r'images/(\w+)/', relative_path)
+                            if image_id_match:
+                                image_id = image_id_match.group(1)
+                                gen_params_key = f"gen_params:{image_id}"
+                                # We use Safe_MemCeched_Operation, which now uses Memory_storage
+                                # With the inaccessibility of Memcache
+                                params_json = safe_memcached_operation('get', gen_params_key)
+                                if params_json:
+                                    logger.info(f"[{request_id}] Retrieved parameters for image {image_id}: {params_json}")
+                                    if isinstance(params_json, str):
+                                        try:
                                             saved_params = json.loads(params_json)
-                                        elif isinstance(params_json, bytes):
+                                        except:
+                                            saved_params = params_json
+                                    elif isinstance(params_json, bytes):
+                                        try:
                                             saved_params = json.loads(params_json.decode('utf-8'))
-                                        logger.info(f"[{request_id}] Retrieved generation parameters from memcached for image {image_id}: {saved_params}")
-                            except Exception as e:
-                                logger.error(f"[{request_id}] Error retrieving generation parameters: {str(e)}")
+                                        except:
+                                            saved_params = params_json.decode('utf-8')
+                                    else:
+                                        saved_params = params_json
+                                    logger.info(f"[{request_id}] Retrieved generation parameters for image {image_id}: {saved_params}")
+                        except Exception as e:
+                            logger.error(f"[{request_id}] Error retrieving generation parameters: {str(e)}")
                         
-                        # Формируем payload для вариации
+                        # We form Payload for variation
                         payload = {
                             "type": "IMAGE_VARIATOR",
                             "model": model,
                             "promptObject": {
                                 "imageUrl": relative_path,
-                                "mode": "fast",  # По умолчанию режим fast
+                                "mode": "fast",  # Default Fast mode
                                 "n": 4,
                                 "isNiji6": False,
-                                "aspect_width": 1,  # По умолчанию 1:1
-                                "aspect_height": 1,  # По умолчанию 1:1
+                                "aspect_width": 1,  # By default 1: 1
+                                "aspect_height": 1,  # By default 1: 1
                                 "maintainModeration": True
                             }
                         }
                         
-                        # Используем параметры из memcached, если они доступны
+                        # We use parameters from Memcache if they are available
                         if saved_params:
                             logger.info(f"[{request_id}] Using saved parameters from original generation: {saved_params}")
-                            # Перенесем все сохраненные параметры
+                            # We will transfer all the saved parameters
                             for param in ["mode", "aspect_width", "aspect_height", "isNiji6", "maintainModeration"]:
                                 if param in saved_params:
                                     payload["promptObject"][param] = saved_params[param]
                                     logger.info(f"[{request_id}] Set parameter {param}={saved_params[param]} from saved generation")
                         else:
                             logger.info(f"[{request_id}] No saved parameters found, using default ratio 1:1 for Midjourney variations")
-                            # Используем соотношение 1:1
+                            # We use the ratio of 1: 1
                             payload["promptObject"]["aspect_width"] = 1
                             payload["promptObject"]["aspect_height"] = 1
                         
-                        # Отправляем запрос на вариацию напрямую
+                        # We send a request for variation directly
                         logger.info(f"[{request_id}] Sending direct Midjourney variation request: {json.dumps(payload)}")
                         
                         try:
@@ -1114,14 +1124,14 @@ def conversation():
                             )
                             
                             if variation_response.status_code == 200:
-                                # Обрабатываем успешный ответ
+                                # We process a successful answer
                                 variation_data = variation_response.json()
                                 logger.info(f"[{request_id}] Received Midjourney variation response: {json.dumps(variation_data)}")
                                 
-                                # Извлекаем URL вариаций
+                                # We extract the URL variations
                                 variation_urls = []
                                 
-                                # Структура для Midjourney модели
+                                # Midjourney structure structure
                                 if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                                     record_detail = variation_data["aiRecord"]["aiRecordDetail"]
                                     if "resultObject" in record_detail:
@@ -1131,7 +1141,7 @@ def conversation():
                                         elif isinstance(result, str):
                                             variation_urls = [result]
                                 
-                                # Альтернативный путь поиска
+                                # An alternative search path
                                 if not variation_urls and "resultObject" in variation_data:
                                     result = variation_data["resultObject"]
                                     if isinstance(result, list):
@@ -1142,12 +1152,12 @@ def conversation():
                                 if variation_urls:
                                     logger.info(f"[{request_id}] Found {len(variation_urls)} variation URLs")
                                     
-                                    # Формируем полные URL для отображения
+                                    # We form full URLs for display
                                     full_variation_urls = []
                                     asset_host = "https://asset.1min.ai"
                                     
                                     for url in variation_urls:
-                                        # Создаем полный URL для отображения
+                                        # Create a full URL to display
                                         if not url.startswith("http"):
                                             full_url = f"{asset_host}/{url}"
                                         else:
@@ -1155,7 +1165,7 @@ def conversation():
                                         
                                         full_variation_urls.append(full_url)
                                     
-                                    # Формируем ответ в формате Markdown
+                                    # We form a response in Markdown format
                                     markdown_text = ""
                                     if len(full_variation_urls) == 1:
                                         markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
@@ -1168,7 +1178,7 @@ def conversation():
                                         markdown_text = "\n".join(image_lines)
                                         markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** - **[_V4_]** and send it (paste) in the next **prompt**"
                                     
-                                    # Формируем ответ в формате OpenAI
+                                    # We form an answer in Openai format
                                     openai_response = {
                                         "id": f"chatcmpl-{uuid.uuid4()}",
                                         "object": "chat.completion",
@@ -1196,16 +1206,16 @@ def conversation():
                                     logger.error(f"[{request_id}] No variation URLs found in response")
                             else:
                                 logger.error(f"[{request_id}] Direct variation request failed: {variation_response.status_code} - {variation_response.text}")
-                                # При ошибке Gateway Timeout (504) возвращаем ошибку сразу, а не продолжаем обработку
+                                # When the Gateway Timeout (504) error, we return the error immediately, and do not continue to process
                                 if variation_response.status_code == 504:
                                     logger.error(f"[{request_id}] Midjourney API timeout (504). Returning error to client instead of fallback.")
                                     return jsonify({
                                         "error": "Gateway Timeout (504) occurred while processing image variation request. Try again later."
                                     }), 504
-                                # При ошибке с соотношением сторон (409) также возвращаем ошибку
+                                # With an error with the ratio of the parties (409), we also return the error
                                 elif variation_response.status_code == 409:
                                     error_message = "Error creating image variation"
-                                    # Пытаемся извлечь сообщение об ошибке из ответа
+                                    # Trying to extract an error from an answer
                                     try:
                                         error_json = variation_response.json()
                                         if "message" in error_json:
@@ -1218,7 +1228,7 @@ def conversation():
                                     }), 409
                         except Exception as e:
                             logger.error(f"[{request_id}] Exception during direct variation request: {str(e)}")
-                            # Возвращаем ошибку напрямую клиенту вместо перехода к резервному пути
+                            # We return the error directly to the client instead of the transition to the backup path
                             return jsonify({
                                 "error": f"Error processing direct variation request: {str(e)}"
                             }), 500
@@ -1262,22 +1272,21 @@ def conversation():
                             f.write(chunk)
 
                     # We save the path to the temporary file in memory for use in the route/v1/images/variations
-                    if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
-                        variation_key = f"variation:{request_id}"
-                        variation_data = {
-                            "temp_file": temp_file.name,
-                            "model": model,
-                            "n": request_data.get("n", 1),
-                            "image_path": image_path  # We keep the relative path if it is
-                        }
-                        safe_memcached_operation('set', variation_key, json.dumps(variation_data),
-                                                 expire=300)  # Store 5 minutes
-                        logger.debug(f"[{request_id}] Saved variation data to memcached with key: {variation_key}")
+                    variation_key = f"variation:{request_id}"
+                    variation_data = {
+                        "temp_file": temp_file.name,
+                        "model": model,
+                        "n": request_data.get("n", 1),
+                        "image_path": image_path  # We keep the relative path if it is
+                    }
+                    # We use Safe_MemCeched_Operation, which now supports Memory_storage
+                    safe_memcached_operation('set', variation_key, variation_data, expiry=300)  # Store 5 minutes
+                    logger.debug(f"[{request_id}] Saved variation data with key: {variation_key}")
 
                     # We redirect the route/v1/images/variations
                     logger.info(f"[{request_id}] Redirecting to /v1/images/variations with model {model}")
                     
-                    # Добавляем детальное логирование для диагностики
+                    # Add detailed logistics for diagnosis
                     logger.info(f"[{request_id}] Temp file path: {temp_file.name}, exists: {os.path.exists(temp_file.name)}")
                     logger.info(f"[{request_id}] Image path: {image_path}")
                     logger.info(f"[{request_id}] Variation data prepared with temp file and image path")
@@ -2609,18 +2618,18 @@ def generate_image():
                 f"[{request_id}] Successfully generated {len(image_urls)} images"
             )
             
-            # Сохраняем параметры генерации изображения в memcached для последующего использования в вариациях
+            # We save the parameters of the image generation in Memcache for subsequent use in variations
             if model in ["midjourney", "midjourney_6_1"]:
                 try:
-                    # Сохраняем параметры для каждого сгенерированного изображения
+                    # We save the parameters for each generated image
                     for url in image_urls:
                         if url:
-                            # Извлекаем ID изображения из URL
+                            # We extract ID images from the URL
                             image_id_match = re.search(r'images/(\w+)/', url)
                             if image_id_match:
                                 image_id = image_id_match.group(1)
                                 
-                                # Сохраняем только необходимые параметры
+                                # We save only the necessary parameters
                                 gen_params = {
                                     "mode": payload["promptObject"].get("mode", "fast"),
                                     "aspect_width": payload["promptObject"].get("aspect_width", 1),
@@ -2630,13 +2639,13 @@ def generate_image():
                                 }
                                 
                                 gen_params_key = f"gen_params:{image_id}"
-                                # Используем обновленную версию safe_memcached_operation с параметром expiry
-                                safe_memcached_operation('set', gen_params_key, gen_params, expiry=3600*24*7)  # Храним 7 дней
+                                # We use the updated version of Safe_Memcache_OPREEN
+                                safe_memcached_operation('set', gen_params_key, gen_params, expiry=3600*24*7)  # Store 7 days
                                 logger.info(f"[{request_id}] Saved generation parameters for image {image_id}: {gen_params}")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error saving generation parameters: {str(e)}")
 
-            # Формируем полные URL для всех изображений
+            # We form full URLs for all images
             full_image_urls = []
             asset_host = "https://asset.1min.ai"
 
@@ -2746,16 +2755,16 @@ def image_variations():
     api_key = auth_header.split(" ")[1]
 
     # We check whether a request has come with the REQUEST_ID parameter (redirection from/V1/Chat/Complets)
-    if 'request_id' in request.args and 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
-        # We get data on variation from MemcacheD
+    if 'request_id' in request.args:
+        # We get data on variation from storages (Memcache or Memory_storage)
         redirect_request_id = request.args.get('request_id')
         variation_key = f"variation:{redirect_request_id}"
-        logger.info(f"[{request_id}] Looking for variation data in memcached with key: {variation_key}")
+        logger.info(f"[{request_id}] Looking for variation data with key: {variation_key}")
         
         variation_data_json = safe_memcached_operation('get', variation_key)
         
         if variation_data_json:
-            logger.info(f"[{request_id}] Found variation data in memcached: {variation_data_json}")
+            logger.info(f"[{request_id}] Found variation data: {variation_data_json}")
             try:
                 if isinstance(variation_data_json, str):
                     variation_data = json.loads(variation_data_json)
@@ -2858,7 +2867,7 @@ def image_variations():
     n = int(request.form.get("n", 1))
     size = request.form.get("size", "1024x1024")
     prompt_text = request.form.get("prompt", "")  # We extract the industrial plane from the request if it is
-    #mode = request.form.get("mode", "relax")  # We get a regime from a request
+    # mode = request.form.get("mode", "relax")  # We get a regime from a request
 
     # We check whether the relative path to the image in the Form-data has been transmitted
     relative_image_path = request.form.get("image_path")
@@ -3085,11 +3094,11 @@ def image_variations():
                 # We form Payload for image variation
                 # We determine which model to use
                 if model.startswith("midjourney"):
-                    # Проверяем, содержит ли URL домен asset.1min.ai
+                    # Check if the URL contains the Asset.1Min.Ai domain
                     if image_url and "asset.1min.ai/" in image_url:
-                        # Извлекаем только относительный путь из URL
+                        # We extract only the relative path from the URL
                         relative_image_url = image_url.split('asset.1min.ai/', 1)[1]
-                        # Удаляем начальный слеш, если он есть
+                        # Remove the initial slash if it is
                         if relative_image_url.startswith('/'):
                             relative_image_url = relative_image_url[1:]
                         logger.info(f"[{request_id}] Extracted relative URL for Midjourney: {relative_image_url}")
@@ -3189,7 +3198,7 @@ def image_variations():
 
                 # We process the answer and form the result
                 variation_data = variation_response.json()
-                # Добавляем детальный лог для midjourney модели
+                # Add a detailed log for myidjourney model
                 if model.startswith("midjourney"):
                     logger.info(f"[{request_id}] Full Midjourney variation response: {json.dumps(variation_data, indent=2)}")
                 logger.debug(f"[{request_id}] Variation response: {variation_data}")
@@ -4832,7 +4841,7 @@ def safe_memcached_operation(operation, key, value=None, expiry=3600):
         The result of the operation or None if it failed
     """
     if MEMCACHED_CLIENT is None:
-        # Если memcached недоступен, используем локальное хранилище
+        # If Memcache is not available, we use the local storage
         if operation == 'get':
             return MEMORY_STORAGE.get(key, None)
         elif operation == 'set':
@@ -4863,7 +4872,7 @@ def safe_memcached_operation(operation, key, value=None, expiry=3600):
             return MEMCACHED_CLIENT.delete(key)
     except Exception as e:
         logger.error(f"Error in memcached operation {operation} on key {key}: {str(e)}")
-        # При ошибке memcached тоже используем локальное хранилище
+        # When error Memcated, we also use a local storage
         if operation == 'get':
             return MEMORY_STORAGE.get(key, None)
         elif operation == 'set':
