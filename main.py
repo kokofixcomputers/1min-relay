@@ -209,11 +209,11 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gpt-3.5-turbo",
     #
     "whisper-1",  # speech recognition
-    "tts-1",      # Speech synthesis
-    # "tts-1-hd", # Speech synthesis HD
+    "tts-1",  # Speech synthesis
+    # "tts-1-hd",  # Speech synthesis HD
     #
-    "dall-e-2",   # Generation of images
-    "dall-e-3",   # Generation of images
+    "dall-e-2",  # Generation of images
+    "dall-e-3",  # Generation of images
     # Claude
     "claude-instant-1.2",
     "claude-2.1",
@@ -260,23 +260,23 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # "stable-diffusion-v1-6",         # stabilityi - images generation
     # "esrgan-v1-x2plus",              # stabilityai-Improving images
     # "stable-video-diffusion",        # stabilityai-video generation
-    "phoenix",         # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
-    "lightning-xl",    # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
-    "anime-xl",        # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
-    "diffusion-xl",    # Leonardo.ai - 1e60896f-3c26-4296-8ecc-53e2afecc132
-    "kino-xl",         # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
-    "vision-xl",       # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
+    "phoenix",  # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
+    "lightning-xl",  # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
+    "anime-xl",  # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
+    "diffusion-xl",  # Leonardo.ai - 1e60896f-3c26-4296-8ecc-53e2afecc132
+    "kino-xl",  # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
+    "vision-xl",  # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
     "albedo-base-xl",  # Leonardo.ai - 2067ae52-33fd-4a82-bb92-c2c55e7d2786
-    # "Clipdrop",      # clipdrop.co - image processing
-    "midjourney",      # Midjourney - image generation
+    # "Clipdrop", # clipdrop.co - image processing
+    "midjourney",  # Midjourney - image generation
     "midjourney_6_1",  # Midjourney - image generation
     # "methexis-inc/img2prompt:50adaf2d3ad20a6f911a8a9e3ccf777b263b8596fbd2c8fc26e8888f8a0edbb5",   # Replicate - Image to Prompt
     # "cjwbw/damo-text-to-video:1e205ea73084bd17a0a3b43396e49ba0d6bc2e754e9283b2df49fad2dcf95755",  # Replicate - Text to Video
     # "lucataco/animate-diff:beecf59c4aee8d81bf04f0381033dfa10dc16e845b4ae00d281e2fa377e48a9f",     # Replicate - Animation
     # "lucataco/hotshot-xl:78b3a6257e16e4b241245d65c8b2b81ea2e1ff7ed4c55306b511509ddbfd327a",       # Replicate - Video
     "flux-schnell",  # Replicate - Flux "black-forest-labs/flux-schnell"
-    "flux-dev",      # Replicate - Flux Dev "black-forest-labs/flux-dev"
-    "flux-pro",      # Replicate - Flux Pro "black-forest-labs/flux-pro"
+    "flux-dev",  # Replicate - Flux Dev "black-forest-labs/flux-dev"
+    "flux-pro",  # Replicate - Flux Pro "black-forest-labs/flux-pro"
     "flux-1.1-pro",  # Replicate - Flux Pro 1.1 "black-forest-labs/flux-1.1-pro"
     # "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",  # Replicate - Music Generation
     # "luma",                  # TTAPI - Luma
@@ -378,26 +378,26 @@ IMAGE_VARIATION_MODELS = VARIATION_SUPPORTED_MODELS
 
 # Permissible parties for different models
 MIDJOURNEY_ALLOWED_ASPECT_RATIOS = [
-    "1:1",      # Square
-    "16:9",     # Widescreen format
-    "9:16",     # Vertical variant of 16:9
-    "16:10",    # Alternative widescreen
-    "10:16",    # Vertical variant of 16:10
-    "8:5",      # Alternative widescreen
-    "5:8",      # Vertical variant of 16:10
-    "3:4",      # Portrait/print
-    "4:3",      # Standard TV/monitor format
-    "3:2",      # Popular in photography
-    "2:3",      # Inverse of 3:2
-    "4:5",      # Common in social media posts
-    "5:4",      # Nearly square format
+    "1:1",  # Square
+    "16:9",  # Widescreen format
+    "9:16",  # Vertical variant of 16:9
+    "16:10",  # Alternative widescreen
+    "10:16",  # Vertical variant of 16:10
+    "8:5",  # Alternative widescreen
+    "5:8",  # Vertical variant of 16:10
+    "3:4",  # Portrait/print
+    "4:3",  # Standard TV/monitor format
+    "3:2",  # Popular in photography
+    "2:3",  # Inverse of 3:2
+    "4:5",  # Common in social media posts
+    "5:4",  # Nearly square format
     "137:100",  # Academy ratio (1.37:1) as an integer ratio
     "166:100",  # European cinema (1.66:1) as an integer ratio
     "185:100",  # Cinematic format (1.85:1) as an integer ratio185
-    "83:50",    # European cinema (1.66:1) as an integer ratio
-    "37:20",    # Cinematic format (1.85:1) as an integer ratio
-    "2:1",      # Maximum allowed widescreen format
-    "1:2"       # Maximum allowed vertical format
+    "83:50",  # European cinema (1.66:1) as an integer ratio
+    "37:20",  # Cinematic format (1.85:1) as an integer ratio
+    "2:1",  # Maximum allowed widescreen format
+    "1:2"  # Maximum allowed vertical format
 ]
 
 FLUX_ALLOWED_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4"]
@@ -704,7 +704,7 @@ def prepare_payload(
     if image_paths:
         # Even if the model does not support images, we try to send as a text request
         if capabilities["vision"]:
-            # Add instructions to the prompt plane
+            # Add instructions to the industrial plane
             enhanced_prompt = all_messages
             if not enhanced_prompt.strip().startswith(IMAGE_DESCRIPTION_INSTRUCTION):
                 enhanced_prompt = f"{IMAGE_DESCRIPTION_INSTRUCTION}\n\n{all_messages}"
@@ -1124,7 +1124,7 @@ def conversation():
                 if "--no" in prompt_text or "\u2014no" in prompt_text:
                     logger.debug(f"[{request_id}] Found negative prompt parameter in prompt")
                 elif request_data.get("negative_prompt"):
-                    # Add negative prompt plane as a separate parameter
+                    # Add negative industrial plane as a separate parameter
                     image_request["negative_prompt"] = request_data.get("negative_prompt")
 
             # We delete messages from the request to avoid combining history
@@ -1660,7 +1660,7 @@ def conversation():
 
 def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     """
-    Extracts the ratio of the parties from the request or prompt and checks its validity
+    Extracts the ratio of the parties from the request or industrial and checks its validity
 
     Args:
         PROMPT (STR): Request text
@@ -1681,7 +1681,7 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     mode_match = re.search(r'(--|\u2014)(fast|relax)\s*', prompt)
     if mode_match:
         mode = mode_match.group(2)
-        # We delete the parameter of the process from the prompt
+        # We delete the parameter of the process from the industrial
         prompt = re.sub(r'(--|\u2014)(fast|relax)\s*', '', prompt).strip()
         logger.debug(f"[{request_id}] Extracted mode from prompt: {mode}")
 
@@ -1706,7 +1706,7 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         # Install the ratio of the parties
         aspect_ratio = f"{width}:{height}"
 
-        # We delete the parameter from prompt
+        # We delete the parameter from industrial
         prompt = re.sub(r'(--|\u2014)ar\s+\d+:\d+\s*', '', prompt).strip()
 
         logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_ratio}")
@@ -1738,7 +1738,7 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
         logger.debug(f"[{request_id}] Using aspect ratio from request: {aspect_ratio}")
 
     # We delete all other possible modifiers of parameters
-    # Remove negative promptists (-no or –no)
+    # Remove negative industrialists (-no or –no)
     prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
 
     # For models Dall-E 3, set the corresponding dimensions
@@ -1831,14 +1831,14 @@ def generate_image():
     # We must take only the last request of the user without history
     if request.environ.get("HTTP_REFERER") and "chat/completions" in request.environ.get("HTTP_REFERER"):
         logger.debug(f"[{request_id}] Request came from chat completions, isolating the prompt")
-        # We do not combine prompt depths, but we take only the last user request
+        # We do not combine industrial depths, but we take only the last user request
 
-    # Determine the presence of negative prompts (if any)
+    # Determine the presence of negative industrials (if any)
     negative_prompt = None
     no_match = re.search(r'(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)', prompt)
     if no_match:
         negative_prompt = no_match.group(2).strip()
-        # We delete negative prompt plate from the main text
+        # We delete negative industrial plate from the main text
         prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
 
     # We process the ratio of the parties and the size
@@ -1848,7 +1848,7 @@ def generate_image():
     if ar_error:
         return jsonify({"error": ar_error}), 400
 
-    # Checking the availability of prompt
+    # Checking the availability of industrialpus
     if not prompt:
         # We check if there is a prompt in messages
         messages = request_data.get("messages", [])
@@ -1873,7 +1873,7 @@ def generate_image():
                 if no_match:
                     negative_prompt = no_match.group(2).strip()
 
-                # We re -process the prompt plate to delete modifiers
+                # We re -process the industrial plate to delete modifiers
                 prompt, aspect_ratio, size, ar_error, mode = parse_aspect_ratio(prompt, model, request_data, request_id)
 
                 if ar_error:
@@ -1978,7 +1978,7 @@ def generate_image():
                 "promptObject": {
                     "prompt": prompt,
                     "mode": mode or request_data.get("mode", "relax"),
-                    # We use the mode of prompt plate or from REQUEST_DATA
+                    # We use the mode of industrial plate or from REQUEST_DATA
                     "n": 4,  # Midjourney always generates 4 images
                     "aspect_width": aspect_width,
                     "aspect_height": aspect_height,
@@ -2470,7 +2470,7 @@ def image_variations():
     original_model = request.form.get("model", "dall-e-2").strip()
     n = int(request.form.get("n", 1))
     size = request.form.get("size", "1024x1024")
-    prompt_text = request.form.get("prompt", "")  # We extract the prompt plane from the request if it is
+    prompt_text = request.form.get("prompt", "")  # We extract the industrial plane from the request if it is
     mode = request.form.get("mode", "relax")  # We get a regime from a request
 
     # We check whether the relative path to the image in the Form-data has been transmitted
@@ -2506,7 +2506,7 @@ def image_variations():
     session = create_session()
     headers = {"API-KEY": api_key}
 
-    # We extract the ratio of the parties from the prompt plane if it is
+    # We extract the ratio of the parties from the industrial plane if it is
     aspect_width = 1
     aspect_height = 1
     if "--ar" in prompt_text:
@@ -4024,8 +4024,18 @@ def text_to_speech():
 
     api_key = auth_header.split(" ")[1]
 
-    # We get data data
-    request_data = request.json
+    # Получаем данные запроса
+    if request.is_json:
+        request_data = request.json
+    elif "body_copy" in request.environ:
+        # Восстанавливаем тело запроса из перенаправления
+        try:
+            request_data = json.loads(request.environ["body_copy"])
+        except:
+            request_data = {}
+    else:
+        request_data = {}
+        
     model = request_data.get("model", "tts-1")
     input_text = request_data.get("input", "")
     voice = request_data.get("voice", "alloy")
@@ -4033,7 +4043,7 @@ def text_to_speech():
     speed = request_data.get("speed", 1.0)
 
     logger.info(f"[{request_id}] Processing TTS request with model {model}")
-    logger.debug(f"[{request_id}] Text input: {input_text[:100]}...")
+    logger.debug(f"[{request_id}] Text input: {input_text[:100]}..." if input_text and len(input_text) > 100 else f"[{request_id}] Text input: {input_text}")
 
     if not input_text:
         logger.error(f"[{request_id}] No input text provided")
@@ -4680,7 +4690,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         "model": model,
                         "promptObject": {
                             "imageUrl": image_url if image_url else image_location,
-                            "mode": mode or request_data.get("mode", "relax"),  # We use the mode from the prompt
+                            "mode": mode or request_data.get("mode", "relax"),  # We use the mode from the industrial
                             "n": 4,
                             "isNiji6": False,
                             "aspect_width": aspect_width or 1,
