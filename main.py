@@ -970,21 +970,49 @@ def conversation():
                     if msg.get("role") == "assistant" and msg.get("content"):
                         # Looking for all URL images in the content of the assistant message
                         content = msg.get("content", "")
-                        url_matches = re.findall(r'!\[.*?\]\((https?://[^\s)]+)', content)
-
-                        if url_matches:
-                            # Check the number of URL found
-                            if len(url_matches) >= variation_number:
+                        # We use a more specific regular expression to search for images with the corresponding numbers
+                        image_urls = []
+                        # First, we are looking for all URL images in standard Markdown format
+                        url_matches = re.findall(r'!\[(?:Variation\s*(\d+)|[^]]*)\]\((https?://[^\s)]+)', content)
+                        
+                        # We convert the results to the list, taking into account variation rooms
+                        for match in url_matches:
+                            # If there is a variation number, we use it for indexing
+                            variation_num = None
+                            if match[0]:  # If the variation number was found
+                                try:
+                                    variation_num = int(match[0].strip())
+                                except ValueError:
+                                    pass
+                            
+                            # URL always the second element of the group
+                            url = match[1]
+                            
+                            # Add to the list with the corresponding index or simply add to the end
+                            if variation_num and 0 < variation_num <= 10:  # Limit up to 10 variations maximum
+                                # We expand the list to the desired length, if necessary
+                                while len(image_urls) < variation_num:
+                                    image_urls.append(None)
+                                image_urls[variation_num-1] = url
+                            else:
+                                image_urls.append(url)
+                        
+                        # We delete all None values ​​from the list
+                        image_urls = [url for url in image_urls if url is not None]
+                        
+                        if image_urls:
+                            # Check the URL number
+                            if len(image_urls) >= variation_number:
                                 # We take the URL corresponding to the requested number
-                                image_url = url_matches[variation_number - 1]
+                                image_url = image_urls[variation_number - 1]
                                 logger.debug(
                                     f"[{request_id}] Found image URL #{variation_number} in assistant message: {image_url}")
                                 break
                             else:
                                 # Not enough URL for the requested number, we take the first
-                                image_url = url_matches[0]
+                                image_url = image_urls[0]
                                 logger.warning(
-                                    f"[{request_id}] Requested variation #{variation_number} but only found {len(url_matches)} URLs. Using first URL: {image_url}")
+                                    f"[{request_id}] Requested variation #{variation_number} but only found {len(image_urls)} URLs. Using first URL: {image_url}")
                                 break
 
                 if image_url:
