@@ -168,7 +168,7 @@ if memcached_available:
     except (ImportError, AttributeError, Exception) as e:
         logger.error(f"Error initializing pymemcache client: {str(e)}")
         try:
-            # If it doesn’t work out, we try Python-Memcache
+            # If it doesn't work out, we try Python-Memcache
             # We extract a host and a port from URI without using. Split ('@')
             if memcached_uri.startswith('memcached://'):
                 host_port = memcached_uri.replace('memcached://', '')
@@ -197,8 +197,8 @@ ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
 # Add Constant Tamout used in the API_Request API
-DEFAULT_TIMEOUT = 30
-MIDJOURNEY_TIMEOUT = 900  # 15 minutes for requests for Midjourney
+DEFAULT_TIMEOUT = 60  # 60 seconds for regular requests
+MIDJOURNEY_TIMEOUT = 600  # 10 minutes for requests for Midjourney
 
 # Constants for query types
 IMAGE_GENERATOR = "IMAGE_GENERATOR"
@@ -2161,154 +2161,50 @@ def generate_image():
         logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:500]}")
 
         # We set parameters for repeated attempts
-        max_retries = 3
+        max_retries = 1  # Только одна попытка для всех моделей
         retry_count = 0
-        retry_delay = 5  # Start with 5 seconds between repetitions
-        start_time = time.time()  # We remember the start time to track the total waiting time
+        start_time = time.time()  # Запоминаем время начала для отслеживания общего времени ожидания
 
-        # For Midjourney and Leonardo models, we do not make repeated requests, as they are executed longer
-        if model.startswith("midjourney") or model.startswith("dall-e") or model.startswith("flux") or model.startswith("stable-diffusion") or model in [
-            "6b645e3a-d64f-4341-a6d8-7a3690fbf042", "phoenix",  # Leonardo.ai - Phoenix
-            "b24e16ff-06e3-43eb-8d33-4416c2d75876", "lightning-xl",  # Leonardo.ai - Lightning XL
-            "5c232a9e-9061-4777-980a-ddc8e65647c6", "vision-xl",  # Leonardo.ai - Vision XL
-            "e71a1c2f-4f80-4800-934f-2c68979d8cc8", "anime-xl",  # Leonardo.ai - Anime XL
-            "1e60896f-3c26-4296-8ecc-53e2afecc132", "diffusion-xl",  # Leonardo.ai - Diffusion XL
-            "aa77f04e-3eec-4034-9c07-d0f619684628", "kino-xl",  # Leonardo.ai - Kino XL
-            "2067ae52-33fd-4a82-bb92-c2c55e7d2786", "albedo-base-xl"  # Leonardo.ai - Albedo Base XL
-        ]:
-            max_retries = 1  # For these models we make only one attempt
-
-        while retry_count < max_retries:
-            try:
-                # We send a request with a timeout
-                response = api_request(
-                    "POST", 
-                    api_url, 
-                    headers=headers, 
-                    json=payload, 
-                    timeout=timeout,
-                    stream=False
-                )
-                
-                logger.debug(f"[{request_id}] Response status code: {response.status_code}")
-                
-                # If a successful answer is received, we process it
-                if response.status_code == 200:
-                    break
-                
-                # For Midjourney, we return the error immediately without repeated attempts
-                if model.startswith("midjourney"):
-                    # For error 504 (Gateway Timeout), we do not think for a mistake
-                    # We just continue to wait until the complete timeout
-                    if response.status_code == 504:
-                        logger.warning(
-                            f"[{request_id}] Получен 504 Gateway Timeout для Midjourney. Это нормальное состояние - продолжаем ожидание полного таймаута {MIDJOURNEY_TIMEOUT}с."
-                        )
-                        # Check how much time has passed since the beginning of the request
-                        elapsed_time = time.time() - start_time
-                        remaining_time = MIDJOURNEY_TIMEOUT - elapsed_time
-                        
-                        if remaining_time > 0:
-                            logger.info(f"[{request_id}] Продолжаем ожидание: прошло {elapsed_time:.1f}с из {MIDJOURNEY_TIMEOUT}с, осталось {remaining_time:.1f}с")
-                            # Here we simply return 504 so that the client can check the results later
-                            return (
-                                jsonify({"error": "Image generation is still in progress. Please check back later."}),
-                                504,
-                            )
+        try:
+            # Отправляем запрос с таймаутом
+            response = api_request(
+                "POST", 
+                api_url, 
+                headers=headers, 
+                json=payload, 
+                timeout=timeout,
+                stream=False
+            )
+            
+            logger.debug(f"[{request_id}] Response status code: {response.status_code}")
+            
+            # Если получен успешный ответ, обрабатываем его
+            if response.status_code == 200:
+                one_min_response = response.json()
+            else:
+                # Для любых ошибок сразу возвращаем ответ
+                error_msg = "Unknown error"
+                try:
+                    error_data = response.json()
+                    if "error" in error_data:
+                        error_msg = error_data["error"]
+                except:
+                    pass
                     
-                    # For other errors, we return the error right away
-                    error_msg = "Unknown error"
-                    try:
-                        error_data = response.json()
-                        if "error" in error_data:
-                            error_msg = error_data["error"]
-                    except:
-                        pass
-                    return (
-                        jsonify({"error": error_msg}),
-                        response.status_code,
-                    )
-                    
-                # If error 429 (Rate Limit) or 500 (server error), we repeat the request
-                elif response.status_code in [429, 500, 502, 503, 504]:
-                    # For Midjourney and Code 504, we continue to wait instead of a second request
-                    if response.status_code == 504 and model.startswith("midjourney"):
-                        elapsed_time = time.time() - start_time
-                        remaining_time = MIDJOURNEY_TIMEOUT - elapsed_time
-                        logger.warning(
-                            f"[{request_id}] Получен 504 Gateway Timeout для Midjourney в блоке обработки ошибок. Прошло {elapsed_time:.1f}с, осталось {remaining_time:.1f}с"
-                        )
-                        if remaining_time > 0:
-                            return (
-                                jsonify({"error": "Image generation is still in progress. Please check back later."}),
-                                504,
-                            )
-                        else:
-                            logger.error(f"[{request_id}] Превышен полный таймаут {MIDJOURNEY_TIMEOUT}с после получения 504")
-                            return jsonify({"error": f"Image generation timed out after {MIDJOURNEY_TIMEOUT}s"}), 500
-                    
-                    # For all other mistakes, we make a second attempt
-                    retry_count += 1
-                    logger.warning(
-                        f"[{request_id}] Received {response.status_code} error, retry {retry_count}/{max_retries}"
-                    )
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # We increase the waiting time exponally
-                    continue
-                    
-                # For other errors, we return the answer right away
-                elif response.status_code == 401:
+                if response.status_code == 401:
                     return ERROR_HANDLER(1020, key=api_key)
                 else:
-                    error_msg = "Unknown error"
-                    try:
-                        error_data = response.json()
-                        if "error" in error_data:
-                            error_msg = error_data["error"]
-                    except:
-                        pass
                     return (
                         jsonify({"error": error_msg}),
                         response.status_code,
                     )
-            except Exception as e:
-                retry_count += 1
-                logger.warning(
-                    f"[{request_id}] Exception during API request: {str(e)}, retry {retry_count}/{max_retries}"
-                )
-                time.sleep(retry_delay)
-                retry_delay *= 2
-                
-                # For Midjourney models, we do not repeat requests even with exceptions
-                if model.startswith("midjourney"):
-                    # Check if the complete timout has expired
-                    elapsed_time = time.time() - start_time
-                    remaining_time = MIDJOURNEY_TIMEOUT - elapsed_time
                     
-                    # If there is time left until a complete timeout, we inform the client to continue waiting
-                    if remaining_time > 0:
-                        logger.warning(f"[{request_id}] Сетевая ошибка при запросе к Midjourney: {str(e)}. Ожидание продолжается, осталось {remaining_time:.1f}с из {MIDJOURNEY_TIMEOUT}с")
-                        return (
-                            jsonify({"error": "Image generation is still in progress. Network error occurred, but processing continues. Please check back later."}),
-                            504,
-                        )
-                    
-                    # If time has expired, we report an error
-                    logger.error(f"[{request_id}] Превышен полный таймаут {MIDJOURNEY_TIMEOUT}с для запроса к Midjourney: {str(e)}")
-                    return jsonify({"error": f"API request timed out after {MIDJOURNEY_TIMEOUT}s: {str(e)}"}), 500
-                    
-                continue
-                
-        # If after all attempts we still get mistakes
-        if retry_count >= max_retries and (not 'response' in locals() or response.status_code != 200):
-            logger.error(f"[{request_id}] Max retries exceeded for image generation request")
-            return jsonify({"error": "Failed to generate image after multiple attempts"}), 500
+        except Exception as e:
+            logger.error(f"[{request_id}] Exception during API request: {str(e)}")
+            return jsonify({"error": f"API request failed: {str(e)}"}), 500
 
-        one_min_response = response.json()
-
-        # Converting 1min.ai response into Openai format
         try:
-            # We get all the URL images if they are available
+            # Получаем все URL изображений если они доступны
             image_urls = []
             
             # Check if the response of an array of URL images
@@ -2826,14 +2722,7 @@ def image_variations():
                 )
 
                 if variation_response.status_code != 200:
-                    # We process the 504 error for Midjourney in a special way
-                    if variation_response.status_code == 504 and model.startswith("midjourney"):
-                        logger.warning(f"[{request_id}] Получен 504 Gateway Timeout для вариаций Midjourney. Продолжаем ожидание.")
-                        return (
-                            jsonify({"error": "Image variation is still in progress. Please check back later."}),
-                            504,
-                        )
-                    # For other errors, we continue to try the next model
+                    # Для любых ошибок, включая 504, просто пробуем следующую модель
                     logger.error(f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
                     continue
 
@@ -3863,7 +3752,7 @@ def audio_transcriptions():
                 # If result_text is a json line, we rush it
                 if result_text and result_text.strip().startswith("{"):
                     parsed_json = json.loads(result_text)
-                    # If Parsed_json has a “Text” field, we use its value
+                    # If Parsed_json has a "Text" field, we use its value
                     if "text" in parsed_json:
                         result_text = parsed_json["text"]
                         logger.debug(f"[{request_id}] Extracted inner text from JSON: {result_text}")
