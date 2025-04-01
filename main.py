@@ -2823,23 +2823,38 @@ def image_variations():
         if not url:
             continue
             
+        # Сохраняем относительный путь для API, но создаем полный URL для отображения
+        relative_url = url
         # Если URL содержит домен, извлекаем относительный путь
         if "asset.1min.ai/" in url:
             relative_url = url.split('asset.1min.ai/', 1)[1]
             # Удаляем начальный слеш, если он есть
             if relative_url.startswith('/'):
                 relative_url = relative_url[1:]
-            full_variation_urls.append(relative_url)
         # Если URL уже без домена, но начинается со слеша, убираем слеш
         elif url.startswith('/'):
-            full_variation_urls.append(url[1:])
+            relative_url = url[1:]
+        
+        # Создаем полный URL для отображения пользователю
+        if not url.startswith("http"):
+            if url.startswith("/"):
+                full_url = f"{asset_host}{url}"
+            else:
+                full_url = f"{asset_host}/{url}"
         else:
-            full_variation_urls.append(url)
+            full_url = url
+            
+        # Сохраняем относительный путь и полный URL
+        full_variation_urls.append({
+            "relative_path": relative_url,
+            "full_url": full_url
+        })
 
     # We form an answer in Openai format
     openai_data = []
-    for url in full_variation_urls:
-        openai_data.append({"url": url})
+    for url_data in full_variation_urls:
+        # Используем относительный путь для API
+        openai_data.append({"url": url_data["relative_path"]})
 
     openai_response = {
         "created": int(time.time()),
@@ -2849,15 +2864,17 @@ def image_variations():
     # Add the text with variation buttons for Markdown Object
     markdown_text = ""
     if len(full_variation_urls) == 1:
-        markdown_text = f"![Variation]({full_variation_urls[0]}) `[_V1_]`"
+        # Используем полный URL для отображения
+        markdown_text = f"![Variation]({full_variation_urls[0]['full_url']}) `[_V1_]`"
         # Add a hint to create variations
         markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]** and send it (paste) in the next **prompt**"
     else:
         # We form a text with images and buttons of variations on one line
         image_lines = []
         
-        for i, url in enumerate(full_variation_urls):
-            image_lines.append(f"![Variation {i+1}]({url}) `[_V{i+1}_]`")
+        for i, url_data in enumerate(full_variation_urls):
+            # Используем полный URL для отображения
+            image_lines.append(f"![Variation {i+1}]({url_data['full_url']}) `[_V{i+1}_]`")
         
         # Combine lines with a new line between them
         markdown_text = "\n".join(image_lines)
