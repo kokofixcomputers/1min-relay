@@ -1,6 +1,23 @@
 # 1min-Relay
 Relay 1min AI API to OpenAI Structure in 1 minute.
+---
+## NEW
 
+- support of almost all models in 1minAI API
+- support of voice models (TTS and STT)
+- support of IMAGE_GENERATOR models (also works from `/v1/chat/conversations` route)
+- support of IMAGE_VARIATOR models
+- support of files (assets) upload
+- support of webSearch / site crawling and function_callings (tools)
+- support of CHAT_WITH_IMAGE and CHAT_WITH_PDF
+---
+## TO DO
+- IMAGE_UPSCALE / IMAGE_EDIT / IMAGE_EXTEND
+- MUSIC_GENERATOR / VIDEO_GENERATOR
+- all other models
+- code intrpreter / advanced data analysis
+- fixing errors
+---
 Don't forget to star this repository if you like it! 
 
 Oh and by the way, join our discord server for support and updates!
@@ -26,7 +43,7 @@ Oh and by the way, join our discord server for support and updates!
 
 Clone the git repo into your machine with:
 ```bash
-git clone https://github.com/kokofixcomputers/1min-relay.git
+git clone https://github.com/chelaxian/1min-relay.git
 ```
 
 ### Bare-metal
@@ -47,7 +64,7 @@ Running 1min-relay in docker is the easiet method. Please note that the connecti
 
 1. Pull the Docker Image:
 ```bash
-docker pull kokofixcomputers/1min-relay:latest
+docker pull chelaxian/1min-relay:latest
 ```
 
 2. To encrease security, 1min-relay will require it's own network to be able to communicate with memcached.
