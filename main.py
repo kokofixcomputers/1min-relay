@@ -1201,23 +1201,36 @@ def conversation():
                     logger.error(f"[{request_id}] Could not extract audio URL from API response")
                     return jsonify({"error": "Could not extract audio URL"}), 500
                 
-                # Получаем аудио данные по URL
-                audio_response = api_request("GET", f"https://asset.1min.ai/{audio_url}")
+                # Вместо скачивания аудио, формируем ответ с markdown-ссылкой
+                logger.info(f"[{request_id}] Successfully generated speech audio URL: {audio_url}")
                 
-                if audio_response.status_code != 200:
-                    logger.error(f"[{request_id}] Failed to download audio: {audio_response.status_code}")
-                    return jsonify({"error": "Failed to download audio"}), 500
+                # Полный URL для аудио
+                full_audio_url = f"https://asset.1min.ai/{audio_url}"
                 
-                # Возвращаем аудио клиенту
-                logger.info(f"[{request_id}] Successfully generated speech audio")
+                # Формируем ответ в формате, аналогичном chat completions
+                completion_response = {
+                    "id": f"chatcmpl-{request_id}",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant", 
+                                "content": f"🔊 [Аудио сообщение]({full_audio_url})"
+                            },
+                            "finish_reason": "stop"
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": len(prompt_text.split()),
+                        "completion_tokens": 1,
+                        "total_tokens": len(prompt_text.split()) + 1
+                    }
+                }
                 
-                # Создаем ответ с аудио и правильным MIME-type
-                content_type = "audio/mpeg" if response_format == "mp3" else f"audio/{response_format}"
-                response_obj = make_response(audio_response.content)
-                response_obj.headers["Content-Type"] = content_type
-                set_response_headers(response_obj)
-                
-                return response_obj
+                return jsonify(completion_response)
                 
             except Exception as e:
                 logger.error(f"[{request_id}] Exception during TTS request: {str(e)}")
