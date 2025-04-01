@@ -62,6 +62,16 @@ def check_memcached_connection():
     Returns:
         Tuple: (Bool, Str) - (Is Memcache available, connection line or none)
     """
+    # Импортируем Client здесь, чтобы избежать ошибки name 'Client' is not defined
+    try:
+        from pymemcache.client.base import Client
+    except ImportError:
+        try:
+            from memcache import Client
+        except ImportError:
+            logger.error("Не удалось импортировать Client из pymemcache или memcache")
+            return False, None
+            
     # Check Docker Memcache
     try:
         client = Client(("memcached", 11211))
@@ -192,6 +202,9 @@ ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/strea
 # Add Constant Tamout used in the API_Request API
 DEFAULT_TIMEOUT = 120 # 120 seconds for regular requests
 MIDJOURNEY_TIMEOUT = 900  # 15 minutes for requests for Midjourney
+
+# Глобальное хранилище для использования, когда memcached недоступен
+MEMORY_STORAGE = {}
 
 # Constants for query types
 IMAGE_GENERATOR = "IMAGE_GENERATOR"
@@ -1065,23 +1078,28 @@ def conversation():
                             "model": model,
                             "promptObject": {
                                 "imageUrl": relative_path,
-                                "mode": "fast",  # По умолчанию режим relax
+                                "mode": "fast",  # По умолчанию режим fast
                                 "n": 4,
                                 "isNiji6": False,
-                                "aspect_width": 1,  # По умолчанию квадратное соотношение
-                                "aspect_height": 1,
+                                "aspect_width": 1,  # По умолчанию 1:1
+                                "aspect_height": 1,  # По умолчанию 1:1
                                 "maintainModeration": True
                             }
                         }
                         
                         # Используем параметры из memcached, если они доступны
                         if saved_params:
+                            logger.info(f"[{request_id}] Using saved parameters from original generation: {saved_params}")
                             # Перенесем все сохраненные параметры
                             for param in ["mode", "aspect_width", "aspect_height", "isNiji6", "maintainModeration"]:
                                 if param in saved_params:
                                     payload["promptObject"][param] = saved_params[param]
-                            
-                            logger.info(f"[{request_id}] Using saved parameters from original generation: {saved_params}")
+                                    logger.info(f"[{request_id}] Set parameter {param}={saved_params[param]} from saved generation")
+                        else:
+                            logger.info(f"[{request_id}] No saved parameters found, using default ratio 1:1 for Midjourney variations")
+                            # Используем соотношение 1:1
+                            payload["promptObject"]["aspect_width"] = 1
+                            payload["promptObject"]["aspect_height"] = 1
                         
                         # Отправляем запрос на вариацию напрямую
                         logger.info(f"[{request_id}] Sending direct Midjourney variation request: {json.dumps(payload)}")
@@ -2592,7 +2610,7 @@ def generate_image():
             )
             
             # Сохраняем параметры генерации изображения в memcached для последующего использования в вариациях
-            if model in ["midjourney", "midjourney_6_1"] and 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+            if model in ["midjourney", "midjourney_6_1"]:
                 try:
                     # Сохраняем параметры для каждого сгенерированного изображения
                     for url in image_urls:
@@ -2612,7 +2630,8 @@ def generate_image():
                                 }
                                 
                                 gen_params_key = f"gen_params:{image_id}"
-                                safe_memcached_operation('set', gen_params_key, json.dumps(gen_params), time=3600*24*7)  # Храним 7 дней
+                                # Используем обновленную версию safe_memcached_operation с параметром expiry
+                                safe_memcached_operation('set', gen_params_key, gen_params, expiry=3600*24*7)  # Храним 7 дней
                                 logger.info(f"[{request_id}] Saved generation parameters for image {image_id}: {gen_params}")
                 except Exception as e:
                     logger.error(f"[{request_id}] Error saving generation parameters: {str(e)}")
@@ -4799,29 +4818,63 @@ def handle_file_content(file_id):
 
 
 # Closter function for safe access to Memcache
-def safe_memcached_operation(operation, *args, **kwargs):
+def safe_memcached_operation(operation, key, value=None, expiry=3600):
     """
-    Safely performs the operation with Memcache, processing possible errors.
-
+    Safely performs operations on memcached, handling any exceptions.
+    
     Args:
-        Operation: The name of the Memcached method to execute
-        *args, ** kwargs: arguments for the method
-
+        operation (str): The operation to perform ('get', 'set', or 'delete')
+        key (str): The key to operate on
+        value (any, optional): The value to set (only for 'set' operation)
+        expiry (int, optional): Expiry time in seconds (only for 'set' operation)
+    
     Returns:
-        Operation result or None in case of error
+        The result of the operation or None if it failed
     """
-    if 'MEMCACHED_CLIENT' not in globals() or MEMCACHED_CLIENT is None:
+    if MEMCACHED_CLIENT is None:
+        # Если memcached недоступен, используем локальное хранилище
+        if operation == 'get':
+            return MEMORY_STORAGE.get(key, None)
+        elif operation == 'set':
+            MEMORY_STORAGE[key] = value
+            logger.info(f"Сохранено в MEMORY_STORAGE: ключ={key}")
+            return True
+        elif operation == 'delete':
+            if key in MEMORY_STORAGE:
+                del MEMORY_STORAGE[key]
+                return True
+            return False
         return None
-
+    
     try:
-        method = getattr(MEMCACHED_CLIENT, operation, None)
-        if method is None:
-            logger.error(f"Memcached operation '{operation}' not found")
-            return None
-
-        return method(*args, **kwargs)
+        if operation == 'get':
+            result = MEMCACHED_CLIENT.get(key)
+            if isinstance(result, bytes):
+                try:
+                    return json.loads(result.decode('utf-8'))
+                except:
+                    return result.decode('utf-8')
+            return result
+        elif operation == 'set':
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value)
+            return MEMCACHED_CLIENT.set(key, value, time=expiry)
+        elif operation == 'delete':
+            return MEMCACHED_CLIENT.delete(key)
     except Exception as e:
-        logger.error(f"Error in memcached operation '{operation}': {str(e)}")
+        logger.error(f"Error in memcached operation {operation} on key {key}: {str(e)}")
+        # При ошибке memcached тоже используем локальное хранилище
+        if operation == 'get':
+            return MEMORY_STORAGE.get(key, None)
+        elif operation == 'set':
+            MEMORY_STORAGE[key] = value
+            logger.info(f"Сохранено в MEMORY_STORAGE из-за ошибки memcached: ключ={key}")
+            return True
+        elif operation == 'delete':
+            if key in MEMORY_STORAGE:
+                del MEMORY_STORAGE[key]
+                return True
+            return False
         return None
 
 
