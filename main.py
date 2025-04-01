@@ -1066,9 +1066,21 @@ def conversation():
                                 
                                 # Check the presence of parameters in Memory_Storage directly
                                 if gen_params_key in MEMORY_STORAGE:
-                                    logger.info(f"[{request_id}] Found in MEMORY_STORAGE: {MEMORY_STORAGE[gen_params_key]}")
-                                    saved_params = MEMORY_STORAGE[gen_params_key]
-                                    logger.info(f"[{request_id}] Using parameters directly from MEMORY_STORAGE: {saved_params}")
+                                    stored_value = MEMORY_STORAGE[gen_params_key]
+                                    logger.info(f"[{request_id}] Found in MEMORY_STORAGE (type: {type(stored_value)}): {stored_value}")
+                                    
+                                    # If the value is a line, we try to convert it into a python dictionary
+                                    if isinstance(stored_value, str):
+                                        try:
+                                            saved_params = json.loads(stored_value)
+                                            logger.info(f"[{request_id}] Successfully parsed JSON string to dict")
+                                        except Exception as e:
+                                            logger.error(f"[{request_id}] Failed to parse JSON string: {e}")
+                                            saved_params = stored_value
+                                    else:
+                                        saved_params = stored_value
+                                        
+                                    logger.info(f"[{request_id}] Using parameters directly from MEMORY_STORAGE (type: {type(saved_params)}): {saved_params}")
                                 else:
                                     # If you are not found in Memory_Storage, we try it through Safe_memcache_oporation
                                     logger.info(f"[{request_id}] Not found in MEMORY_STORAGE, trying safe_memcached_operation")
@@ -5400,3 +5412,7 @@ If does not work, try:
     serve(
         app, host="0.0.0.0", port=PORT, threads=6
     )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
+
+
+
+
