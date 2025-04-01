@@ -1145,9 +1145,21 @@ def conversation():
                 request_data["input"] = prompt_text
                 logger.debug(f"[{request_id}] Setting TTS input: {prompt_text[:100]}..." if len(
                     prompt_text) > 100 else f"[{request_id}] Setting TTS input: {prompt_text}")
-            # We maintain a modified request
-            request.environ["body_copy"] = json.dumps(request_data)
-            return redirect(url_for('text_to_speech'), code=307)
+            
+            # Сохраняем данные запроса в сессии Flask вместо request.environ
+            tts_session_key = f"tts_request_{request_id}"
+            session = {}
+            if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+                try:
+                    session_data = json.dumps(request_data)
+                    safe_memcached_operation('set', tts_session_key, session_data, time=300)  # 5 минут срок годности
+                    logger.debug(f"[{request_id}] Saved TTS request data to memcached with key: {tts_session_key}")
+                except Exception as e:
+                    logger.error(f"[{request_id}] Error saving TTS session data: {str(e)}")
+            
+            # Добавляем request_id как URL параметр для получения данных в /v1/audio/speech
+            redirect_url = url_for('text_to_speech', request_id=request_id)
+            return redirect(redirect_url, code=307)
 
         # For models of audio transcription (STT)
         if model in SPEECH_TO_TEXT_MODELS:
@@ -4014,7 +4026,7 @@ def text_to_speech():
     if request.method == "OPTIONS":
         return handle_options_request()
 
-    request_id = str(uuid.uuid4())[:8]
+    request_id = request.args.get('request_id', str(uuid.uuid4())[:8])
     logger.info(f"[{request_id}] Received request: /v1/audio/speech")
 
     auth_header = request.headers.get("Authorization")
@@ -4025,16 +4037,30 @@ def text_to_speech():
     api_key = auth_header.split(" ")[1]
 
     # Получаем данные запроса
-    if request.is_json:
-        request_data = request.json
-    elif "body_copy" in request.environ:
-        # Восстанавливаем тело запроса из перенаправления
+    request_data = {}
+    
+    # Проверяем наличие данных в memcached, если запрос был перенаправлен
+    if 'request_id' in request.args and 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+        tts_session_key = f"tts_request_{request.args.get('request_id')}"
         try:
-            request_data = json.loads(request.environ["body_copy"])
-        except:
-            request_data = {}
-    else:
-        request_data = {}
+            session_data = safe_memcached_operation('get', tts_session_key)
+            if session_data:
+                if isinstance(session_data, str):
+                    request_data = json.loads(session_data)
+                elif isinstance(session_data, bytes):
+                    request_data = json.loads(session_data.decode('utf-8'))
+                else:
+                    request_data = session_data
+                    
+                # Удаляем данные из кэша, они больше не нужны
+                safe_memcached_operation('delete', tts_session_key)
+                logger.debug(f"[{request_id}] Retrieved TTS request data from memcached")
+        except Exception as e:
+            logger.error(f"[{request_id}] Error retrieving TTS session data: {str(e)}")
+    
+    # Если данные не найдены в memcached, пробуем получить их из тела запроса
+    if not request_data and request.is_json:
+        request_data = request.json
         
     model = request_data.get("model", "tts-1")
     input_text = request_data.get("input", "")
