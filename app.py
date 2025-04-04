@@ -72,6 +72,11 @@ IMAGE_CACHE = {}  # Кэш для отслеживания обработанн�
 # Доступные модели
 AVAILABLE_MODELS = []
 
+# Создаем логгер на глобальном уровне
+logger = logging.getLogger("1min-relay")
+# Устанавливаем coloredlogs с нужным уровнем логирования
+coloredlogs.install(level="DEBUG", logger=logger)
+
 def create_app():
     """
     Создает и настраивает Flask-приложение с использованием фабричного паттерна.
@@ -87,12 +92,6 @@ def create_app():
     warnings.filterwarnings(
         "ignore", category=UserWarning, module="flask_limiter.extension"
     )
-    
-    # Создаем логгер
-    logger = logging.getLogger("1min-relay")
-    
-    # Устанавливаем coloredlogs с нужным уровнем логирования
-    coloredlogs.install(level="DEBUG", logger=logger)
     
     # Создаем Flask-приложение
     app = Flask(__name__)
