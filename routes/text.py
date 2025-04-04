@@ -4,15 +4,15 @@ import logging
 import os
 import random
 import re
+import socket
 import time
 import traceback
 import uuid
 
 import requests
 import tiktoken
-from flask import Blueprint, request, jsonify, make_response, Response
+from flask import Blueprint, request, jsonify, make_response, Response, redirect, url_for
 from flask_cors import cross_origin
-from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from mistral_common.protocol.instruct.messages import UserMessage
 from mistral_common.protocol.instruct.request import ChatCompletionRequest
@@ -24,27 +24,57 @@ from utils.common import (
     safe_temp_file, ERROR_HANDLER, handle_options_request, split_text_for_streaming
 )
 from utils.memcached import safe_memcached_operation
+from utils.constants import (
+    ONE_MIN_API_URL, ONE_MIN_CONVERSATION_API_URL, ONE_MIN_CONVERSATION_API_STREAMING_URL,
+    DOCUMENT_ANALYSIS_INSTRUCTION, IMAGE_DESCRIPTION_INSTRUCTION,
+    ALL_ONE_MIN_AVAILABLE_MODELS, VISION_SUPPORTED_MODELS, CODE_INTERPRETER_SUPPORTED_MODELS,
+    RETRIEVAL_SUPPORTED_MODELS, FUNCTION_CALLING_SUPPORTED_MODELS,
+    IMAGE_GENERATION_MODELS, SUBSET_OF_ONE_MIN_PERMITTED_MODELS
+)
 
 # Получаем логгер
 logger = logging.getLogger("1min-relay")
 
-# Константы
-ONE_MIN_API_URL = "https://api.1min.ai/api/features"
-ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
-ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
-DOCUMENT_ANALYSIS_INSTRUCTION = "Review the uploaded document and provide at least a general description of its content..."
-IMAGE_DESCRIPTION_INSTRUCTION = "Describe the scene, actions, text, or meme elements in the image..."
-
 # Создаем Blueprint для текстовых маршрутов
 text_bp = Blueprint('text', __name__)
 
-# Глобальные переменные
-from app import limiter, ALL_ONE_MIN_AVAILABLE_MODELS, vision_supported_models, code_interpreter_supported_models, \
-    retrieval_supported_models, function_calling_supported_models, PERMIT_MODELS_FROM_SUBSET_ONLY, \
-    SUBSET_OF_ONE_MIN_PERMITTED_MODELS
+# Глобальные переменные - будут импортированы в момент использования
+limiter = None
+PERMIT_MODELS_FROM_SUBSET_ONLY = False
+AVAILABLE_MODELS = []
+MEMORY_STORAGE = {}
+IMAGE_CACHE = {}
+MAX_CACHE_SIZE = 100
+
+def init_globals():
+    """Инициализирует глобальные переменные из app.py для предотвращения циклических импортов"""
+    global limiter, PERMIT_MODELS_FROM_SUBSET_ONLY, AVAILABLE_MODELS, MEMORY_STORAGE, IMAGE_CACHE, MAX_CACHE_SIZE
+    
+    # Импортируем только когда это необходимо
+    from app import (
+        limiter as app_limiter,
+        PERMIT_MODELS_FROM_SUBSET_ONLY as app_permit_models,
+        AVAILABLE_MODELS as app_available_models,
+        MEMORY_STORAGE as app_memory_storage,
+        IMAGE_CACHE as app_image_cache,
+        MAX_CACHE_SIZE as app_max_cache_size
+    )
+    
+    limiter = app_limiter
+    PERMIT_MODELS_FROM_SUBSET_ONLY = app_permit_models
+    AVAILABLE_MODELS = app_available_models
+    MEMORY_STORAGE = app_memory_storage
+    IMAGE_CACHE = app_image_cache
+    MAX_CACHE_SIZE = app_max_cache_size
+
+# Инициализация глобальных переменных выполняется при первом использовании функций,
+# требующих доступа к глобальным переменным из app.py
 
 @text_bp.route("/", methods=["GET", "POST"])
 def index():
+    # Инициализируем глобальные переменные при первом вызове
+    init_globals()
+    
     if request.method == "POST":
         return ERROR_HANDLER(1212)
     if request.method == "GET":
@@ -57,8 +87,14 @@ def index():
 
 
 @text_bp.route("/v1/models")
-@limiter.limit("60 per minute")
 def models():
+    # Инициализируем глобальные переменные при первом вызове
+    init_globals()
+    
+    # Применяем лимитер программно, так как он не доступен через декоратор
+    if limiter:
+        limiter.limit("60 per minute")(lambda: None)()
+    
     # Dynamically create the list of models with additional fields
     models_data = []
     if not PERMIT_MODELS_FROM_SUBSET_ONLY:
@@ -85,8 +121,14 @@ def models():
     return jsonify({"data": models_data, "object": "list"})
 
 @text_bp.route("/v1/chat/completions", methods=["POST"])
-@limiter.limit("60 per minute")
 def conversation():
+    # Инициализируем глобальные переменные при первом вызове
+    init_globals()
+    
+    # Применяем лимитер программно, так как он не доступен через декоратор
+    if limiter:
+        limiter.limit("60 per minute")(lambda: None)()
+    
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Received request: /v1/chat/completions")
 
@@ -841,7 +883,7 @@ def conversation():
                     logger.debug(f"[{request_id}] Added text content from item {i + 1}")
 
                 if "image_url" in item:
-                    if model not in vision_supported_models:
+                    if model not in VISION_SUPPORTED_MODELS:
                         logger.error(
                             f"[{request_id}] Model {model} does not support images"
                         )
@@ -1262,8 +1304,14 @@ def conversation():
         )
 
 @text_bp.route("/v1/assistants", methods=["POST", "OPTIONS"])
-@limiter.limit("60 per minute")
 def create_assistant():
+    # Инициализируем глобальные переменные при первом вызове
+    init_globals()
+    
+    # Применяем лимитер программно, так как он не доступен через декоратор
+    if limiter:
+        limiter.limit("60 per minute")(lambda: None)()
+    
     if request.method == "OPTIONS":
         return handle_options_request()
 
@@ -1384,10 +1432,10 @@ def get_model_capabilities(model):
     }
 
     # We check the support of each opportunity through the corresponding arrays
-    capabilities["vision"] = model in vision_supported_models
-    capabilities["code_interpreter"] = model in code_interpreter_supported_models
-    capabilities["retrieval"] = model in retrieval_supported_models
-    capabilities["function_calling"] = model in function_calling_supported_models
+    capabilities["vision"] = model in VISION_SUPPORTED_MODELS
+    capabilities["code_interpreter"] = model in CODE_INTERPRETER_SUPPORTED_MODELS
+    capabilities["retrieval"] = model in RETRIEVAL_SUPPORTED_MODELS
+    capabilities["function_calling"] = model in FUNCTION_CALLING_SUPPORTED_MODELS
 
     return capabilities
 
