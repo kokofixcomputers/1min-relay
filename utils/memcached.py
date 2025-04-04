@@ -35,8 +35,8 @@ def check_memcached_connection():
     Returns:
         tuple: (доступность (bool), URI (str))
     """
-    # Читаем конфигурацию мемкэша
-    memcached_host = os.getenv("MEMCACHED_HOST", "localhost")
+    # Читаем конфигурацию мемкэша из переменных окружения
+    memcached_host = os.getenv("MEMCACHED_HOST", "memcached")  # По умолчанию имя сервиса в docker-compose
     memcached_port = os.getenv("MEMCACHED_PORT", "11211")
     
     # Формируем URI
@@ -46,13 +46,33 @@ def check_memcached_connection():
     # Пытаемся подключиться
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(1)
-        s.connect((memcached_host, int(memcached_port)))
-        s.close()
-        # Успешно подключились
-        return True, memcached_uri
-    except (socket.error, socket.timeout) as e:
-        logger.warning(f"Failed to connect to Memcached: {str(e)}")
+        s.settimeout(2)  # Увеличиваем таймаут для надежности
+        try:
+            logger.debug(f"Attempting to connect to Memcached at {memcached_host}:{memcached_port}")
+            s.connect((memcached_host, int(memcached_port)))
+            s.close()
+            # Успешно подключились
+            logger.info(f"Successfully connected to Memcached at {memcached_host}:{memcached_port}")
+            return True, memcached_uri
+        except (socket.error, socket.timeout) as e:
+            # Если не удалось подключиться по имени сервиса, пробуем localhost
+            if memcached_host != "localhost":
+                logger.warning(f"Failed to connect to Memcached at {memcached_host}:{memcached_port}, trying localhost")
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(1)
+                    s.connect(("localhost", int(memcached_port)))
+                    s.close()
+                    logger.info(f"Successfully connected to Memcached at localhost:{memcached_port}")
+                    return True, f"memcached://localhost:{memcached_port}"
+                except (socket.error, socket.timeout) as e2:
+                    logger.warning(f"Failed to connect to Memcached at localhost: {str(e2)}")
+                    return False, memcached_uri
+            else:
+                logger.warning(f"Failed to connect to Memcached: {str(e)}")
+                return False, memcached_uri
+    except Exception as e:
+        logger.error(f"Unexpected error while connecting to Memcached: {str(e)}")
         return False, memcached_uri
 
 logger.info(
