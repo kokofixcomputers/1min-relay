@@ -1,5 +1,5 @@
-# version 1.0.1 #increment every time you make changes
-# 2025-04-02 01:30 #change to actual date and time every time you make changes
+# version 1.0.2 #increment every time you make changes
+# 2025-04-04 18:44 #change to actual date and time every time you make changes
 import base64
 import hashlib
 import json
@@ -31,6 +31,7 @@ from mistral_common.protocol.instruct.request import ChatCompletionRequest
 from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
 from waitress import serve
 from werkzeug.datastructures import MultiDict
+from flask_cors import cross_origin
 
 # We download the environment variables from the .env file
 load_dotenv()
@@ -488,7 +489,7 @@ def index():
 
 
 @app.route("/v1/models")
-@limiter.limit("500 per minute")
+@limiter.limit("60 per minute")
 def models():
     # Dynamically create the list of models with additional fields
     models_data = []
@@ -2201,7 +2202,7 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
 
 
 @app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
-@limiter.limit("500 per minute")
+@limiter.limit("60 per minute")
 def generate_image():
     """
     Route for generating images
@@ -2798,7 +2799,8 @@ def generate_image():
 
 
 @app.route("/v1/images/variations", methods=["POST", "OPTIONS"])
-@limiter.limit("500 per minute")
+@limiter.limit("60 per minute")
+@cross_origin()
 def image_variations():
     if request.method == "OPTIONS":
         return handle_options_request()
@@ -3171,7 +3173,7 @@ def image_variations():
                         "type": "IMAGE_VARIATOR",
                         "model": model,
                         "promptObject": {
-                            "imageUrl": relative_image_url,
+                            "imageUrl": relative_image_url if relative_image_url else image_url if image_url else image_location,
                             "mode": mode or "fast",
                             "n": 4,
                             "isNiji6": False,
@@ -3186,7 +3188,7 @@ def image_variations():
                         "type": "IMAGE_VARIATOR",
                         "model": "dall-e-2",
                         "promptObject": {
-                            "imageUrl": image_url if image_url else image_location,
+                            "imageUrl": relative_image_url if relative_image_url else image_url if image_url else image_location,
                             "n": 1,
                             "size": "1024x1024"
                         }
@@ -3197,7 +3199,7 @@ def image_variations():
                         "type": "IMAGE_VARIATOR",
                         "model": "clipdrop",
                         "promptObject": {
-                            "imageUrl": image_url if image_url else image_location
+                            "imageUrl": relative_image_url if relative_image_url else image_url if image_url else image_location,
                         }
                     }
                 else:
@@ -3206,7 +3208,7 @@ def image_variations():
                         "type": "IMAGE_VARIATOR",
                         "model": model,
                         "promptObject": {
-                            "imageUrl": image_url if image_url else image_location,
+                            "imageUrl": relative_image_url if relative_image_url else image_url if image_url else image_location,
                             "n": int(n)
                         }
                     }
@@ -3264,7 +3266,6 @@ def image_variations():
 
                 # We extract the URL variations - initialize an empty array before searching
                 variation_urls = []
-
                 # We are trying to find URL variations in the answer - various structures for different models
                 if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                     record_detail = variation_data["aiRecord"]["aiRecordDetail"]
@@ -3396,7 +3397,7 @@ def image_variations():
 
 
 @app.route("/v1/assistants", methods=["POST", "OPTIONS"])
-@limiter.limit("500 per minute")
+@limiter.limit("60 per minute")
 def create_assistant():
     if request.method == "OPTIONS":
         return handle_options_request()
@@ -3951,7 +3952,7 @@ def upload_document(file_data, file_name, api_key, request_id=None):
 
 
 @app.route("/v1/files", methods=["POST"])
-@limiter.limit("100 per minute")
+@limiter.limit("60 per minute")
 def upload_file():
     """
     File download route (analogue Openai Files API)
