@@ -1,0 +1,9 @@
+# Функции для работы с Memcached
+def check_memcached_connection():
+    # ...
+
+def safe_memcached_operation(operation, key, value=None, expiry=3600):
+    # ...
+
+def delete_all_files_task():
+    # ...
