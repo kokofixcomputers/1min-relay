@@ -1,6 +1,36 @@
 # Маршруты для работы с файлами
 # Functions for working with files in API
-@app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
+import json
+import logging
+import os
+import time
+import traceback
+import uuid
+
+import requests
+from flask import Blueprint, request, jsonify, make_response
+from flask_cors import cross_origin
+
+# Импорт из других модулей
+from utils.common import (
+    api_request, set_response_headers, create_session,
+    ERROR_HANDLER, handle_options_request
+)
+from utils.memcached import safe_memcached_operation
+
+# Получаем логгер
+logger = logging.getLogger("1min-relay")
+
+# Константы
+ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
+
+# Создаем Blueprint для файлов
+files_bp = Blueprint('files', __name__)
+
+# Глобальные переменные
+from app import limiter
+
+@files_bp.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
 @limiter.limit("60 per minute")
 def handle_files():
     """
@@ -111,7 +141,7 @@ def handle_files():
             logger.error(f"[{request_id}] Exception during file upload: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
-@app.route("/v1/files/<file_id>", methods=["GET", "DELETE", "OPTIONS"])
+@files_bp.route("/v1/files/<file_id>", methods=["GET", "DELETE", "OPTIONS"])
 @limiter.limit("60 per minute")
 def handle_file(file_id):
     """
@@ -237,7 +267,7 @@ def handle_file(file_id):
             logger.error(f"[{request_id}] Exception during file deletion: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
-@app.route("/v1/files/<file_id>/content", methods=["GET", "OPTIONS"])
+@files_bp.route("/v1/files/<file_id>/content", methods=["GET", "OPTIONS"])
 @limiter.limit("60 per minute")
 def handle_file_content(file_id):
     """
@@ -267,7 +297,7 @@ def handle_file_content(file_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/v1/files", methods=["POST"])
+@files_bp.route("/v1/files", methods=["POST"])
 @limiter.limit("60 per minute")
 def upload_file():
     """
