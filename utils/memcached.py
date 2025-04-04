@@ -1,4 +1,27 @@
 # Функции для работы с Memcached
+import json
+import logging
+import os
+import threading
+import time
+import traceback
+import uuid
+
+import requests
+
+# Создаем логгер
+logger = logging.getLogger("1min-relay")
+
+# Импорт констант
+from utils.constants import ONE_MIN_ASSET_URL
+
+# Импортируем необходимые функции
+from utils.common import api_request
+
+# Определение глобальной переменной, будет инициализирована позже
+MEMCACHED_CLIENT = None
+MEMORY_STORAGE = {}
+
 def check_memcached_connection():
     """
     Checks the availability of Memcache, first in DoCker, then locally
@@ -68,6 +91,8 @@ def safe_memcached_operation(operation, key, value=None, expiry=3600):
     Returns:
         The result of the operation or None if it failed
     """
+    global MEMCACHED_CLIENT, MEMORY_STORAGE
+    
     if MEMCACHED_CLIENT is None:
         # If Memcache is not available, we use the local storage
         if operation == 'get':
