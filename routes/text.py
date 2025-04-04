@@ -1,5 +1,49 @@
 # Маршруты для текстовых моделей
-@app.route("/", methods=["GET", "POST"])
+import json
+import logging
+import os
+import random
+import re
+import time
+import traceback
+import uuid
+
+import requests
+import tiktoken
+from flask import Blueprint, request, jsonify, make_response, Response
+from flask_cors import cross_origin
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from mistral_common.protocol.instruct.messages import UserMessage
+from mistral_common.protocol.instruct.request import ChatCompletionRequest
+from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
+
+# Импорт из других модулей
+from utils.common import (
+    calculate_token, api_request, set_response_headers, create_session,
+    safe_temp_file, ERROR_HANDLER, handle_options_request, split_text_for_streaming
+)
+from utils.memcached import safe_memcached_operation
+
+# Получаем логгер
+logger = logging.getLogger("1min-relay")
+
+# Константы
+ONE_MIN_API_URL = "https://api.1min.ai/api/features"
+ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
+ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
+DOCUMENT_ANALYSIS_INSTRUCTION = "Review the uploaded document and provide at least a general description of its content..."
+IMAGE_DESCRIPTION_INSTRUCTION = "Describe the scene, actions, text, or meme elements in the image..."
+
+# Создаем Blueprint для текстовых маршрутов
+text_bp = Blueprint('text', __name__)
+
+# Глобальные переменные
+from app import limiter, ALL_ONE_MIN_AVAILABLE_MODELS, vision_supported_models, code_interpreter_supported_models, \
+    retrieval_supported_models, function_calling_supported_models, PERMIT_MODELS_FROM_SUBSET_ONLY, \
+    SUBSET_OF_ONE_MIN_PERMITTED_MODELS
+
+@text_bp.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
         return ERROR_HANDLER(1212)
@@ -12,7 +56,7 @@ def index():
         )
 
 
-@app.route("/v1/models")
+@text_bp.route("/v1/models")
 @limiter.limit("60 per minute")
 def models():
     # Dynamically create the list of models with additional fields
@@ -40,7 +84,7 @@ def models():
     models_data.extend(one_min_models_data)
     return jsonify({"data": models_data, "object": "list"})
 
-@app.route("/v1/chat/completions", methods=["POST"])
+@text_bp.route("/v1/chat/completions", methods=["POST"])
 @limiter.limit("60 per minute")
 def conversation():
     request_id = str(uuid.uuid4())[:8]
@@ -1217,7 +1261,7 @@ def conversation():
             500,
         )
 
-@app.route("/v1/assistants", methods=["POST", "OPTIONS"])
+@text_bp.route("/v1/assistants", methods=["POST", "OPTIONS"])
 @limiter.limit("60 per minute")
 def create_assistant():
     if request.method == "OPTIONS":
