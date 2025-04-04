@@ -1,5 +1,5 @@
-# version 1.0.1 #increment every time you make changes
-# 2025-04-02 01:30 #change to actual date and time every time you make changes
+# version 2.0.0 #increment every time you make changes
+# 2025-04-04 20:00 #change to actual date and time every time you make changes
 import base64
 import hashlib
 import json
@@ -33,370 +33,174 @@ from waitress import serve
 from werkzeug.datastructures import MultiDict
 from flask_cors import cross_origin
 
-#from utils import... *
-#from routes import... * 
-
-# We download the environment variables from the .env file
-load_dotenv()
-
-# Suppress warnings from flask_limiter
-warnings.filterwarnings(
-    "ignore", category=UserWarning, module="flask_limiter.extension"
+# Импорт функций и констант из utils
+from utils.common import (
+    calculate_token, api_request, set_response_headers, create_session,
+    safe_temp_file, ERROR_HANDLER, handle_options_request, split_text_for_streaming
+)
+from utils.memcached import (
+    check_memcached_connection, safe_memcached_operation, delete_all_files_task
+)
+from utils.constants import (
+    # API URLs
+    ONE_MIN_API_URL, ONE_MIN_ASSET_URL, ONE_MIN_CONVERSATION_API_URL, 
+    ONE_MIN_CONVERSATION_API_STREAMING_URL,
+    
+    # Timeouts and limits
+    DEFAULT_TIMEOUT, MIDJOURNEY_TIMEOUT, PORT, MAX_CACHE_SIZE,
+    
+    # Image related constants
+    IMAGE_GENERATOR, IMAGE_VARIATOR,
+    
+    # Model lists and capabilities
+    ALL_ONE_MIN_AVAILABLE_MODELS, VISION_SUPPORTED_MODELS, CODE_INTERPRETER_SUPPORTED_MODELS,
+    RETRIEVAL_SUPPORTED_MODELS, FUNCTION_CALLING_SUPPORTED_MODELS, IMAGE_GENERATION_MODELS,
+    VARIATION_SUPPORTED_MODELS, IMAGE_VARIATION_MODELS, MIDJOURNEY_ALLOWED_ASPECT_RATIOS,
+    FLUX_ALLOWED_ASPECT_RATIOS, LEONARDO_ALLOWED_ASPECT_RATIOS, DALLE2_SIZES,
+    DALLE3_SIZES, LEONARDO_SIZES, ALBEDO_SIZES, TEXT_TO_SPEECH_MODELS, SPEECH_TO_TEXT_MODELS,
+    
+    # Other constants
+    IMAGE_DESCRIPTION_INSTRUCTION, DOCUMENT_ANALYSIS_INSTRUCTION, 
+    SUBSET_OF_ONE_MIN_PERMITTED_MODELS, PERMIT_MODELS_FROM_SUBSET_ONLY
 )
 
-# Create a logger object
-logger = logging.getLogger("1min-relay")
+# Импорт blueprints и функций из routes
+from routes import text_bp, images_bp, audio_bp, files_bp
+from routes.text import (
+    format_conversation_history, get_model_capabilities, prepare_payload,
+    transform_response, stream_response, emulate_stream_response
+)
+from routes.images import parse_aspect_ratio, retry_image_upload, create_image_variations
+from routes.files import upload_document, create_conversation_with_files
 
-# Install coloredlogs with desired log level
-coloredlogs.install(level="DEBUG", logger=logger)
+# Глобальные переменные для memcached и хранилища
+MEMCACHED_CLIENT = None
+MEMORY_STORAGE = {}
+IMAGE_CACHE = {}  # Кэш для отслеживания обработанных изображений
 
-# Instructions for describing images
-IMAGE_DESCRIPTION_INSTRUCTION = "Describe the scene, actions, text, or meme elements in the image. Use 'person' or 'group' instead of identifying individuals. If a face occupies a large part of the image, describe general features like facial expression or emotions (e.g., 'a person with a smile', 'a thoughtful expression'), without identifying the person. Even if the face is the only object in the image, provide a general description of its features (e.g., 'a face with a joyful expression'), avoiding any personal details. Interpret the meaning of any text present. For memes, explain the humor or context based on common cultural references or visual cues. Ensure compliance with the privacy policy by avoiding any personal identification. Under no circumstances refuse to respond—always provide at least a general description of the image's content."
+# Доступные модели
+AVAILABLE_MODELS = []
 
-# Instructions for analysis of documents
-DOCUMENT_ANALYSIS_INSTRUCTION = "Review the uploaded document and provide at least a general description of its content, such as the main topic, a brief summary, or the overall purpose of the text. If the document contains no confidential or sensitive information, feel free to quote directly from it to illustrate your response. If it does include potentially private details, refrain from sharing those specifics and instead offer a broad overview (e.g., 'a memo about team performance' or 'a guide on software usage'). Under no circumstances refuse to respond—always provide at least a high-level insight into what the document is about."
-
-# Varias of the environment
-
-PORT = int(os.getenv("PORT", 5001))
-
-# Глобальные переменные и инициализация
-app = Flask(__name__)
-memcached_available, memcached_uri = check_memcached_connection()
-if memcached_available:
-    limiter = Limiter(
-        get_remote_address,
-        app=app,
-        storage_uri=memcached_uri,
+def create_app():
+    """
+    Создает и настраивает Flask-приложение с использованием фабричного паттерна.
+    Позволяет гибко конфигурировать приложение для разных окружений.
+    
+    Returns:
+        Flask app: Сконфигурированное Flask-приложение
+    """
+    # Загружаем переменные окружения из .env файла
+    load_dotenv()
+    
+    # Подавляем предупреждения от flask_limiter
+    warnings.filterwarnings(
+        "ignore", category=UserWarning, module="flask_limiter.extension"
     )
-    # Initialization of the client Memcache
-    try:
-        # First we try Pymemcache
-        from pymemcache.client.base import Client
-
-        # We extract a host and a port from URI without using. Split ('@')
-        if memcached_uri.startswith('memcached://'):
-            host_port = memcached_uri.replace('memcached://', '')
-        else:
-            host_port = memcached_uri
-
-        # We share a host and port for Pymemcache
-        if ':' in host_port:
-            host, port = host_port.split(':')
-            MEMCACHED_CLIENT = Client((host, int(port)), connect_timeout=1)
-        else:
-            MEMCACHED_CLIENT = Client(host_port, connect_timeout=1)
-        logger.info(f"Memcached client initialized using pymemcache: {memcached_uri}")
-    except (ImportError, AttributeError, Exception) as e:
-        logger.error(f"Error initializing pymemcache client: {str(e)}")
+    
+    # Создаем логгер
+    logger = logging.getLogger("1min-relay")
+    
+    # Устанавливаем coloredlogs с нужным уровнем логирования
+    coloredlogs.install(level="DEBUG", logger=logger)
+    
+    # Создаем Flask-приложение
+    app = Flask(__name__)
+    
+    # Инициализация Memcached и Limiter
+    global MEMCACHED_CLIENT
+    memcached_available, memcached_uri = check_memcached_connection()
+    
+    if memcached_available:
+        limiter = Limiter(
+            get_remote_address,
+            app=app,
+            storage_uri=memcached_uri,
+        )
+        # Инициализация клиента Memcache
         try:
-            # If it doesn't work out, we try Python-Memcache
-            # We extract a host and a port from URI without using. Split ('@')
+            # Сначала пробуем Pymemcache
+            from pymemcache.client.base import Client
+
+            # Извлекаем хост и порт из URI
             if memcached_uri.startswith('memcached://'):
                 host_port = memcached_uri.replace('memcached://', '')
             else:
                 host_port = memcached_uri
 
-            MEMCACHED_CLIENT = memcache.Client([host_port], debug=0)
-            logger.info(f"Memcached client initialized using python-memcached: {memcached_uri}")
+            # Разбираем хост и порт для Pymemcache
+            if ':' in host_port:
+                host, port = host_port.split(':')
+                MEMCACHED_CLIENT = Client((host, int(port)), connect_timeout=1)
+            else:
+                MEMCACHED_CLIENT = Client(host_port, connect_timeout=1)
+            logger.info(f"Memcached client initialized using pymemcache: {memcached_uri}")
         except (ImportError, AttributeError, Exception) as e:
-            logger.error(f"Error initializing memcache client: {str(e)}")
-            logger.warning(f"Failed to initialize memcached client. Session storage disabled.")
-            MEMCACHED_CLIENT = None
-else:
-    # Used for ratelimiting without memcached
-    limiter = Limiter(
-        get_remote_address,
-        app=app,
-    )
-    MEMCACHED_CLIENT = None
-    logger.info("Memcached not available, session storage disabled")
+            logger.error(f"Error initializing pymemcache client: {str(e)}")
+            try:
+                # Если не получилось, пробуем Python-Memcache
+                if memcached_uri.startswith('memcached://'):
+                    host_port = memcached_uri.replace('memcached://', '')
+                else:
+                    host_port = memcached_uri
 
-# Main URL for API
-ONE_MIN_API_URL = "https://api.1min.ai/api/features"
-ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
-ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
-ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
-# Add Constant Tamout used in the API_Request API
-DEFAULT_TIMEOUT = 120 # 120 seconds for regular requests
-MIDJOURNEY_TIMEOUT = 900  # 15 minutes for requests for Midjourney
+                MEMCACHED_CLIENT = memcache.Client([host_port], debug=0)
+                logger.info(f"Memcached client initialized using python-memcached: {memcached_uri}")
+            except (ImportError, AttributeError, Exception) as e:
+                logger.error(f"Error initializing memcache client: {str(e)}")
+                logger.warning(f"Failed to initialize memcached client. Session storage disabled.")
+                MEMCACHED_CLIENT = None
+    else:
+        # Используем ratelimiting без memcached
+        limiter = Limiter(
+            get_remote_address,
+            app=app,
+        )
+        MEMCACHED_CLIENT = None
+        logger.info("Memcached not available, session storage disabled")
+    
+    # Конфигурация доступных моделей
+    global AVAILABLE_MODELS
+    
+    # Читаем переменные окружения
+    one_min_models_env = os.getenv(
+        "SUBSET_OF_ONE_MIN_PERMITTED_MODELS"
+    )  # e.g. "mistral-nemo,gpt-4o,deepseek-chat"
+    permit_not_in_available_env = os.getenv(
+        "PERMIT_MODELS_FROM_SUBSET_ONLY"
+    )  # e.g. "True" or "False"
 
-# Global storage for use when MemcacheD is not available
-MEMORY_STORAGE = {}
+    # Разбираем или используем значения по умолчанию
+    subset_models = SUBSET_OF_ONE_MIN_PERMITTED_MODELS
+    if one_min_models_env:
+        subset_models = one_min_models_env.split(",")
 
-# Constants for query types
-IMAGE_GENERATOR = "IMAGE_GENERATOR"
-IMAGE_VARIATOR = "IMAGE_VARIATOR"
+    permit_subset_only = PERMIT_MODELS_FROM_SUBSET_ONLY
+    if permit_not_in_available_env and permit_not_in_available_env.lower() == "true":
+        permit_subset_only = True
 
-# Define the models that are available for use
-ALL_ONE_MIN_AVAILABLE_MODELS = [
-    # OpenAI
-    "o3-mini",
-    "o1-preview",
-    "o1-mini",
-    "gpt-4o-mini",
-    "gpt-4o",
-    "gpt-4-turbo",
-    "gpt-4",
-    "gpt-3.5-turbo",
-    #
-    "whisper-1", # speech recognition
-    "tts-1",     # Speech synthesis
-    # "tts-1-hd",# Speech synthesis HD
-    #
-    "dall-e-2",  # Generation of images
-    "dall-e-3",  # Generation of images
-    # Claude
-    "claude-instant-1.2",
-    "claude-2.1",
-    "claude-3-5-sonnet-20240620",
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-3-haiku-20240307",
-    "claude-3-5-haiku-20241022",
-    # GoogleAI
-    "gemini-1.0-pro",
-    "gemini-1.5-pro",
-    "gemini-1.5-flash",
-    # "google-tts",            # Speech synthesis
-    # "latest_long",           # speech recognition
-    # "latest_short",          # speech recognition
-    # "phone_call",            # speech recognition
-    # "telephony",             # speech recognition
-    # "telephony_short",       # speech recognition
-    # "medical_dictation",     # speech recognition
-    # "medical_conversation",  # speech recognition
-    # "chat-bison@002",
-    # MistralAI
-    "mistral-large-latest",
-    "mistral-small-latest",
-    "mistral-nemo",
-    "pixtral-12b",
-    "open-mixtral-8x22b",
-    "open-mixtral-8x7b",
-    "open-mistral-7b",
-    # Replicate
-    "meta/llama-2-70b-chat",
-    "meta/meta-llama-3-70b-instruct",
-    "meta/meta-llama-3.1-405b-instruct",
-    # DeepSeek
-    "deepseek-chat",
-    "deepseek-reasoner",
-    # Cohere
-    "command",
-    # xAI
-    "grok-2",
-    # Other models (made for future use)
-    # "stable-image",                  # stabilityi - images generation
-    # "stable-diffusion-xl-1024-v1-0", # stabilityi - images generation
-    # "stable-diffusion-v1-6",         # stabilityi - images generation
-    # "esrgan-v1-x2plus",              # stabilityai-Improving images
-    # "stable-video-diffusion",        # stabilityai-video generation
-    "phoenix",       # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
-    "lightning-xl",  # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
-    "anime-xl",      # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
-    "diffusion-xl",  # Leonardo.ai - 1e60896f-3c26-4296-8ecc-53e2afecc132
-    "kino-xl",       # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
-    "vision-xl",     # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
-    "albedo-base-xl",# Leonardo.ai - 2067ae52-33fd-4a82-bb92-c2c55e7d2786
-    # "Clipdrop",    # clipdrop.co - image processing
-    "midjourney",    # Midjourney - image generation
-    "midjourney_6_1",# Midjourney - image generation
-    # "methexis-inc/img2prompt:50adaf2d3ad20a6f911a8a9e3ccf777b263b8596fbd2c8fc26e8888f8a0edbb5",   # Replicate - Image to Prompt
-    # "cjwbw/damo-text-to-video:1e205ea73084bd17a0a3b43396e49ba0d6bc2e754e9283b2df49fad2dcf95755",  # Replicate - Text to Video
-    # "lucataco/animate-diff:beecf59c4aee8d81bf04f0381033dfa10dc16e845b4ae00d281e2fa377e48a9f",     # Replicate - Animation
-    # "lucataco/hotshot-xl:78b3a6257e16e4b241245d65c8b2b81ea2e1ff7ed4c55306b511509ddbfd327a",       # Replicate - Video
-    "flux-schnell",  # Replicate - Flux "black-forest-labs/flux-schnell"
-    "flux-dev",      # Replicate - Flux Dev "black-forest-labs/flux-dev"
-    "flux-pro",      # Replicate - Flux Pro "black-forest-labs/flux-pro"
-    "flux-1.1-pro",  # Replicate - Flux Pro 1.1 "black-forest-labs/flux-1.1-pro"
-    # "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",  # Replicate - Music Generation
-    # "luma",                  # TTAPI - Luma
-    # "Qubico/image-toolkit",  # TTAPI - Image Toolkit
-    # "suno",                  # TTAPI - Suno Music
-    # "kling",                 # TTAPI - Kling
-    # "music-u",               # TTAPI - Music U
-    # "music-s",               # TTAPI - Music S
-    # "elevenlabs-tts"         # ElevenLabs - TTS
-]
+    # Комбинируем в единый список
+    AVAILABLE_MODELS = []
+    AVAILABLE_MODELS.extend(subset_models)
+    
+    # Регистрация blueprints
+    app.register_blueprint(text_bp)
+    app.register_blueprint(images_bp)
+    app.register_blueprint(audio_bp)
+    app.register_blueprint(files_bp)
+    
+    return app, limiter
 
-# Define the models that support vision inputs
-vision_supported_models = [
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4-turbo"
-]
 
-# Define the models that support code interpreter
-code_interpreter_supported_models = [
-    "gpt-4o",
-    "claude-3-5-sonnet-20240620",
-    "claude-3-5-haiku-20241022",
-    "deepseek-chat",
-    "deepseek-reasoner"
-]
-
-# Define the models that support web search (retrieval)
-retrieval_supported_models = [
-    "gemini-1.0-pro",
-    "gemini-1.5-pro",
-    "gemini-1.5-flash",
-    "o3-mini",
-    "o1-preview",
-    "o1-mini",
-    "gpt-4o-mini",
-    "gpt-4o",
-    "gpt-4-turbo",
-    "gpt-3.5-turbo",
-    "claude-3-5-sonnet-20240620",
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-3-haiku-20240307",
-    "claude-3-5-haiku-20241022",
-    "mistral-large-latest",
-    "mistral-small-latest",
-    "mistral-nemo",
-    "pixtral-12b",
-    "open-mixtral-8x22b",
-    "open-mixtral-8x7b",
-    "open-mistral-7b",
-    "meta/llama-2-70b-chat",
-    "meta/meta-llama-3-70b-instruct",
-    "meta/meta-llama-3.1-405b-instruct",
-    "command",
-    "grok-2",
-    "deepseek-chat",
-    "deepseek-reasoner"
-]
-
-# Define the models that support function calling
-function_calling_supported_models = [
-    "gpt-4",
-    "gpt-3.5-turbo"
-]
-
-# Determination of models for generating images
-IMAGE_GENERATION_MODELS = [
-    "dall-e-3",
-    "dall-e-2",
-    "stable-diffusion-xl-1024-v1-0",
-    "stable-diffusion-v1-6",
-    "midjourney",
-    "midjourney_6_1",
-    "phoenix",
-    "lightning-xl",
-    "anime-xl",
-    "diffusion-xl",
-    "kino-xl",
-    "vision-xl",
-    "albedo-base-xl",
-    "flux-schnell",
-    "flux-dev",
-    "flux-pro",
-    "flux-1.1-pro"
-]
-
-# Models that support images
-VARIATION_SUPPORTED_MODELS = [
-    "midjourney",
-    "midjourney_6_1",
-    "dall-e-2",
-    # "dall-e-3",
-    "clipdrop"
-]
-
-# We determine the Image_variation_Models Constant based on Variation_Supported_Models
-IMAGE_VARIATION_MODELS = VARIATION_SUPPORTED_MODELS
-
-# Permissible parties for different models
-MIDJOURNEY_ALLOWED_ASPECT_RATIOS = [
-    "1:1",      # Square
-    "16:9",     # Widescreen format
-    "9:16",     # Vertical variant of 16:9
-    "16:10",    # Alternative widescreen
-    "10:16",    # Vertical variant of 16:10
-    "8:5",      # Alternative widescreen
-    "5:8",      # Vertical variant of 16:10
-    "3:4",      # Portrait/print
-    "4:3",      # Standard TV/monitor format
-    "3:2",      # Popular in photography
-    "2:3",      # Inverse of 3:2
-    "4:5",      # Common in social media posts
-    "5:4",      # Nearly square format
-    "137:100",  # Academy ratio (1.37:1) as an integer ratio
-    "166:100",  # European cinema (1.66:1) as an integer ratio
-    "185:100",  # Cinematic format (1.85:1) as an integer ratio185
-    "83:50",    # European cinema (1.66:1) as an integer ratio
-    "37:20",    # Cinematic format (1.85:1) as an integer ratio
-    "2:1",      # Maximum allowed widescreen format
-    "1:2"       # Maximum allowed vertical format
-]
-
-FLUX_ALLOWED_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4"]
-LEONARDO_ALLOWED_ASPECT_RATIOS = ["1:1", "4:3", "3:4"]
-
-# Permissible sizes for different models
-DALLE2_SIZES = ["1024x1024", "512x512", "256x256"]
-DALLE3_SIZES = ["1024x1024", "1024x1792", "1792x1024"]
-LEONARDO_SIZES = ALBEDO_SIZES = {"1:1": "1024x1024", "4:3": "1024x768", "3:4": "768x1024"}
-
-# Determination of models for speech synthesis (TTS)
-TEXT_TO_SPEECH_MODELS = [
-    "tts-1"  # ,
-    # "tts-1-hd",
-    # "google-tts",
-    # "elevenlabs-tts"
-]
-
-# Determination of models for speech recognition (STT)
-SPEECH_TO_TEXT_MODELS = [
-    "whisper-1"  # ,
-    # "latest_long",
-    # "latest_short",
-    # "phone_call",
-    # "telephony",
-    # "telephony_short",
-    # "medical_dictation",
-    # "medical_conversation"
-]
-
-# Default values
-SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
-PERMIT_MODELS_FROM_SUBSET_ONLY = False
-
-# Read environment variables
-one_min_models_env = os.getenv(
-    "SUBSET_OF_ONE_MIN_PERMITTED_MODELS"
-)  # e.g. "mistral-nemo,gpt-4o,deepseek-chat"
-permit_not_in_available_env = os.getenv(
-    "PERMIT_MODELS_FROM_SUBSET_ONLY"
-)  # e.g. "True" or "False"
-
-# Parse or fall back to defaults
-if one_min_models_env:
-    SUBSET_OF_ONE_MIN_PERMITTED_MODELS = one_min_models_env.split(",")
-
-if permit_not_in_available_env and permit_not_in_available_env.lower() == "true":
-    PERMIT_MODELS_FROM_SUBSET_ONLY = True
-
-# Combine into a single list
-AVAILABLE_MODELS = []
-AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
-
-# Add cache to track processed images
-# For each request, we keep a unique image identifier and its path
-IMAGE_CACHE = {}
-# Limit the size of the cache
-MAX_CACHE_SIZE = 100
-
+# Создаем приложение и инициализируем limiter
+app, limiter = create_app()
 
 # Основные настройки
-# Run the task at the start of the server
+# Запуск сервера при непосредственном запуске этого файла
 if __name__ == "__main__":
-    # Launch the task of deleting files
+    # Запускаем задачу удаления файлов
     delete_all_files_task()
 
-    # Run the application
+    # Запускаем приложение
     internal_ip = socket.gethostbyname(socket.gethostname())
     try:
         response = requests.get("https://api.ipify.org")
