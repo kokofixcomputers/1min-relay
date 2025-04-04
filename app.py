@@ -77,6 +77,16 @@ logger = logging.getLogger("1min-relay")
 # Устанавливаем coloredlogs с нужным уровнем логирования
 coloredlogs.install(level="DEBUG", logger=logger)
 
+# Выводим логотип приложения
+logger.info(
+    """
+  _ __  __ _      ___     _           
+ / |  \/  (_)_ _ | _ \___| |__ _ _  _ 
+ | | |\/| | | ' \|   / -_) / _` | || |
+ |_|_|  |_|_|_||_|_|_\___|_\__,_|\_, |
+                                 |__/ """
+)
+
 def create_app():
     """
     Создает и настраивает Flask-приложение с использованием фабричного паттерна.
@@ -120,9 +130,9 @@ def create_app():
             # Разбираем хост и порт для Pymemcache
             if ':' in host_port:
                 host, port = host_port.split(':')
-                MEMCACHED_CLIENT = Client((host, int(port)), connect_timeout=1)
+                MEMCACHED_CLIENT = Client((host, int(port)), connect_timeout=3)  # Увеличен таймаут
             else:
-                MEMCACHED_CLIENT = Client(host_port, connect_timeout=1)
+                MEMCACHED_CLIENT = Client(host_port, connect_timeout=3)  # Увеличен таймаут
             logger.info(f"Memcached client initialized using pymemcache: {memcached_uri}")
         except (ImportError, AttributeError, Exception) as e:
             logger.error(f"Error initializing pymemcache client: {str(e)}")
