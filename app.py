@@ -1,5 +1,5 @@
-# version 2.0.0 #increment every time you make changes
-# 2025-04-04 20:30 #change to actual date and time every time you make changes
+# version 1.0.2 #increment every time you make changes
+# 2025-04-05 01:30 #change to actual date and time every time you make changes
 import base64
 import hashlib
 import json
@@ -63,15 +63,6 @@ from utils.constants import (
     IMAGE_DESCRIPTION_INSTRUCTION, DOCUMENT_ANALYSIS_INSTRUCTION, 
     SUBSET_OF_ONE_MIN_PERMITTED_MODELS, PERMIT_MODELS_FROM_SUBSET_ONLY
 )
-
-# Импорт blueprints и функций из routes
-from routes import text_bp, images_bp, audio_bp, files_bp
-from routes.text import (
-    format_conversation_history, get_model_capabilities, prepare_payload,
-    transform_response, stream_response, emulate_stream_response
-)
-from routes.images import parse_aspect_ratio, retry_image_upload, create_image_variations
-from routes.files import upload_document, create_conversation_with_files
 
 # Глобальные переменные для memcached и хранилища
 MEMCACHED_CLIENT = None
@@ -181,6 +172,9 @@ def create_app():
     # Комбинируем в единый список
     AVAILABLE_MODELS = []
     AVAILABLE_MODELS.extend(subset_models)
+    
+    # Импортируем blueprints здесь, после инициализации необходимых глобальных переменных
+    from routes import text_bp, images_bp, audio_bp, files_bp
     
     # Регистрация blueprints
     app.register_blueprint(text_bp)
