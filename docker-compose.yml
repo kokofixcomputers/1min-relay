@@ -1,11 +1,15 @@
 services:
-  # Memcached for storing rate-limits data.
+  # Memcached для хранения данных о rate-limits
   memcached:
     image: memcached:latest
     networks:
       - 1min-relay-network
     restart: unless-stopped
-    # Does not require to expose port. Only used for internal communication.
+    # Не требуется экспортировать порт, используется только для внутренней коммуникации
+    environment:
+      - MEMCACHED_HOST=memcached
+      - MEMCACHED_PORT=11211
+  
   # 1min-relay
   1min-relay:
     image: kokofixcomputers/1min-relay:latest
@@ -17,11 +21,14 @@ services:
     depends_on:
       - memcached
     environment:
-      # Use comma-separated string for ONE_MIN_AVAILABLE_MODELS Default: "mistral-nemo", "gpt-4o", "deepseek-chat"
+      # Используйте строку с разделителями-запятыми для SUBSET_OF_ONE_MIN_PERMITTED_MODELS
       - SUBSET_OF_ONE_MIN_PERMITTED_MODELS=mistral-nemo,gpt-4o-mini,deepseek-chat
-      # Set your boolean as "True" or "False" for PERMIT_MODELS_FROM_SUBSET_ONLY Default: False
+      # Установите значение "True" или "False" для PERMIT_MODELS_FROM_SUBSET_ONLY
       - PERMIT_MODELS_FROM_SUBSET_ONLY=False
+      # Параметры подключения к Memcached
+      - MEMCACHED_HOST=memcached
+      - MEMCACHED_PORT=11211
     restart: unless-stopped
 
 networks:
-  1min-relay-network:  # Define the custom network
+  1min-relay-network:  # Определение пользовательской сети
