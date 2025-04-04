@@ -1,5 +1,35 @@
 # Маршруты для работы с аудио
-@app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
+import json
+import logging
+import os
+import time
+import uuid
+
+import requests
+from flask import Blueprint, request, jsonify, make_response
+from flask_cors import cross_origin
+
+# Импорт из других модулей
+from utils.common import (
+    api_request, set_response_headers, create_session,
+    ERROR_HANDLER, handle_options_request
+)
+from utils.memcached import safe_memcached_operation
+
+# Получаем логгер
+logger = logging.getLogger("1min-relay")
+
+# Константы
+ONE_MIN_API_URL = "https://api.1min.ai/api/features"
+ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
+
+# Создаем Blueprint для аудио
+audio_bp = Blueprint('audio', __name__)
+
+# Глобальные переменные
+from app import limiter
+
+@audio_bp.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
 @limiter.limit("60 per minute")
 def audio_transcriptions():
     """
@@ -170,7 +200,7 @@ def audio_transcriptions():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/v1/audio/translations", methods=["POST", "OPTIONS"])
+@audio_bp.route("/v1/audio/translations", methods=["POST", "OPTIONS"])
 @limiter.limit("60 per minute")
 def audio_translations():
     """
@@ -318,7 +348,7 @@ def audio_translations():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/v1/audio/speech", methods=["POST", "OPTIONS"])
+@audio_bp.route("/v1/audio/speech", methods=["POST", "OPTIONS"])
 @limiter.limit("60 per minute")
 def text_to_speech():
     """
