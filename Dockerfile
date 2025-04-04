@@ -9,6 +9,10 @@ RUN pip install python-memcached
 
 COPY . .
 
+# Создаем директорию для временных файлов
+RUN mkdir -p temp
+
 EXPOSE 5001
 
-CMD ["python", "main.py"]
+# Изменяем запуск с main.py на app.py
+CMD ["python", "app.py"]
