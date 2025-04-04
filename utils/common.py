@@ -229,4 +229,46 @@ def handle_options_request():
     return response, 204
 
 def split_text_for_streaming(text, chunk_size=6):
-    # ...
+    """
+    It breaks the text into small parts to emulate streaming output.
+
+    Args:
+        Text (str): text for breakdown
+        chunk_size (int): the approximate size of the parts in words
+
+    Returns:
+        List: List of parts of the text
+    """
+    if not text:
+        return [""]
+
+    # We break the text into sentences
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
+    # We are grouping sentences to champs
+    chunks = []
+    current_chunk = []
+    current_word_count = 0
+
+    for sentence in sentences:
+        words_in_sentence = len(sentence.split())
+
+        # If the current cup is empty or the addition of a sentence does not exceed the limit of words
+        if not current_chunk or current_word_count + words_in_sentence <= chunk_size:
+            current_chunk.append(sentence)
+            current_word_count += words_in_sentence
+        else:
+            # We form a cup and begin the new
+            chunks.append(" ".join(current_chunk))
+            current_chunk = [sentence]
+            current_word_count = words_in_sentence
+
+    # Add the last cup if it is not empty
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    # If there is no Cankov (breakdown did not work), we return the entire text entirely
+    if not chunks:
+        return [text]
+
+    return chunks
