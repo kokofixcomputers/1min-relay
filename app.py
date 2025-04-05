@@ -33,10 +33,6 @@ from waitress import serve
 from werkzeug.datastructures import MultiDict
 from flask_cors import cross_origin
 
-# app.py
-from utils import *
-from routes import *
-
 # We download the environment variables from the .env file
 load_dotenv()
 
@@ -50,6 +46,12 @@ logger = logging.getLogger("1min-relay")
 
 # Install coloredlogs with desired log level
 coloredlogs.install(level="DEBUG", logger=logger)
+
+# Сначала импортируем constants, затем остальные модули
+from utils.constants import *
+from utils.common import *
+from utils.memcached import *
+from routes import *
 
 # Varias of the environment
 
