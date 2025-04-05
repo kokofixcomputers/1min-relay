@@ -1,9 +1,8 @@
-# version 1.0.3 #increment every time you make changes
-# 2025-04-05 18:00 #change to actual date and time every time you make changes
+# version 1.0.4 #increment every time you make changes
+# 2025-04-06 12:00 #change to actual date and time every time you make changes
 import base64
 import hashlib
 import json
-import logging
 import os
 import random
 import re
@@ -17,7 +16,6 @@ import uuid
 import warnings
 import datetime
 
-import coloredlogs
 import memcache
 import printedcolors
 import requests
@@ -41,11 +39,8 @@ warnings.filterwarnings(
     "ignore", category=UserWarning, module="flask_limiter.extension"
 )
 
-# Create a logger object
-logger = logging.getLogger("1min-relay")
-
-# Install coloredlogs with desired log level
-coloredlogs.install(level="DEBUG", logger=logger)
+# Импортируем логгер из модуля logger
+from utils.logger import logger
 
 # Инициализируем Flask-приложение перед импортом модулей, чтобы оно было доступно в routes
 app = Flask(__name__)
