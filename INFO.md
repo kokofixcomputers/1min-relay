@@ -2,7 +2,7 @@
 
 разбивка на логические модули:
 ---
-1. app.py (основной файл)
+1. [app.py](https://github.com/chelaxian/1min-relay/blob/test/app.py) (основной файл)
 ```python
 from flask import Flask, request, jsonify, make_response, redirect
 from flask_cors import CORS, cross_origin
@@ -30,13 +30,13 @@ if __name__ == "__main__":
     serve(app, host="0.0.0.0", port=PORT, threads=6)
 ```
 ---
-2. utils/constants.py
+2. [utils/constants.py](https://github.com/chelaxian/1min-relay/blob/test/utils/constants.py)
 ```python
 #CONSTANTS=[]
 ...
 ```
 ---
-3. utils/common.py
+3. [utils/common.py](https://github.com/chelaxian/1min-relay/blob/test/utils/common.py)
 ```python
 # Общие утилиты
 def calculate_token(sentence, model="DEFAULT"):
@@ -64,7 +64,7 @@ def split_text_for_streaming(text, chunk_size=6):
     # ...
 ```
 ---
-4. utils/memcached.py
+4. [utils/memcached.py](https://github.com/chelaxian/1min-relay/blob/test/utils/memcached.py)
 ```python
 # Функции для работы с Memcached
 def check_memcached_connection():
@@ -77,7 +77,7 @@ def delete_all_files_task():
     # ...
 ```
 ---
-5. routes/text.py
+5. [routes/text.py](https://github.com/chelaxian/1min-relay/blob/test/routes/text.py)
 ```python
 # Маршруты для текстовых моделей
 @app.route("/", methods=["GET", "POST"])
@@ -119,7 +119,7 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
     # ...
 ```
 ---
-6. routes/images.py
+6. [routes/images.py](https://github.com/chelaxian/1min-relay/blob/test/routes/images.py)
 ```python
 # Маршруты для работы с изображениями
 @app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
@@ -144,7 +144,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
     # ...
 ```
 ---
-7. routes/audio.py
+7. [routes/audio.py](https://github.com/chelaxian/1min-relay/blob/test/routes/audio.py)
 ```python
 # Маршруты для работы с аудио
 @app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
@@ -163,7 +163,7 @@ def text_to_speech():
     # ...
 ```
 ---
-8. routes/files.py
+8. [routes/files.py](https://github.com/chelaxian/1min-relay/blob/test/routes/files.py)
 ```python
 # Маршруты для работы с файлами
 @app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
