@@ -1,29 +1,6 @@
 # Маршруты для работы с аудио
-from flask import request, jsonify, make_response, Response
-from flask_cors import cross_origin
-import uuid
-import json
-import re
-import logging
-import base64
-import traceback
-
-from utils import (
-    api_request, set_response_headers, create_session, safe_temp_file, 
-    ERROR_HANDLER, handle_options_request, safe_memcached_operation,
-    ONE_MIN_API_URL, ONE_MIN_ASSET_URL, DEFAULT_TIMEOUT,
-    TEXT_TO_SPEECH_MODELS, SPEECH_TO_TEXT_MODELS
-)
-
-from routes import audio_bp
-
-# Получаем логгер
-logger = logging.getLogger("1min-relay")
-
-# Limiter добавляется к приложению в app.py - здесь используются декораторы
-# @limiter.limit("60 per minute")
-
-@audio_bp.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
+@app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
+@limiter.limit("60 per minute")
 def audio_transcriptions():
     """
     Route for converting speech into text (analogue of Openai Whisper API)
@@ -193,7 +170,8 @@ def audio_transcriptions():
         return jsonify({"error": str(e)}), 500
 
 
-@audio_bp.route("/v1/audio/translations", methods=["POST", "OPTIONS"])
+@app.route("/v1/audio/translations", methods=["POST", "OPTIONS"])
+@limiter.limit("60 per minute")
 def audio_translations():
     """
     Route for translating audio to text (analogue Openai Whisper API)
@@ -340,7 +318,8 @@ def audio_translations():
         return jsonify({"error": str(e)}), 500
 
 
-@audio_bp.route("/v1/audio/speech", methods=["POST", "OPTIONS"])
+@app.route("/v1/audio/speech", methods=["POST", "OPTIONS"])
+@limiter.limit("60 per minute")
 def text_to_speech():
     """
     Route for converting text into speech (analogue Openai TTS API)
