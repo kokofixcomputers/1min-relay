@@ -150,8 +150,9 @@ if one_min_models_env:
 if permit_not_in_available_env and permit_not_in_available_env.lower() == "true":
     PERMIT_MODELS_FROM_SUBSET_ONLY = True
 
-# Combine into a single list
-AVAILABLE_MODELS = []
+# Заполняем список доступных моделей из модуля constans
+from utils.constants import AVAILABLE_MODELS
+AVAILABLE_MODELS.clear()  # Очищаем список, если в нем что-то есть
 AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
 
 # Основные настройки
