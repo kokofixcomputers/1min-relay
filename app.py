@@ -47,20 +47,26 @@ logger = logging.getLogger("1min-relay")
 # Install coloredlogs with desired log level
 coloredlogs.install(level="DEBUG", logger=logger)
 
-# Сначала импортируем constants, затем остальные модули
-from utils.constants import *
-from utils.common import *
-from utils.memcached import *
-from routes import *
-
-# Varias of the environment
+# Инициализируем Flask-приложение перед импортом модулей, чтобы оно было доступно в routes
+app = Flask(__name__)
 
 # Параметры порта и другие настройки окружения
 PORT = int(os.getenv("PORT", 5001))
 
-# Глобальные переменные и инициализация
-app = Flask(__name__)
+# Импортируем константы из файла constants.py
+from utils.constants import *
+
+# Global storage for use when MemcacheD is not available
+MEMORY_STORAGE = {}
+
+# Импортируем утилиты
+from utils.common import *
+from utils.memcached import *
+
+# Инициализируем memcached
 memcached_available, memcached_uri = check_memcached_connection()
+MEMCACHED_CLIENT = None  # Инициализируем перед использованием
+
 if memcached_available:
     limiter = Limiter(
         get_remote_address,
@@ -100,18 +106,13 @@ if memcached_available:
         except (ImportError, AttributeError, Exception) as e:
             logger.error(f"Error initializing memcache client: {str(e)}")
             logger.warning(f"Failed to initialize memcached client. Session storage disabled.")
-            MEMCACHED_CLIENT = None
 else:
     # Used for ratelimiting without memcached
     limiter = Limiter(
         get_remote_address,
         app=app,
     )
-    MEMCACHED_CLIENT = None
     logger.info("Memcached not available, session storage disabled")
-
-# Global storage for use when MemcacheD is not available
-MEMORY_STORAGE = {}
 
 # Read environment variables
 one_min_models_env = os.getenv(
@@ -135,6 +136,9 @@ AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
 # Add cache to track processed images
 # For each request, we keep a unique image identifier and its path
 IMAGE_CACHE = {}
+
+# Импортируем маршруты после инициализации всех необходимых глобальных переменных
+from routes import *
 
 # Основные настройки
 # Run the task at the start of the server
