@@ -1,31 +1,4 @@
 # Функции для работы с Memcached
-import logging
-import json
-import uuid
-import time
-import threading
-
-# Получаем логгер
-logger = logging.getLogger("1min-relay")
-
-# Глобальная переменная для хранения клиента Memcached
-MEMCACHED_CLIENT = None
-# Глобальная переменная для хранения данных в памяти
-MEMORY_STORAGE = {}
-
-def print_logo():
-    """
-    Выводит логотип приложения в лог
-    """
-    logger.info(
-        """
-  _ __  __ _      ___     _           
- / |  \/  (_)_ _ | _ \___| |__ _ _  _ 
- | | |\/| | | ' \|   / -_) / _` | || |
- |_|_|  |_|_|_||_|_|_\___|_\__,_|\_, |
-                                 |__/ """
-    )
-
 def check_memcached_connection():
     """
     Checks the availability of Memcache, first in DoCker, then locally
@@ -71,6 +44,15 @@ def check_memcached_connection():
     )
     return False, None
 
+
+logger.info(
+    """
+  _ __  __ _      ___     _           
+ / |  \/  (_)_ _ | _ \___| |__ _ _  _ 
+ | | |\/| | | ' \|   / -_) / _` | || |
+ |_|_|  |_|_|_||_|_|_\___|_\__,_|\_, |
+                                 |__/ """
+)
 
 # Closter function for safe access to Memcache
 def safe_memcached_operation(operation, key, value=None, expiry=3600):
