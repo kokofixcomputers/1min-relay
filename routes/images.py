@@ -1,6 +1,28 @@
 # Маршруты для работы с изображениями
-@app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
-@limiter.limit("60 per minute")
+from flask import request, jsonify, make_response
+from flask_cors import cross_origin
+import uuid
+import json
+import re
+import logging
+
+from utils import (
+    api_request, safe_memcached_operation, create_session, ERROR_HANDLER, handle_options_request,
+    ONE_MIN_API_URL, ONE_MIN_ASSET_URL, MEMCACHED_CLIENT, MIDJOURNEY_TIMEOUT,
+    IMAGE_GENERATOR, IMAGE_VARIATOR, VARIATION_SUPPORTED_MODELS,
+    MIDJOURNEY_ALLOWED_ASPECT_RATIOS, FLUX_ALLOWED_ASPECT_RATIOS, LEONARDO_ALLOWED_ASPECT_RATIOS,
+    DALLE2_SIZES, DALLE3_SIZES, LEONARDO_SIZES, ALBEDO_SIZES
+)
+
+from routes import images_bp
+
+# Получаем логгер
+logger = logging.getLogger("1min-relay")
+
+# Limiter добавляется к приложению в app.py - здесь используются декораторы
+# @limiter.limit("60 per minute")
+
+@images_bp.route("/v1/images/generations", methods=["POST", "OPTIONS"])
 def generate_image():
     """
     Route for generating images
@@ -596,8 +618,7 @@ def generate_image():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/v1/images/variations", methods=["POST", "OPTIONS"])
-@limiter.limit("60 per minute")
+@images_bp.route("/v1/images/variations", methods=["POST", "OPTIONS"])
 @cross_origin()
 def image_variations():
     if request.method == "OPTIONS":
