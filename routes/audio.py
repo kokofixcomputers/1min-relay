@@ -6,6 +6,7 @@ import json
 import re
 import logging
 import base64
+import traceback
 
 from utils import (
     api_request, set_response_headers, create_session, safe_temp_file, 
