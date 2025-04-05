@@ -8,6 +8,7 @@ import logging
 import os
 import tempfile
 import time
+import base64
 import traceback
 import requests
 
