@@ -1,3 +1,4 @@
+# utils/common.py
 # Общие утилиты
 def calculate_token(sentence, model="DEFAULT"):
     """Calculate the number of tokens in a sentence based on the specified model."""
