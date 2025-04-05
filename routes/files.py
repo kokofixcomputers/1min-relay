@@ -1,40 +1,14 @@
 # Маршруты для работы с файлами
 # Functions for working with files in API
-from flask import request, jsonify, make_response, Response
-from flask_cors import cross_origin
-import uuid
-import json
-import logging
-import os
-import tempfile
-import time
-import base64
-import traceback
-import requests
-
-from utils import (
-    api_request, set_response_headers, create_session, safe_temp_file, 
-    ERROR_HANDLER, handle_options_request, safe_memcached_operation,
-    ONE_MIN_API_URL, ONE_MIN_ASSET_URL, DEFAULT_TIMEOUT,
-    MEMCACHED_CLIENT
-)
-
-from routes import files_bp
-
-# Получаем логгер
-logger = logging.getLogger("1min-relay")
-
-# Limiter добавляется к приложению в app.py - здесь используются декораторы
-# @limiter.limit("60 per minute")
-
-@files_bp.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
+@app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
+@limiter.limit("60 per minute")
 def handle_files():
     """
     Route for working with files: getting a list and downloading new files
     """
     if request.method == "OPTIONS":
         return handle_options_request()
-    
+
     request_id = str(uuid.uuid4())[:8]
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -42,7 +16,7 @@ def handle_files():
         return ERROR_HANDLER(1021)
 
     api_key = auth_header.split(" ")[1]
-    
+
     # Get - getting a list of files
     if request.method == "GET":
         logger.info(f"[{request_id}] Received request: GET /v1/files")
@@ -96,88 +70,27 @@ def handle_files():
     # Post - downloading a new file
     elif request.method == "POST":
         logger.info(f"[{request_id}] Received request: POST /v1/files")
-        
+
         # Checking a file
         if "file" not in request.files:
             logger.error(f"[{request_id}] No file provided")
             return jsonify({"error": "No file provided"}), 400
-            
+
         file = request.files["file"]
-        
-        # Проверяем наличие имени файла
-        if file.filename == '':
-            logger.error(f"[{request_id}] No file selected")
-            return jsonify({"error": "No file selected"}), 400
-            
         purpose = request.form.get("purpose", "assistants")
 
         try:
             # We get the contents of the file
             file_data = file.read()
             file_name = file.filename
-            
+
             # We get a loaded file ID
             file_id = upload_document(file_data, file_name, api_key, request_id)
-            
+
             if not file_id:
                 logger.error(f"[{request_id}] Failed to upload file")
                 return jsonify({"error": "Failed to upload file"}), 500
-            
-            # We save the file of the file in the user's session through Memcache, if it is available
-            if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
-                try:
-                    user_key = f"user:{api_key}"
-                    # We get the current user's current files or create a new list
-                    user_files_json = safe_memcached_operation('get', user_key)
-                    user_files = []
 
-                    if user_files_json:
-                        try:
-                            if isinstance(user_files_json, str):
-                                user_files = json.loads(user_files_json)
-                            elif isinstance(user_files_json, bytes):
-                                user_files = json.loads(user_files_json.decode('utf-8'))
-                        except Exception as e:
-                            logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
-                            user_files = []
-
-                    # Add a new file
-                    file_info = {
-                        "id": file_id,
-                        "filename": file_name,
-                        "bytes": len(file_data),
-                        "created_at": int(time.time())
-                    }
-
-                    # Check that a file with such an ID is not yet on the list
-                    if not any(f.get("id") == file_id for f in user_files):
-                        user_files.append(file_info)
-
-                    # We save the updated file list
-                    safe_memcached_operation('set', user_key, json.dumps(user_files))
-                    logger.info(f"[{request_id}] Saved file ID {file_id} for user in memcached")
-
-                    # Add the user to the list of well-known users for cleaning function
-                    known_users_list_json = safe_memcached_operation('get', 'known_users_list')
-                    known_users_list = []
-
-                    if known_users_list_json:
-                        try:
-                            if isinstance(known_users_list_json, str):
-                                known_users_list = json.loads(known_users_list_json)
-                            elif isinstance(known_users_list_json, bytes):
-                                known_users_list = json.loads(known_users_list_json.decode('utf-8'))
-                        except Exception as e:
-                            logger.error(f"[{request_id}] Error parsing known users list: {str(e)}")
-
-                    # Add the API key to the list of famous users if it is not yet
-                    if api_key not in known_users_list:
-                        known_users_list.append(api_key)
-                        safe_memcached_operation('set', 'known_users_list', json.dumps(known_users_list))
-                        logger.debug(f"[{request_id}] Added user to known_users_list for cleanup")
-                except Exception as e:
-                    logger.error(f"[{request_id}] Error saving file info to memcached: {str(e)}")
-            
             # We form an answer in Openai API format
             response_data = {
                 "id": file_id,
@@ -188,17 +101,18 @@ def handle_files():
                 "purpose": purpose,
                 "status": "processed"
             }
-            
+
             logger.info(f"[{request_id}] File uploaded successfully: {file_id}")
             response = make_response(jsonify(response_data))
             set_response_headers(response)
             return response
-        
+
         except Exception as e:
             logger.error(f"[{request_id}] Exception during file upload: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
-@files_bp.route("/v1/files/<file_id>", methods=["GET", "DELETE", "OPTIONS"])
+@app.route("/v1/files/<file_id>", methods=["GET", "DELETE", "OPTIONS"])
+@limiter.limit("60 per minute")
 def handle_file(file_id):
     """
     Route for working with a specific file: obtaining information and deleting
@@ -323,7 +237,8 @@ def handle_file(file_id):
             logger.error(f"[{request_id}] Exception during file deletion: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
-@files_bp.route("/v1/files/<file_id>/content", methods=["GET", "OPTIONS"])
+@app.route("/v1/files/<file_id>/content", methods=["GET", "OPTIONS"])
+@limiter.limit("60 per minute")
 def handle_file_content(file_id):
     """
     Route for obtaining the contents of the file
@@ -351,6 +266,113 @@ def handle_file_content(file_id):
         logger.error(f"[{request_id}] Exception during file content request: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+
+@app.route("/v1/files", methods=["POST"])
+@limiter.limit("60 per minute")
+def upload_file():
+    """
+    File download route (analogue Openai Files API)
+    """
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Received file upload request")
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.error(f"[{request_id}] Invalid Authentication")
+        return ERROR_HANDLER(1021)
+
+    api_key = auth_header.split(" ")[1]
+
+    if "file" not in request.files:
+        logger.error(f"[{request_id}] No file part in request")
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files["file"]
+    if file.filename == "":
+        logger.error(f"[{request_id}] No selected file")
+        return jsonify({"error": "No selected file"}), 400
+
+    try:
+        # We save the file in memory
+        file_data = file.read()
+        file_name = file.filename
+
+        # We download the file to the 1min.ai server
+        file_id = upload_document(file_data, file_name, api_key, request_id)
+
+        if not file_id:
+            return jsonify({"error": "Failed to upload file"}), 500
+
+        # We save the file of the file in the user's session through Memcache, if it is available
+        if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+            try:
+                user_key = f"user:{api_key}"
+                # We get the current user's current files or create a new list
+                user_files_json = safe_memcached_operation('get', user_key)
+                user_files = []
+
+                if user_files_json:
+                    try:
+                        if isinstance(user_files_json, str):
+                            user_files = json.loads(user_files_json)
+                        elif isinstance(user_files_json, bytes):
+                            user_files = json.loads(user_files_json.decode('utf-8'))
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Error parsing user files from memcached: {str(e)}")
+                        user_files = []
+
+                # Add a new file
+                file_info = {
+                    "id": file_id,
+                    "filename": file_name,
+                    "uploaded_at": int(time.time())
+                }
+
+                # Check that a file with such an ID is not yet on the list
+                if not any(f.get("id") == file_id for f in user_files):
+                    user_files.append(file_info)
+
+                # We save the updated file list
+                safe_memcached_operation('set', user_key, json.dumps(user_files))
+                logger.info(f"[{request_id}] Saved file ID {file_id} for user in memcached")
+
+                # Add the user to the list of well -known users for cleaning function
+                known_users_list_json = safe_memcached_operation('get', 'known_users_list')
+                known_users_list = []
+
+                if known_users_list_json:
+                    try:
+                        if isinstance(known_users_list_json, str):
+                            known_users_list = json.loads(known_users_list_json)
+                        elif isinstance(known_users_list_json, bytes):
+                            known_users_list = json.loads(known_users_list_json.decode('utf-8'))
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Error parsing known users list: {str(e)}")
+
+                # Add the API key to the list of famous users if it is not yet
+                if api_key not in known_users_list:
+                    known_users_list.append(api_key)
+                    safe_memcached_operation('set', 'known_users_list', json.dumps(known_users_list))
+                    logger.debug(f"[{request_id}] Added user to known_users_list for cleanup")
+            except Exception as e:
+                logger.error(f"[{request_id}] Error saving file info to memcached: {str(e)}")
+
+        # We create an answer in the Openai API format
+        response_data = {
+            "id": file_id,
+            "object": "file",
+            "bytes": len(file_data),
+            "created_at": int(time.time()),
+            "filename": file_name,
+            "purpose": request.form.get("purpose", "assistants")
+        }
+
+        return jsonify(response_data)
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception during file upload: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+# Вспомогательные функции для работы с файлами
 def upload_document(file_data, file_name, api_key, request_id=None):
     """
     Downloads the file/document to the server and returns its ID.
