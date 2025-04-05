@@ -33,8 +33,9 @@ from waitress import serve
 from werkzeug.datastructures import MultiDict
 from flask_cors import cross_origin
 
-#from utils import... *
-#from routes import... * 
+# app.py
+from utils import *
+from routes import *
 
 # We download the environment variables from the .env file
 load_dotenv()
