@@ -1,3 +1,4 @@
+# utils/memcached.py
 # Функции для работы с Memcached
 def check_memcached_connection():
     """
