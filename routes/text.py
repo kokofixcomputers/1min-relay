@@ -1,5 +1,32 @@
 # Маршруты для текстовых моделей
-@app.route("/", methods=["GET", "POST"])
+from flask import request, jsonify, make_response, Response
+from flask_cors import cross_origin
+import uuid
+import json
+import re
+import logging
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+from utils import (
+    calculate_token, api_request, set_response_headers, create_session, safe_temp_file, 
+    ERROR_HANDLER, handle_options_request, split_text_for_streaming, safe_memcached_operation,
+    ONE_MIN_API_URL, ONE_MIN_CONVERSATION_API_URL, ONE_MIN_CONVERSATION_API_STREAMING_URL,
+    DEFAULT_TIMEOUT, VISION_SUPPORTED_MODELS, CODE_INTERPRETER_SUPPORTED_MODELS,
+    RETRIEVAL_SUPPORTED_MODELS, FUNCTION_CALLING_SUPPORTED_MODELS,
+    IMAGE_DESCRIPTION_INSTRUCTION, DOCUMENT_ANALYSIS_INSTRUCTION,
+    AVAILABLE_MODELS, PERMIT_MODELS_FROM_SUBSET_ONLY
+)
+
+from routes import text_bp
+
+# Получаем логгер
+logger = logging.getLogger("1min-relay")
+
+# Limiter добавляется к приложению в app.py - здесь используются декораторы
+# @limiter.limit("60 per minute")
+
+@text_bp.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
         return ERROR_HANDLER(1212)
@@ -12,8 +39,8 @@ def index():
         )
 
 
-@app.route("/v1/models")
-@limiter.limit("60 per minute")
+@text_bp.route("/v1/models")
+# Декоратор лимитера добавляется в app.py
 def models():
     # Dynamically create the list of models with additional fields
     models_data = []
@@ -40,8 +67,8 @@ def models():
     models_data.extend(one_min_models_data)
     return jsonify({"data": models_data, "object": "list"})
 
-@app.route("/v1/chat/completions", methods=["POST"])
-@limiter.limit("60 per minute")
+@text_bp.route("/v1/chat/completions", methods=["POST"])
+# Декоратор лимитера добавляется в app.py
 def conversation():
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Received request: /v1/chat/completions")
@@ -1217,8 +1244,8 @@ def conversation():
             500,
         )
 
-@app.route("/v1/assistants", methods=["POST", "OPTIONS"])
-@limiter.limit("60 per minute")
+@text_bp.route("/v1/assistants", methods=["POST", "OPTIONS"])
+# Декоратор лимитера добавляется в app.py
 def create_assistant():
     if request.method == "OPTIONS":
         return handle_options_request()
