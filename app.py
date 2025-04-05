@@ -1,5 +1,5 @@
-# version 1.0.1 #increment every time you make changes
-# 2025-04-02 01:30 #change to actual date and time every time you make changes
+# version 1.0.2 #increment every time you make changes
+# 2025-04-04 18:44 #change to actual date and time every time you make changes
 import base64
 import hashlib
 import json
@@ -132,9 +132,6 @@ AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
 # Add cache to track processed images
 # For each request, we keep a unique image identifier and its path
 IMAGE_CACHE = {}
-# Limit the size of the cache
-MAX_CACHE_SIZE = 100
-
 
 # Основные настройки
 # Run the task at the start of the server
