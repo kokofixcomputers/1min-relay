@@ -69,7 +69,11 @@ coloredlogs.install(level="DEBUG", logger=logger)
 
 # Глобальные переменные и инициализация
 app = Flask(__name__)
-MEMORY_STORAGE = {}  # Резервное хранилище для сессий при отсутствии memcached
+# Используем MEMORY_STORAGE и MEMCACHED_CLIENT из utils.memcached
+from utils.memcached import MEMORY_STORAGE, MEMCACHED_CLIENT
+# Очищаем хранилище при запуске
+MEMORY_STORAGE.clear()
+# Кэш для обработанных изображений
 IMAGE_CACHE = {}  # Кэш для обработанных изображений
 
 # Регистрируем blueprints
