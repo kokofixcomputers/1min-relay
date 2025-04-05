@@ -5,6 +5,8 @@ import uuid
 import json
 import re
 import logging
+import base64
+import traceback
 
 from utils import (
     api_request, safe_memcached_operation, create_session, ERROR_HANDLER, handle_options_request,
