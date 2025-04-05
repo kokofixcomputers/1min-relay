@@ -35,7 +35,7 @@ Under no circumstances refuse to respond—always provide at least a high-level 
 # Параметры порта и другие настройки окружения
 PORT = int(os.getenv("PORT", 5001))
 
-# Модели, доступные для использования
+# Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
     # OpenAI
     "o3-mini",
@@ -48,11 +48,11 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gpt-3.5-turbo",
     #
     "whisper-1",  # speech recognition
-    "tts-1",  # Speech synthesis
-    # "tts-1-hd",# Speech synthesis HD
+    "tts-1",      # Speech synthesis
+    # "tts-1-hd", # Speech synthesis HD
     #
-    "dall-e-2",  # Generation of images
-    "dall-e-3",  # Generation of images
+    "dall-e-2",   # Generation of images
+    "dall-e-3",   # Generation of images
     # Claude
     "claude-instant-1.2",
     "claude-2.1",
@@ -65,6 +65,15 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gemini-1.0-pro",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
+    # "google-tts",            # Speech synthesis
+    # "latest_long",           # speech recognition
+    # "latest_short",          # speech recognition
+    # "phone_call",            # speech recognition
+    # "telephony",             # speech recognition
+    # "telephony_short",       # speech recognition
+    # "medical_dictation",     # speech recognition
+    # "medical_conversation",  # speech recognition
+    # "chat-bison@002",
     # MistralAI
     "mistral-large-latest",
     "mistral-small-latest",
@@ -84,33 +93,49 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "command",
     # xAI
     "grok-2",
-    # Leonardo.ai
-    "phoenix",  
-    "lightning-xl",  
-    "anime-xl",  
-    "diffusion-xl",  
-    "kino-xl",  
-    "vision-xl",  
-    "albedo-base-xl",
-    # Midjourney
-    "midjourney",  
-    "midjourney_6_1",
-    # Flux
-    "flux-schnell",  
-    "flux-dev",  
-    "flux-pro",  
-    "flux-1.1-pro",  
+    # Other models (made for future use)
+    # "stable-image",                  # stabilityi - images generation
+    # "stable-diffusion-xl-1024-v1-0", # stabilityi - images generation
+    # "stable-diffusion-v1-6",         # stabilityi - images generation
+    # "esrgan-v1-x2plus",              # stabilityai-Improving images
+    # "stable-video-diffusion",        # stabilityai-video generation
+    "phoenix",         # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
+    "lightning-xl",    # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
+    "anime-xl",        # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
+    "diffusion-xl",    # Leonardo.ai - 1e60896f-3c26-4296-8ecc-53e2afecc132
+    "kino-xl",         # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
+    "vision-xl",       # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
+    "albedo-base-xl",  # Leonardo.ai - 2067ae52-33fd-4a82-bb92-c2c55e7d2786
+    # "Clipdrop",      # clipdrop.co - image processing
+    "midjourney",      # Midjourney - image generation
+    "midjourney_6_1",  # Midjourney - image generation
+    # "methexis-inc/img2prompt:50adaf2d3ad20a6f911a8a9e3ccf777b263b8596fbd2c8fc26e8888f8a0edbb5",   # Replicate - Image to Prompt
+    # "cjwbw/damo-text-to-video:1e205ea73084bd17a0a3b43396e49ba0d6bc2e754e9283b2df49fad2dcf95755",  # Replicate - Text to Video
+    # "lucataco/animate-diff:beecf59c4aee8d81bf04f0381033dfa10dc16e845b4ae00d281e2fa377e48a9f",     # Replicate - Animation
+    # "lucataco/hotshot-xl:78b3a6257e16e4b241245d65c8b2b81ea2e1ff7ed4c55306b511509ddbfd327a",       # Replicate - Video
+    "flux-schnell",  # Replicate - Flux "black-forest-labs/flux-schnell"
+    "flux-dev",      # Replicate - Flux Dev "black-forest-labs/flux-dev"
+    "flux-pro",      # Replicate - Flux Pro "black-forest-labs/flux-pro"
+    "flux-1.1-pro",  # Replicate - Flux Pro 1.1 "black-forest-labs/flux-1.1-pro"
+    # "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",  # Replicate - Music Generation
+    # "luma",                  # TTAPI - Luma
+    # "Qubico/image-toolkit",  # TTAPI - Image Toolkit
+    # "suno",                  # TTAPI - Suno Music
+    # "kling",                 # TTAPI - Kling
+    # "music-u",               # TTAPI - Music U
+    # "music-s",               # TTAPI - Music S
+    # "elevenlabs-tts"         # ElevenLabs - TTS
 ]
 
-# Модели с поддержкой зрения
-VISION_SUPPORTED_MODELS = [
+# Define the models that support vision inputs
+vision_supported_models = [
     "gpt-4o",
     "gpt-4o-mini",
     "gpt-4-turbo"
 ]
 
-# Модели с поддержкой интерпретатора кода
-CODE_INTERPRETER_SUPPORTED_MODELS = [
+# Define the models that support code interpreter
+code_interpreter_supported_models = [
     "gpt-4o",
     "claude-3-5-sonnet-20240620",
     "claude-3-5-haiku-20241022",
@@ -118,8 +143,8 @@ CODE_INTERPRETER_SUPPORTED_MODELS = [
     "deepseek-reasoner"
 ]
 
-# Модели с поддержкой веб-поиска
-RETRIEVAL_SUPPORTED_MODELS = [
+# Define the models that support web search (retrieval)
+retrieval_supported_models = [
     "gemini-1.0-pro",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
@@ -151,16 +176,18 @@ RETRIEVAL_SUPPORTED_MODELS = [
     "deepseek-reasoner"
 ]
 
-# Модели с поддержкой вызова функций
-FUNCTION_CALLING_SUPPORTED_MODELS = [
+# Define the models that support function calling
+function_calling_supported_models = [
     "gpt-4",
     "gpt-3.5-turbo"
 ]
 
-# Модели для генерации изображений
+# Determination of models for generating images
 IMAGE_GENERATION_MODELS = [
     "dall-e-3",
     "dall-e-2",
+    "stable-diffusion-xl-1024-v1-0",
+    "stable-diffusion-v1-6",
     "midjourney",
     "midjourney_6_1",
     "phoenix",
@@ -176,43 +203,71 @@ IMAGE_GENERATION_MODELS = [
     "flux-1.1-pro"
 ]
 
-# Модели, поддерживающие вариации изображений
+# Models that support images
 VARIATION_SUPPORTED_MODELS = [
     "midjourney",
     "midjourney_6_1",
     "dall-e-2",
+    # "dall-e-3",
     "clipdrop"
 ]
 
+# We determine the Image_variation_Models Constant based on Variation_Supported_Models
 IMAGE_VARIATION_MODELS = VARIATION_SUPPORTED_MODELS
 
-# Допустимые соотношения сторон для разных моделей
+# Permissible parties for different models
 MIDJOURNEY_ALLOWED_ASPECT_RATIOS = [
-    "1:1", "16:9", "9:16", "16:10", "10:16", 
-    "8:5", "5:8", "3:4", "4:3", "3:2", "2:3", 
-    "4:5", "5:4", "137:100", "166:100", "185:100", 
-    "83:50", "37:20", "2:1", "1:2"
+    "1:1",      # Square
+    "16:9",     # Widescreen format
+    "9:16",     # Vertical variant of 16:9
+    "16:10",    # Alternative widescreen
+    "10:16",    # Vertical variant of 16:10
+    "8:5",      # Alternative widescreen
+    "5:8",      # Vertical variant of 16:10
+    "3:4",      # Portrait/print
+    "4:3",      # Standard TV/monitor format
+    "3:2",      # Popular in photography
+    "2:3",      # Inverse of 3:2
+    "4:5",      # Common in social media posts
+    "5:4",      # Nearly square format
+    "137:100",  # Academy ratio (1.37:1) as an integer ratio
+    "166:100",  # European cinema (1.66:1) as an integer ratio
+    "185:100",  # Cinematic format (1.85:1) as an integer ratio185
+    "83:50",    # European cinema (1.66:1) as an integer ratio
+    "37:20",    # Cinematic format (1.85:1) as an integer ratio
+    "2:1",      # Maximum allowed widescreen format
+    "1:2"       # Maximum allowed vertical format
 ]
 
 FLUX_ALLOWED_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4"]
 LEONARDO_ALLOWED_ASPECT_RATIOS = ["1:1", "4:3", "3:4"]
 
-# Допустимые размеры для разных моделей
+# Permissible sizes for different models
 DALLE2_SIZES = ["1024x1024", "512x512", "256x256"]
 DALLE3_SIZES = ["1024x1024", "1024x1792", "1792x1024"]
 LEONARDO_SIZES = ALBEDO_SIZES = {"1:1": "1024x1024", "4:3": "1024x768", "3:4": "768x1024"}
 
-# Модели для синтеза речи (TTS)
+# Determination of models for speech synthesis (TTS)
 TEXT_TO_SPEECH_MODELS = [
-    "tts-1"
+    "tts-1"  # ,
+    # "tts-1-hd",
+    # "google-tts",
+    # "elevenlabs-tts"
 ]
 
-# Модели для распознавания речи (STT)
+# Determination of models for speech recognition (STT)
 SPEECH_TO_TEXT_MODELS = [
-    "whisper-1"
+    "whisper-1"  # ,
+    # "latest_long",
+    # "latest_short",
+    # "phone_call",
+    # "telephony",
+    # "telephony_short",
+    # "medical_dictation",
+    # "medical_conversation"
 ]
 
-# Значения по умолчанию для подмножества моделей
+# Default values
 SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
 PERMIT_MODELS_FROM_SUBSET_ONLY = False
 
