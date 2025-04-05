@@ -48,7 +48,8 @@ from utils import (
     FLUX_ALLOWED_ASPECT_RATIOS, LEONARDO_ALLOWED_ASPECT_RATIOS, DALLE2_SIZES,
     DALLE3_SIZES, LEONARDO_SIZES, ALBEDO_SIZES, TEXT_TO_SPEECH_MODELS, SPEECH_TO_TEXT_MODELS,
     IMAGE_DESCRIPTION_INSTRUCTION, DOCUMENT_ANALYSIS_INSTRUCTION, 
-    SUBSET_OF_ONE_MIN_PERMITTED_MODELS, PERMIT_MODELS_FROM_SUBSET_ONLY
+    SUBSET_OF_ONE_MIN_PERMITTED_MODELS, PERMIT_MODELS_FROM_SUBSET_ONLY,
+    print_logo
 )
 
 from routes import text_bp, images_bp, audio_bp, files_bp
@@ -75,6 +76,9 @@ from utils.memcached import MEMORY_STORAGE, MEMCACHED_CLIENT
 MEMORY_STORAGE.clear()
 # Кэш для обработанных изображений
 IMAGE_CACHE = {}  # Кэш для обработанных изображений
+
+# Вывод логотипа
+print_logo()
 
 # Регистрируем blueprints
 app.register_blueprint(text_bp)
