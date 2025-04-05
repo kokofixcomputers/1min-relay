@@ -1,43 +1,5 @@
 # Маршруты для работы с изображениями
-import base64
-import json
-import logging
-import os
-import random
-import re
-import time
-import traceback
-import uuid
-
-import requests
-from flask import Blueprint, request, jsonify, make_response
-from flask_cors import cross_origin
-
-# Импорт из других модулей
-from utils.common import (
-    api_request, set_response_headers, create_session,
-    ERROR_HANDLER, handle_options_request
-)
-from utils.memcached import safe_memcached_operation
-
-# Получаем логгер
-logger = logging.getLogger("1min-relay")
-
-# Константы
-ONE_MIN_API_URL = "https://api.1min.ai/api/features"
-ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
-IMAGE_GENERATOR = "IMAGE_GENERATOR"
-IMAGE_VARIATOR = "IMAGE_VARIATOR"
-
-# Создаем Blueprint для изображений
-images_bp = Blueprint('images', __name__)
-
-# Глобальные переменные
-from app import limiter, MIDJOURNEY_ALLOWED_ASPECT_RATIOS, FLUX_ALLOWED_ASPECT_RATIOS, \
-    LEONARDO_ALLOWED_ASPECT_RATIOS, DALLE2_SIZES, DALLE3_SIZES, LEONARDO_SIZES, ALBEDO_SIZES, \
-    IMAGE_GENERATION_MODELS, IMAGE_VARIATION_MODELS, MIDJOURNEY_TIMEOUT, DEFAULT_TIMEOUT, MEMORY_STORAGE
-
-@images_bp.route("/v1/images/generations", methods=["POST", "OPTIONS"])
+@app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
 @limiter.limit("60 per minute")
 def generate_image():
     """
@@ -634,7 +596,7 @@ def generate_image():
         return jsonify({"error": str(e)}), 500
 
 
-@images_bp.route("/v1/images/variations", methods=["POST", "OPTIONS"])
+@app.route("/v1/images/variations", methods=["POST", "OPTIONS"])
 @limiter.limit("60 per minute")
 @cross_origin()
 def image_variations():
