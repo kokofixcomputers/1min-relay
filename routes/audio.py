@@ -19,6 +19,9 @@ from routes import audio_bp
 # Получаем логгер
 logger = logging.getLogger("1min-relay")
 
+# Limiter добавляется к приложению в app.py - здесь используются декораторы
+# @limiter.limit("60 per minute")
+
 @audio_bp.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
 def audio_transcriptions():
     """
