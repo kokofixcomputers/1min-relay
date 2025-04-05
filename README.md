@@ -16,17 +16,20 @@
 
 ```
 1min-relay/
-├── app.py                  # Основной файл приложения
-├── utils/                  # Утилиты и вспомогательные функции
-│   ├── common.py           # Общие утилиты
-│   ├── constants.py        # Константы проекта
-│   └── memcached.py        # Функции для работы с Memcached
-├── routes/                 # Маршруты API
-│   ├── text.py             # Маршруты для текстовых моделей
-│   ├── images.py           # Маршруты для работы с изображениями
-│   ├── audio.py            # Маршруты для работы с аудио
-│   └── files.py            # Маршруты для работы с файлами
-└── README.md               # Документация проекта
+├── app.py
+├── utils/
+│   ├── __init__.py      # создаём этот файл
+│   ├── common.py
+│   ├── constants.py
+│   └── memcached.py
+├── routes/
+│   ├── __init__.py      # создаём этот файл
+│   ├── text.py
+│   ├── images.py
+│   ├── audio.py
+│   └── files.py
+└── README.md
+
 ```
 
 ## Требования
