@@ -7,6 +7,11 @@ import time
 # Получаем логгер
 logger = logging.getLogger("1min-relay")
 
+# Глобальная переменная для хранения клиента Memcached
+MEMCACHED_CLIENT = None
+# Глобальная переменная для хранения данных в памяти
+MEMORY_STORAGE = {}
+
 # Вывод логотипа
 logger.info(
     """
