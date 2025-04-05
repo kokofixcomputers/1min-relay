@@ -1,3 +1,4 @@
+# utils/constants.py
 # Файл констант для приложения
 
 # Main URL for API
