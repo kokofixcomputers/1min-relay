@@ -1,3 +1,4 @@
+# routes/images.py
 # Маршруты для работы с изображениями
 @app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
 @limiter.limit("60 per minute")
