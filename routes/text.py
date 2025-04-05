@@ -1,5 +1,5 @@
 # Маршруты для текстовых моделей
-from flask import request, jsonify, make_response, Response
+from flask import request, jsonify, make_response, Response, redirect, url_for
 from flask_cors import cross_origin
 import uuid
 import json
@@ -7,23 +7,36 @@ import re
 import logging
 import traceback
 import socket
+import hashlib
+import os
+import tempfile
+import time
+import requests
+import base64
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 from utils import (
     calculate_token, api_request, set_response_headers, create_session, safe_temp_file, 
     ERROR_HANDLER, handle_options_request, split_text_for_streaming, safe_memcached_operation,
-    ONE_MIN_API_URL, ONE_MIN_CONVERSATION_API_URL, ONE_MIN_CONVERSATION_API_STREAMING_URL,
+    ONE_MIN_API_URL, ONE_MIN_ASSET_URL, ONE_MIN_CONVERSATION_API_URL, ONE_MIN_CONVERSATION_API_STREAMING_URL,
     DEFAULT_TIMEOUT, VISION_SUPPORTED_MODELS, CODE_INTERPRETER_SUPPORTED_MODELS,
     RETRIEVAL_SUPPORTED_MODELS, FUNCTION_CALLING_SUPPORTED_MODELS,
     IMAGE_DESCRIPTION_INSTRUCTION, DOCUMENT_ANALYSIS_INSTRUCTION,
-    AVAILABLE_MODELS, PERMIT_MODELS_FROM_SUBSET_ONLY
+    AVAILABLE_MODELS, PERMIT_MODELS_FROM_SUBSET_ONLY, IMAGE_GENERATION_MODELS,
+    TEXT_TO_SPEECH_MODELS, SPEECH_TO_TEXT_MODELS, MAX_CACHE_SIZE, MEMORY_STORAGE, MEMCACHED_CLIENT,
+    ALL_ONE_MIN_AVAILABLE_MODELS, SUBSET_OF_ONE_MIN_PERMITTED_MODELS
 )
 
 from routes import text_bp
+from routes.files import create_conversation_with_files
+from routes.images import retry_image_upload
 
 # Получаем логгер
 logger = logging.getLogger("1min-relay")
+
+# Кэш для обработанных изображений
+IMAGE_CACHE = {}
 
 # Limiter добавляется к приложению в app.py - здесь используются декораторы
 # @limiter.limit("60 per minute")
@@ -1713,3 +1726,94 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
 
     yield f"data: {json.dumps(final_chunk)}\n\n"
     yield "data: [DONE]\n\n"
+
+def streaming_request(api_url, payload, headers, request_id, model, model_settings=None, api_params=None):
+    """
+    Выполняет потоковый запрос к API и возвращает результаты в формате SSE.
+    
+    Args:
+        api_url: URL эндпоинта API
+        payload: Данные для отправки в запросе
+        headers: Заголовки запроса
+        request_id: ID запроса для логирования
+        model: Модель AI
+        model_settings: Дополнительные настройки модели
+        api_params: Дополнительные параметры запроса
+        
+    Returns:
+        Response: Ответ в формате SSE
+    """
+    logger.debug(f"[{request_id}] Starting streaming request to {api_url}")
+    
+    try:
+        # Создаем сессию для контроля соединения
+        session = create_session()
+        
+        # Выполняем запрос с потоковым режимом
+        response = session.post(
+            api_url,
+            json=payload,
+            headers=headers,
+            params=api_params,
+            stream=True
+        )
+        
+        logger.debug(f"[{request_id}] Streaming response status: {response.status_code}")
+        
+        if response.status_code != 200:
+            logger.error(f"[{request_id}] API error: {response.status_code}")
+            session.close()
+            return jsonify({"error": f"API error: {response.status_code}"}), response.status_code
+        
+        # Получаем полное содержимое запроса перед обработкой
+        prompt_token = calculate_token(payload.get("message", ""))
+        
+        # Формируем потоковый ответ
+        return Response(
+            stream_response(response, {"model": model}, model, prompt_token, session),
+            content_type="text/event-stream"
+        )
+        
+    except Exception as e:
+        logger.error(f"[{request_id}] Streaming request error: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+def format_openai_response(ai_response, model, request_id=None):
+    """
+    Форматирует ответ AI в формате совместимом с OpenAI API.
+    
+    Args:
+        ai_response: Текст ответа от модели
+        model: Имя модели
+        request_id: ID запроса для логирования
+        
+    Returns:
+        dict: Отформатированный ответ в формате OpenAI API
+    """
+    request_id = request_id or str(uuid.uuid4())[:8]
+    
+    completion_tokens = calculate_token(ai_response)
+    logger.debug(f"[{request_id}] Formatting response with {completion_tokens} completion tokens")
+    
+    return {
+        "id": f"chatcmpl-{request_id}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": ai_response
+                },
+                "finish_reason": "stop"
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 0,  # У нас нет доступа к исходному промпту здесь
+            "completion_tokens": completion_tokens,
+            "total_tokens": completion_tokens
+        }
+    }
