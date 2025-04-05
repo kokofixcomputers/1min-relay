@@ -1,3 +1,4 @@
+# routes/files.py
 # Маршруты для работы с файлами
 # Functions for working with files in API
 @app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
