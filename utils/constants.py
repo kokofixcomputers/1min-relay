@@ -1,17 +1,16 @@
 # Файл констант для приложения
-import os
 
-# API URLs
+# Main URL for API
 ONE_MIN_API_URL = "https://api.1min.ai/api/features"
 ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
 
-# Таймауты для запросов
-DEFAULT_TIMEOUT = 120  # 120 секунд для обычных запросов
-MIDJOURNEY_TIMEOUT = 900  # 15 минут для запросов к Midjourney
+# Add Constant Tamout used in the API_Request API
+DEFAULT_TIMEOUT = 120 # 120 seconds for regular requests
+MIDJOURNEY_TIMEOUT = 900  # 15 minutes for requests for Midjourney
 
-# Константы для типов запросов
+# Constants for query types
 IMAGE_GENERATOR = "IMAGE_GENERATOR"
 IMAGE_VARIATOR = "IMAGE_VARIATOR"
 
@@ -35,12 +34,6 @@ potentially private details, refrain from sharing those specifics and instead of
 (e.g., 'a memo about team performance' or 'a guide on software usage'). 
 Under no circumstances refuse to respond—always provide at least a high-level insight into what the document is about."""
 
-# Параметры порта и другие настройки окружения
-PORT = int(os.getenv("PORT", 5001))
-
-# Список доступных моделей
-AVAILABLE_MODELS = []
-
 # Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
     # OpenAI
@@ -53,12 +46,12 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gpt-4",
     "gpt-3.5-turbo",
     #
-    "whisper-1",  # speech recognition
-    "tts-1",      # Speech synthesis
-    # "tts-1-hd", # Speech synthesis HD
+    "whisper-1", # speech recognition
+    "tts-1",     # Speech synthesis
+    # "tts-1-hd",# Speech synthesis HD
     #
-    "dall-e-2",   # Generation of images
-    "dall-e-3",   # Generation of images
+    "dall-e-2",  # Generation of images
+    "dall-e-3",  # Generation of images
     # Claude
     "claude-instant-1.2",
     "claude-2.1",
@@ -105,16 +98,16 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # "stable-diffusion-v1-6",         # stabilityi - images generation
     # "esrgan-v1-x2plus",              # stabilityai-Improving images
     # "stable-video-diffusion",        # stabilityai-video generation
-    "phoenix",         # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
-    "lightning-xl",    # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
-    "anime-xl",        # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
-    "diffusion-xl",    # Leonardo.ai - 1e60896f-3c26-4296-8ecc-53e2afecc132
-    "kino-xl",         # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
-    "vision-xl",       # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
-    "albedo-base-xl",  # Leonardo.ai - 2067ae52-33fd-4a82-bb92-c2c55e7d2786
-    # "Clipdrop",      # clipdrop.co - image processing
-    "midjourney",      # Midjourney - image generation
-    "midjourney_6_1",  # Midjourney - image generation
+    "phoenix",       # Leonardo.ai - 6b645e3a-d64f-4341-a6d8-7a3690fbf042
+    "lightning-xl",  # Leonardo.ai - b24e16ff-06e3-43eb-8d33-4416c2d75876
+    "anime-xl",      # Leonardo.ai - e71a1c2f-4f80-4800-934f-2c68979d8cc8
+    "diffusion-xl",  # Leonardo.ai - 1e60896f-3c26-4296-8ecc-53e2afecc132
+    "kino-xl",       # Leonardo.ai - aa77f04e-3eec-4034-9c07-d0f619684628
+    "vision-xl",     # Leonardo.ai - 5c232a9e-9061-4777-980a-ddc8e65647c6
+    "albedo-base-xl",# Leonardo.ai - 2067ae52-33fd-4a82-bb92-c2c55e7d2786
+    # "Clipdrop",    # clipdrop.co - image processing
+    "midjourney",    # Midjourney - image generation
+    "midjourney_6_1",# Midjourney - image generation
     # "methexis-inc/img2prompt:50adaf2d3ad20a6f911a8a9e3ccf777b263b8596fbd2c8fc26e8888f8a0edbb5",   # Replicate - Image to Prompt
     # "cjwbw/damo-text-to-video:1e205ea73084bd17a0a3b43396e49ba0d6bc2e754e9283b2df49fad2dcf95755",  # Replicate - Text to Video
     # "lucataco/animate-diff:beecf59c4aee8d81bf04f0381033dfa10dc16e845b4ae00d281e2fa377e48a9f",     # Replicate - Animation
@@ -134,14 +127,14 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
 ]
 
 # Define the models that support vision inputs
-VISION_SUPPORTED_MODELS = [
+vision_supported_models = [
     "gpt-4o",
     "gpt-4o-mini",
     "gpt-4-turbo"
 ]
 
 # Define the models that support code interpreter
-CODE_INTERPRETER_SUPPORTED_MODELS = [
+code_interpreter_supported_models = [
     "gpt-4o",
     "claude-3-5-sonnet-20240620",
     "claude-3-5-haiku-20241022",
@@ -150,7 +143,7 @@ CODE_INTERPRETER_SUPPORTED_MODELS = [
 ]
 
 # Define the models that support web search (retrieval)
-RETRIEVAL_SUPPORTED_MODELS = [
+retrieval_supported_models = [
     "gemini-1.0-pro",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
@@ -183,7 +176,7 @@ RETRIEVAL_SUPPORTED_MODELS = [
 ]
 
 # Define the models that support function calling
-FUNCTION_CALLING_SUPPORTED_MODELS = [
+function_calling_supported_models = [
     "gpt-4",
     "gpt-3.5-turbo"
 ]
@@ -207,26 +200,6 @@ IMAGE_GENERATION_MODELS = [
     "flux-dev",
     "flux-pro",
     "flux-1.1-pro"
-]
-
-# Determination of models for speech synthesis (TTS)
-TEXT_TO_SPEECH_MODELS = [
-    "tts-1"  # ,
-    # "tts-1-hd",
-    # "google-tts",
-    # "elevenlabs-tts"
-]
-
-# Determination of models for speech recognition (STT)
-SPEECH_TO_TEXT_MODELS = [
-    "whisper-1"  # ,
-    # "latest_long",
-    # "latest_short",
-    # "phone_call",
-    # "telephony",
-    # "telephony_short",
-    # "medical_dictation",
-    # "medical_conversation"
 ]
 
 # Models that support images
@@ -271,14 +244,28 @@ LEONARDO_ALLOWED_ASPECT_RATIOS = ["1:1", "4:3", "3:4"]
 # Permissible sizes for different models
 DALLE2_SIZES = ["1024x1024", "512x512", "256x256"]
 DALLE3_SIZES = ["1024x1024", "1024x1792", "1792x1024"]
+LEONARDO_SIZES = ALBEDO_SIZES = {"1:1": "1024x1024", "4:3": "1024x768", "3:4": "768x1024"}
 
-# Размеры для Leonardo.ai моделей
-LEONARDO_SIZES = ["1024x1024", "768x768", "512x512"]
+# Determination of models for speech synthesis (TTS)
+TEXT_TO_SPEECH_MODELS = [
+    "tts-1"  # ,
+    # "tts-1-hd",
+    # "google-tts",
+    # "elevenlabs-tts"
+]
 
-# Размеры для Albedo моделей
-ALBEDO_SIZES = ["1024x1024", "768x768", "512x512"]
+# Determination of models for speech recognition (STT)
+SPEECH_TO_TEXT_MODELS = [
+    "whisper-1"  # ,
+    # "latest_long",
+    # "latest_short",
+    # "phone_call",
+    # "telephony",
+    # "telephony_short",
+    # "medical_dictation",
+    # "medical_conversation"
+]
 
-# Подмножество разрешенных моделей (если PERMIT_MODELS_FROM_SUBSET_ONLY=True)
 # Default values
 SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
 PERMIT_MODELS_FROM_SUBSET_ONLY = False
