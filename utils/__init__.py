@@ -1,7 +1,10 @@
-# Импортируем логгер перед всеми остальными модулями
-from .logger import logger
+# Импортируем логгер из модуля utils
+from utils.logger import logger
+# Импортируем Flask app из app.py
+from app import app, limiter
 
 # Импортируем всё содержимое модулей
-from .constants import *
-from .common import *
-from .memcached import *
+from .text import *
+from .images import *
+from .audio import *
+from .files import *
