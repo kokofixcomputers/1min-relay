@@ -15,6 +15,9 @@ MIDJOURNEY_TIMEOUT = 900  # 15 минут для запросов к Midjourney
 IMAGE_GENERATOR = "IMAGE_GENERATOR"
 IMAGE_VARIATOR = "IMAGE_VARIATOR"
 
+# Максимальный размер кэша для изображений
+MAX_CACHE_SIZE = 100
+
 # Инструкции для описания изображений и документов
 IMAGE_DESCRIPTION_INSTRUCTION = """Describe the scene, actions, text, or meme elements in the image. 
 Use 'person' or 'group' instead of identifying individuals. If a face occupies a large part of the image, 
@@ -206,6 +209,26 @@ IMAGE_GENERATION_MODELS = [
     "flux-1.1-pro"
 ]
 
+# Determination of models for speech synthesis (TTS)
+TEXT_TO_SPEECH_MODELS = [
+    "tts-1"  # ,
+    # "tts-1-hd",
+    # "google-tts",
+    # "elevenlabs-tts"
+]
+
+# Determination of models for speech recognition (STT)
+SPEECH_TO_TEXT_MODELS = [
+    "whisper-1"  # ,
+    # "latest_long",
+    # "latest_short",
+    # "phone_call",
+    # "telephony",
+    # "telephony_short",
+    # "medical_dictation",
+    # "medical_conversation"
+]
+
 # Models that support images
 VARIATION_SUPPORTED_MODELS = [
     "midjourney",
@@ -248,31 +271,14 @@ LEONARDO_ALLOWED_ASPECT_RATIOS = ["1:1", "4:3", "3:4"]
 # Permissible sizes for different models
 DALLE2_SIZES = ["1024x1024", "512x512", "256x256"]
 DALLE3_SIZES = ["1024x1024", "1024x1792", "1792x1024"]
-LEONARDO_SIZES = ALBEDO_SIZES = {"1:1": "1024x1024", "4:3": "1024x768", "3:4": "768x1024"}
 
-# Determination of models for speech synthesis (TTS)
-TEXT_TO_SPEECH_MODELS = [
-    "tts-1"  # ,
-    # "tts-1-hd",
-    # "google-tts",
-    # "elevenlabs-tts"
-]
+# Размеры для Leonardo.ai моделей
+LEONARDO_SIZES = ["1024x1024", "768x768", "512x512"]
 
-# Determination of models for speech recognition (STT)
-SPEECH_TO_TEXT_MODELS = [
-    "whisper-1"  # ,
-    # "latest_long",
-    # "latest_short",
-    # "phone_call",
-    # "telephony",
-    # "telephony_short",
-    # "medical_dictation",
-    # "medical_conversation"
-]
+# Размеры для Albedo моделей
+ALBEDO_SIZES = ["1024x1024", "768x768", "512x512"]
 
+# Подмножество разрешенных моделей (если PERMIT_MODELS_FROM_SUBSET_ONLY=True)
 # Default values
 SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
 PERMIT_MODELS_FROM_SUBSET_ONLY = False
-
-# Другие константы
-MAX_CACHE_SIZE = 100  # Ограничение размера кэша 
