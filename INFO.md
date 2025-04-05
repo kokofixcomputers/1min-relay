@@ -30,7 +30,13 @@ if __name__ == "__main__":
     serve(app, host="0.0.0.0", port=PORT, threads=6)
 ```
 ---
-2. utils/common.py
+2. utils/constants.py
+```python
+#CONSTANTS=[]
+...
+```
+---
+3. utils/common.py
 ```python
 # Общие утилиты
 def calculate_token(sentence, model="DEFAULT"):
@@ -58,7 +64,7 @@ def split_text_for_streaming(text, chunk_size=6):
     # ...
 ```
 ---
-3. utils/memcached.py
+4. utils/memcached.py
 ```python
 # Функции для работы с Memcached
 def check_memcached_connection():
@@ -71,7 +77,7 @@ def delete_all_files_task():
     # ...
 ```
 ---
-4. routes/text.py
+5. routes/text.py
 ```python
 # Маршруты для текстовых моделей
 @app.route("/", methods=["GET", "POST"])
@@ -113,7 +119,7 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
     # ...
 ```
 ---
-5. routes/images.py
+6. routes/images.py
 ```python
 # Маршруты для работы с изображениями
 @app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
@@ -138,7 +144,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
     # ...
 ```
 ---
-6. routes/audio.py
+7. routes/audio.py
 ```python
 # Маршруты для работы с аудио
 @app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
@@ -157,7 +163,7 @@ def text_to_speech():
     # ...
 ```
 ---
-7. routes/files.py
+8. routes/files.py
 ```python
 # Маршруты для работы с файлами
 @app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
@@ -188,9 +194,4 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
     # ...
 ```
 ---
-8. utils/constants.py
-```python
-#CONSTANTS=[]
-...
-```
----
+
