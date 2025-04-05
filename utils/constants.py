@@ -35,6 +35,9 @@ Under no circumstances refuse to respond—always provide at least a high-level 
 # Параметры порта и другие настройки окружения
 PORT = int(os.getenv("PORT", 5001))
 
+# Список доступных моделей
+AVAILABLE_MODELS = []
+
 # Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
     # OpenAI
