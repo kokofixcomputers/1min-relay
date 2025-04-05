@@ -1,4 +1,12 @@
 # Функции для работы с Memcached
+import logging
+import json
+import uuid
+import time
+
+# Получаем логгер
+logger = logging.getLogger("1min-relay")
+
 def check_memcached_connection():
     """
     Checks the availability of Memcache, first in DoCker, then locally
