@@ -1,3 +1,4 @@
+# routes/audio.py
 # Маршруты для работы с аудио
 @app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
 @limiter.limit("60 per minute")
