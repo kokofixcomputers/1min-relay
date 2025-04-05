@@ -1,5 +1,5 @@
-# version 1.0.2 #increment every time you make changes
-# 2025-04-04 18:44 #change to actual date and time every time you make changes
+# version 1.0.3 #increment every time you make changes
+# 2025-04-05 18:00 #change to actual date and time every time you make changes
 import base64
 import hashlib
 import json
