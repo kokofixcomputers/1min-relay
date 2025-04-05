@@ -33,8 +33,25 @@ from waitress import serve
 from werkzeug.datastructures import MultiDict
 from flask_cors import cross_origin
 
-#from utils import... *
-#from routes import... * 
+# Импорт из наших модулей
+from utils import (
+    check_memcached_connection, calculate_token, api_request, set_response_headers, 
+    create_session, safe_temp_file, ERROR_HANDLER, handle_options_request, split_text_for_streaming,
+    safe_memcached_operation, delete_all_files_task,
+    # Импорт констант
+    ONE_MIN_API_URL, ONE_MIN_ASSET_URL, ONE_MIN_CONVERSATION_API_URL, 
+    ONE_MIN_CONVERSATION_API_STREAMING_URL, DEFAULT_TIMEOUT, MIDJOURNEY_TIMEOUT,
+    PORT, MAX_CACHE_SIZE, IMAGE_GENERATOR, IMAGE_VARIATOR,
+    ALL_ONE_MIN_AVAILABLE_MODELS, VISION_SUPPORTED_MODELS, CODE_INTERPRETER_SUPPORTED_MODELS,
+    RETRIEVAL_SUPPORTED_MODELS, FUNCTION_CALLING_SUPPORTED_MODELS, IMAGE_GENERATION_MODELS,
+    VARIATION_SUPPORTED_MODELS, IMAGE_VARIATION_MODELS, MIDJOURNEY_ALLOWED_ASPECT_RATIOS,
+    FLUX_ALLOWED_ASPECT_RATIOS, LEONARDO_ALLOWED_ASPECT_RATIOS, DALLE2_SIZES,
+    DALLE3_SIZES, LEONARDO_SIZES, ALBEDO_SIZES, TEXT_TO_SPEECH_MODELS, SPEECH_TO_TEXT_MODELS,
+    IMAGE_DESCRIPTION_INSTRUCTION, DOCUMENT_ANALYSIS_INSTRUCTION, 
+    SUBSET_OF_ONE_MIN_PERMITTED_MODELS, PERMIT_MODELS_FROM_SUBSET_ONLY
+)
+
+from routes import text_bp, images_bp, audio_bp, files_bp
 
 # We download the environment variables from the .env file
 load_dotenv()
@@ -52,6 +69,16 @@ coloredlogs.install(level="DEBUG", logger=logger)
 
 # Глобальные переменные и инициализация
 app = Flask(__name__)
+MEMORY_STORAGE = {}  # Резервное хранилище для сессий при отсутствии memcached
+IMAGE_CACHE = {}  # Кэш для обработанных изображений
+
+# Регистрируем blueprints
+app.register_blueprint(text_bp)
+app.register_blueprint(images_bp)
+app.register_blueprint(audio_bp)
+app.register_blueprint(files_bp)
+
+# Проверка соединения с Memcached и инициализация лимитера
 memcached_available, memcached_uri = check_memcached_connection()
 if memcached_available:
     limiter = Limiter(
@@ -102,6 +129,20 @@ else:
     MEMCACHED_CLIENT = None
     logger.info("Memcached not available, session storage disabled")
 
+# Применяем лимитер к Blueprint маршрутам
+# Для text_bp
+limiter.limit("60 per minute")(text_bp)
+# Для images_bp
+limiter.limit("60 per minute")(images_bp)
+# Для audio_bp
+limiter.limit("60 per minute")(audio_bp)
+# Для files_bp
+limiter.limit("60 per minute")(files_bp)
+
+# Получение переменных окружения для настройки моделей
+one_min_models_env = os.getenv("SUBSET_OF_ONE_MIN_PERMITTED_MODELS", None)
+permit_not_in_available_env = os.getenv("PERMIT_MODELS_FROM_SUBSET_ONLY", None)
+
 # Parse or fall back to defaults
 if one_min_models_env:
     SUBSET_OF_ONE_MIN_PERMITTED_MODELS = one_min_models_env.split(",")
@@ -112,10 +153,6 @@ if permit_not_in_available_env and permit_not_in_available_env.lower() == "true"
 # Combine into a single list
 AVAILABLE_MODELS = []
 AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
-
-# Add cache to track processed images
-# For each request, we keep a unique image identifier and its path
-IMAGE_CACHE = {}
 
 # Основные настройки
 # Run the task at the start of the server
