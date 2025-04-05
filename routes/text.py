@@ -13,6 +13,8 @@ import tempfile
 import time
 import requests
 import base64
+import traceback
+
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
