@@ -1,4 +1,7 @@
+# Импортируем логгер перед всеми остальными модулями
+from .logger import logger
+
 # Импортируем всё содержимое модулей
-from .common import *
 from .constants import *
+from .common import *
 from .memcached import *
