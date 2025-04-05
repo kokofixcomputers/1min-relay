@@ -1,4 +1,15 @@
 # Общие утилиты
+import logging
+import re
+import uuid
+import json
+import time
+import requests
+from flask import jsonify, make_response
+
+# Получаем логгер
+logger = logging.getLogger("1min-relay")
+
 def calculate_token(sentence, model="DEFAULT"):
     """Calculate the number of tokens in a sentence based on the specified model."""
 
