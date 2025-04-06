@@ -4,9 +4,205 @@
 from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
-from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
+from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request
 from utils.memcached import safe_memcached_operation
-from . import app, limiter, MEMORY_STORAGE  # Импортируем app, limiter и MEMORY_STORAGE из модуля routes
+from . import app, limiter, MEMORY_STORAGE
+from .utils import validate_auth, handle_api_error, format_openai_response
+
+# Вспомогательные функции для устранения дублирования кода
+def upload_audio_file(audio_file, api_key, request_id):
+    """
+    Загружает аудио файл в 1min.ai
+    
+    Args:
+        audio_file: Файл аудио
+        api_key: API ключ
+        request_id: ID запроса для логирования
+        
+    Returns:
+        tuple: (audio_path, error_response)
+        audio_path будет None если произошла ошибка
+    """
+    try:
+        session = create_session()
+        headers = {"API-KEY": api_key}
+        files = {"asset": (audio_file.filename, audio_file, "audio/mpeg")}
+        
+        try:
+            asset_response = session.post(ONE_MIN_ASSET_URL, files=files, headers=headers)
+            logger.debug(f"[{request_id}] Audio upload response status code: {asset_response.status_code}")
+            
+            if asset_response.status_code != 200:
+                error_message = asset_response.json().get("error", "Failed to upload audio")
+                return None, (jsonify({"error": error_message}), asset_response.status_code)
+                
+            audio_path = asset_response.json()["fileContent"]["path"]
+            logger.debug(f"[{request_id}] Successfully uploaded audio: {audio_path}")
+            return audio_path, None
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"[{request_id}] Error uploading audio: {str(e)}")
+        return None, (jsonify({"error": f"Failed to upload audio: {str(e)}"}), 500)
+
+def try_models_in_sequence(models_to_try, payload_func, api_key, request_id):
+    """
+    Пробует использовать модели по очереди, пока одна не сработает
+    
+    Args:
+        models_to_try: Список моделей для перебора
+        payload_func: Функция создания payload для каждой модели
+        api_key: API ключ
+        request_id: ID запроса для логирования
+        
+    Returns:
+        tuple: (result, error)
+        result будет None если все модели завершились с ошибкой
+    """
+    last_error = None
+    
+    for current_model in models_to_try:
+        try:
+            payload = payload_func(current_model)
+            headers = {"API-KEY": api_key, "Content-Type": "application/json"}
+            
+            logger.debug(f"[{request_id}] Trying model {current_model}")
+            response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
+            logger.debug(f"[{request_id}] Response status code: {response.status_code} for model {current_model}")
+            
+            if response.status_code == 200:
+                one_min_response = response.json()
+                return one_min_response, None
+            else:
+                # Сохраняем ошибку и пробуем следующую модель
+                last_error = response
+                logger.warning(f"[{request_id}] Model {current_model} failed with status {response.status_code}")
+        
+        except Exception as e:
+            logger.error(f"[{request_id}] Error with model {current_model}: {str(e)}")
+            last_error = e
+    
+    # Если мы дошли до сюда, значит ни одна модель не сработала
+    logger.error(f"[{request_id}] All available models failed")
+    
+    # Возвращаем последнюю ошибку
+    return None, last_error
+
+def extract_text_from_response(response_data, request_id):
+    """
+    Извлекает текст из ответа API
+    
+    Args:
+        response_data: Данные ответа от API
+        request_id: ID запроса для логирования
+        
+    Returns:
+        str: Извлеченный текст или пустая строка в случае ошибки
+    """
+    result_text = ""
+    
+    if "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
+        result_text = response_data["aiRecord"]["aiRecordDetail"].get("resultObject", [""])[0]
+    elif "resultObject" in response_data:
+        result_text = (
+            response_data["resultObject"][0]
+            if isinstance(response_data["resultObject"], list)
+            else response_data["resultObject"]
+        )
+    
+    # Проверяем если result_text это json
+    try:
+        if result_text and isinstance(result_text, str) and result_text.strip().startswith("{"):
+            parsed_json = json.loads(result_text)
+            if "text" in parsed_json:
+                result_text = parsed_json["text"]
+                logger.debug(f"[{request_id}] Extracted inner text from JSON")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    
+    if not result_text:
+        logger.error(f"[{request_id}] Could not extract text from API response")
+        
+    return result_text
+
+def prepare_models_list(requested_model, available_models):
+    """
+    Подготавливает список моделей для последовательного перебора
+    
+    Args:
+        requested_model: Запрошенная модель
+        available_models: Список доступных моделей
+        
+    Returns:
+        list: Список моделей для перебора
+    """
+    if requested_model in available_models:
+        # Если запрошена конкретная модель, пробуем её первой
+        models_to_try = [requested_model]
+        # Добавляем остальные модели из списка, кроме уже добавленной
+        models_to_try.extend([m for m in available_models if m != requested_model])
+    else:
+        # Если запрошенная модель не в списке, используем все модели из списка
+        models_to_try = available_models
+        
+    return models_to_try
+
+def get_audio_from_url(audio_url, request_id):
+    """
+    Получает аудио данные по URL
+    
+    Args:
+        audio_url: URL аудио файла
+        request_id: ID запроса для логирования
+        
+    Returns:
+        tuple: (audio_data, content_type, error_response)
+        audio_data будет None если произошла ошибка
+    """
+    try:
+        full_url = f"https://asset.1min.ai/{audio_url}"
+        audio_response = api_request("GET", full_url)
+        
+        if audio_response.status_code != 200:
+            logger.error(f"[{request_id}] Failed to download audio: {audio_response.status_code}")
+            return None, None, (jsonify({"error": "Failed to download audio"}), 500)
+        
+        logger.info(f"[{request_id}] Successfully downloaded audio data")
+        return audio_response.content, None
+    except Exception as e:
+        logger.error(f"[{request_id}] Error downloading audio: {str(e)}")
+        return None, (jsonify({"error": f"Failed to download audio: {str(e)}"}), 500)
+
+def handle_error_response(error, api_key, request_id):
+    """
+    Обрабатывает ошибку и формирует соответствующий ответ
+    
+    Args:
+        error: Объект ошибки (Exception или Response)
+        api_key: API ключ
+        request_id: ID запроса для логирования
+        
+    Returns:
+        tuple: HTTP ответ с ошибкой
+    """
+    if isinstance(error, requests.Response):
+        if error.status_code == 401:
+            return ERROR_HANDLER(1020, key=api_key)
+        
+        logger.error(f"[{request_id}] API error: {error.text[:200] if hasattr(error, 'text') else str(error)}")
+        error_text = "No available providers at the moment"
+        try:
+            error_json = error.json()
+            if "error" in error_json:
+                error_text = error_json["error"]
+        except:
+            pass
+        
+        return jsonify({"error": f"All available models failed. {error_text}"}), error.status_code
+    else:
+        logger.error(f"[{request_id}] Error: {str(error)}")
+        return jsonify({"error": f"All available models failed. {str(error)}"}), 500
+
 
 # Маршруты для работы с аудио
 @app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
@@ -21,14 +217,12 @@ def audio_transcriptions():
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Received request: /v1/audio/transcriptions")
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        logger.error(f"[{request_id}] Invalid Authentication")
-        return ERROR_HANDLER(1021)
+    # Проверяем авторизацию
+    api_key, error = validate_auth(request, request_id)
+    if error:
+        return error
 
-    api_key = auth_header.split(" ")[1]
-
-    # Checking the availability of the Audio file
+    # Проверяем наличие аудио файла
     if "file" not in request.files:
         logger.error(f"[{request_id}] No audio file provided")
         return jsonify({"error": "No audio file provided"}), 400
@@ -42,182 +236,57 @@ def audio_transcriptions():
     logger.info(f"[{request_id}] Processing audio transcription with model {model}")
 
     try:
-        # We create a new session for loading audio
-        session = create_session()
-        headers = {"API-KEY": api_key}
-
-        # Audio loading in 1min.ai
-        files = {"asset": (audio_file.filename, audio_file, "audio/mpeg")}
-
-        try:
-            asset_response = session.post(
-                ONE_MIN_ASSET_URL, files=files, headers=headers
-            )
-            logger.debug(
-                f"[{request_id}] Audio upload response status code: {asset_response.status_code}"
-            )
-
-            if asset_response.status_code != 200:
-                session.close()
-                return (
-                    jsonify(
-                        {
-                            "error": asset_response.json().get(
-                                "error", "Failed to upload audio"
-                            )
-                        }
-                    ),
-                    asset_response.status_code,
-                )
-
-            audio_path = asset_response.json()["fileContent"]["path"]
-            logger.debug(f"[{request_id}] Successfully uploaded audio: {audio_path}")
-        finally:
-            session.close()
-
-        # Подготовка моделей для перебора
-        models_to_try = []
+        # Загружаем аудио файл
+        audio_path, error = upload_audio_file(audio_file, api_key, request_id)
+        if error:
+            return error
         
-        # Если запрошена конкретная модель, пробуем её первой
-        if model in SPEECH_TO_TEXT_MODELS:
-            models_to_try = [model]
-            # Добавляем остальные модели из списка, кроме уже добавленной
-            models_to_try.extend([m for m in SPEECH_TO_TEXT_MODELS if m != model])
-        else:
-            # Если запрошенная модель не в списке, используем все модели из списка
-            models_to_try = SPEECH_TO_TEXT_MODELS
-            
+        # Подготовка списка моделей для перебора
+        models_to_try = prepare_models_list(model, SPEECH_TO_TEXT_MODELS)
         logger.debug(f"[{request_id}] Will try these models in order: {models_to_try}")
         
-        last_error = None
-        
-        # Перебираем модели, пока одна не сработает
-        for current_model in models_to_try:
-            try:
-                # We form Payload for request Speech_to_text
-                payload = {
-                    "type": "SPEECH_TO_TEXT",
-                    "model": current_model,
-                    "promptObject": {
-                        "audioUrl": audio_path,
-                        "response_format": response_format,
-                    },
-                }
-
-                # Add additional parameters if they are provided
-                if language:
-                    payload["promptObject"]["language"] = language
-
-                if temperature is not None:
-                    payload["promptObject"]["temperature"] = float(temperature)
-
-                headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-
-                # We send a request
-                logger.debug(
-                    f"[{request_id}] Sending transcription request to {ONE_MIN_API_URL} with model {current_model}"
-                )
-                response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
-                logger.debug(
-                    f"[{request_id}] Transcription response status code: {response.status_code} for model {current_model}"
-                )
-
-                # Если запрос успешный, обрабатываем ответ
-                if response.status_code == 200:
-                    # We convert the answer to the Openai API format
-                    one_min_response = response.json()
-
-                    # We extract the text from the answer
-                    result_text = ""
-
-                    if (
-                            "aiRecord" in one_min_response
-                            and "aiRecordDetail" in one_min_response["aiRecord"]
-                    ):
-                        result_text = one_min_response["aiRecord"]["aiRecordDetail"].get(
-                            "resultObject", [""]
-                        )[0]
-                    elif "resultObject" in one_min_response:
-                        result_text = (
-                            one_min_response["resultObject"][0]
-                            if isinstance(one_min_response["resultObject"], list)
-                            else one_min_response["resultObject"]
-                        )
-
-                    # Check if the result_text json is
-                    try:
-                        # If result_text is a json line, we rush it
-                        if result_text and result_text.strip().startswith("{"):
-                            parsed_json = json.loads(result_text)
-                            # If Parsed_json has a "Text" field, we use its value
-                            if "text" in parsed_json:
-                                result_text = parsed_json["text"]
-                                logger.debug(f"[{request_id}] Extracted inner text from JSON: {result_text}")
-                    except (json.JSONDecodeError, TypeError, ValueError):
-                        # If it was not possible to steam like JSON, we use it as it is
-                        logger.debug(f"[{request_id}] Using result_text as is: {result_text}")
-                        pass
-
-                    if not result_text:
-                        logger.error(
-                            f"[{request_id}] Could not extract transcription text from API response"
-                        )
-                        continue  # Пробуем следующую модель
-
-                    # The most simple and reliable response format
-                    logger.info(f"[{request_id}] Successfully processed audio transcription with model {current_model}: {result_text}")
-
-                    # Create json strictly in Openai API format
-                    response_data = {"text": result_text}
-
-                    # Add Cors headlines
-                    response = jsonify(response_data)
-                    response.headers["Access-Control-Allow-Origin"] = "*"
-                    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-                    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
-
-                    return response
-                else:
-                    # Сохраняем ошибку и пробуем следующую модель
-                    last_error = response
-                    logger.warning(
-                        f"[{request_id}] Model {current_model} failed with status {response.status_code}. Trying next model if available."
-                    )
-                    # Не делаем continue здесь - падаем на следующую итерацию цикла автоматически
+        # Функция для создания payload
+        def create_transcription_payload(current_model):
+            payload = {
+                "type": "SPEECH_TO_TEXT",
+                "model": current_model,
+                "promptObject": {
+                    "audioUrl": audio_path,
+                    "response_format": response_format,
+                },
+            }
             
-            except Exception as e:
-                # Записываем ошибку в лог и пробуем следующую модель
-                logger.error(
-                    f"[{request_id}] Error with model {current_model}: {str(e)}"
-                )
-                last_error = e
-                # Продолжаем цикл, пробуя следующую модель
+            # Добавляем дополнительные параметры если они предоставлены
+            if language:
+                payload["promptObject"]["language"] = language
+                
+            if temperature is not None:
+                payload["promptObject"]["temperature"] = float(temperature)
+                
+            return payload
         
-        # Если мы дошли до сюда, значит ни одна модель не сработала
-        logger.error(f"[{request_id}] All available models failed: {models_to_try}")
+        # Пробуем модели по очереди
+        one_min_response, error = try_models_in_sequence(
+            models_to_try, create_transcription_payload, api_key, request_id
+        )
         
-        # Если ни одна модель не сработала, возвращаем последнюю ошибку
-        if isinstance(last_error, requests.Response):
-            if last_error.status_code == 401:
-                return ERROR_HANDLER(1020, key=api_key)
-            logger.error(
-                f"[{request_id}] All models failed. Last error: {last_error.text[:200]}"
-            )
-            error_text = "No available providers at the moment"
-            try:
-                error_json = last_error.json()
-                if "error" in error_json:
-                    error_text = error_json["error"]
-            except:
-                pass
-            
-            return (
-                jsonify({"error": f"All available models failed. {error_text}"}),
-                last_error.status_code,
-            )
-        else:
-            logger.error(f"[{request_id}] All models failed. Last error: {str(last_error)}")
-            return jsonify({"error": f"All available models failed. {str(last_error)}"}), 500
+        if error:
+            return handle_error_response(error, api_key, request_id)
+        
+        # Извлекаем текст из ответа
+        result_text = extract_text_from_response(one_min_response, request_id)
+        
+        if not result_text:
+            logger.error(f"[{request_id}] Could not extract transcription text from API response")
+            return jsonify({"error": "Could not extract transcription text"}), 500
+        
+        logger.info(f"[{request_id}] Successfully processed audio transcription")
+        
+        # Создаем json строго в формате Openai API
+        response_data = {"text": result_text}
+        response = jsonify(response_data)
+        set_response_headers(response)
+        return response
 
     except Exception as e:
         logger.error(f"[{request_id}] Exception during transcription request: {str(e)}")
@@ -236,14 +305,12 @@ def audio_translations():
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Received request: /v1/audio/translations")
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        logger.error(f"[{request_id}] Invalid Authentication")
-        return ERROR_HANDLER(1021)
+    # Проверяем авторизацию
+    api_key, error = validate_auth(request, request_id)
+    if error:
+        return error
 
-    api_key = auth_header.split(" ")[1]
-
-    # Checking the availability of the Audio file
+    # Проверяем наличие аудио файла
     if "file" not in request.files:
         logger.error(f"[{request_id}] No audio file provided")
         return jsonify({"error": "No audio file provided"}), 400
@@ -256,160 +323,49 @@ def audio_translations():
     logger.info(f"[{request_id}] Processing audio translation with model {model}")
 
     try:
-        # We create a new session for loading audio
-        session = create_session()
-        headers = {"API-KEY": api_key}
-
-        # Audio loading in 1min.ai
-        files = {"asset": (audio_file.filename, audio_file, "audio/mpeg")}
-
-        try:
-            asset_response = session.post(
-                ONE_MIN_ASSET_URL, files=files, headers=headers
-            )
-            logger.debug(
-                f"[{request_id}] Audio upload response status code: {asset_response.status_code}"
-            )
-
-            if asset_response.status_code != 200:
-                session.close()
-                return (
-                    jsonify(
-                        {
-                            "error": asset_response.json().get(
-                                "error", "Failed to upload audio"
-                            )
-                        }
-                    ),
-                    asset_response.status_code,
-                )
-
-            audio_path = asset_response.json()["fileContent"]["path"]
-            logger.debug(f"[{request_id}] Successfully uploaded audio: {audio_path}")
-        finally:
-            session.close()
-
-        # Подготовка моделей для перебора
-        models_to_try = []
+        # Загружаем аудио файл
+        audio_path, error = upload_audio_file(audio_file, api_key, request_id)
+        if error:
+            return error
         
-        # Если запрошена конкретная модель, пробуем её первой
-        if model in SPEECH_TO_TEXT_MODELS:
-            models_to_try = [model]
-            # Добавляем остальные модели из списка, кроме уже добавленной
-            models_to_try.extend([m for m in SPEECH_TO_TEXT_MODELS if m != model])
-        else:
-            # Если запрошенная модель не в списке, используем все модели из списка
-            models_to_try = SPEECH_TO_TEXT_MODELS
-            
+        # Подготовка списка моделей для перебора
+        models_to_try = prepare_models_list(model, SPEECH_TO_TEXT_MODELS)
         logger.debug(f"[{request_id}] Will try these models in order: {models_to_try}")
         
-        last_error = None
+        # Функция для создания payload
+        def create_translation_payload(current_model):
+            return {
+                "type": "AUDIO_TRANSLATOR",
+                "model": current_model,
+                "promptObject": {
+                    "audioUrl": audio_path,
+                    "response_format": response_format,
+                    "temperature": float(temperature),
+                },
+            }
         
-        # Перебираем модели, пока одна не сработает
-        for current_model in models_to_try:
-            try:
-                # We form Payload for request Audio_Translator
-                payload = {
-                    "type": "AUDIO_TRANSLATOR",
-                    "model": current_model,
-                    "promptObject": {
-                        "audioUrl": audio_path,
-                        "response_format": response_format,
-                        "temperature": float(temperature),
-                    },
-                }
-
-                headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-
-                # We send a request
-                logger.debug(f"[{request_id}] Sending translation request to {ONE_MIN_API_URL} with model {current_model}")
-                response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
-                logger.debug(
-                    f"[{request_id}] Translation response status code: {response.status_code} for model {current_model}"
-                )
-
-                # Если запрос успешный, обрабатываем ответ
-                if response.status_code == 200:
-                    # We convert the answer to the Openai API format
-                    one_min_response = response.json()
-
-                    # We extract the text from the answer
-                    result_text = ""
-
-                    if (
-                            "aiRecord" in one_min_response
-                            and "aiRecordDetail" in one_min_response["aiRecord"]
-                    ):
-                        result_text = one_min_response["aiRecord"]["aiRecordDetail"].get(
-                            "resultObject", [""]
-                        )[0]
-                    elif "resultObject" in one_min_response:
-                        result_text = (
-                            one_min_response["resultObject"][0]
-                            if isinstance(one_min_response["resultObject"], list)
-                            else one_min_response["resultObject"]
-                        )
-
-                    if not result_text:
-                        logger.error(
-                            f"[{request_id}] Could not extract translation text from API response"
-                        )
-                        continue  # Пробуем следующую модель
-
-                    # The most simple and reliable response format
-                    logger.info(f"[{request_id}] Successfully processed audio translation with model {current_model}: {result_text}")
-
-                    # Create json strictly in Openai API format
-                    response_data = {"text": result_text}
-
-                    # Add Cors headlines
-                    response = jsonify(response_data)
-                    response.headers["Access-Control-Allow-Origin"] = "*"
-                    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-                    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
-
-                    return response
-                else:
-                    # Сохраняем ошибку и пробуем следующую модель
-                    last_error = response
-                    logger.warning(
-                        f"[{request_id}] Model {current_model} failed with status {response.status_code}. Trying next model if available."
-                    )
-                    # Не делаем continue здесь - падаем на следующую итерацию цикла автоматически
-            
-            except Exception as e:
-                # Записываем ошибку в лог и пробуем следующую модель
-                logger.error(
-                    f"[{request_id}] Error with model {current_model}: {str(e)}"
-                )
-                last_error = e
-                # Продолжаем цикл, пробуя следующую модель
+        # Пробуем модели по очереди
+        one_min_response, error = try_models_in_sequence(
+            models_to_try, create_translation_payload, api_key, request_id
+        )
         
-        # Если мы дошли до сюда, значит ни одна модель не сработала
-        logger.error(f"[{request_id}] All available models failed: {models_to_try}")
+        if error:
+            return handle_error_response(error, api_key, request_id)
         
-        # Если ни одна модель не сработала, возвращаем последнюю ошибку
-        if isinstance(last_error, requests.Response):
-            if last_error.status_code == 401:
-                return ERROR_HANDLER(1020, key=api_key)
-            logger.error(
-                f"[{request_id}] All models failed. Last error: {last_error.text[:200]}"
-            )
-            error_text = "No available providers at the moment"
-            try:
-                error_json = last_error.json()
-                if "error" in error_json:
-                    error_text = error_json["error"]
-            except:
-                pass
-            
-            return (
-                jsonify({"error": f"All available models failed. {error_text}"}),
-                last_error.status_code,
-            )
-        else:
-            logger.error(f"[{request_id}] All models failed. Last error: {str(last_error)}")
-            return jsonify({"error": f"All available models failed. {str(last_error)}"}), 500
+        # Извлекаем текст из ответа
+        result_text = extract_text_from_response(one_min_response, request_id)
+        
+        if not result_text:
+            logger.error(f"[{request_id}] Could not extract translation text from API response")
+            return jsonify({"error": "Could not extract translation text"}), 500
+        
+        logger.info(f"[{request_id}] Successfully processed audio translation")
+        
+        # Создаем json строго в формате Openai API
+        response_data = {"text": result_text}
+        response = jsonify(response_data)
+        set_response_headers(response)
+        return response
 
     except Exception as e:
         logger.error(f"[{request_id}] Exception during translation request: {str(e)}")
@@ -428,17 +384,15 @@ def text_to_speech():
     request_id = request.args.get('request_id', str(uuid.uuid4())[:8])
     logger.info(f"[{request_id}] Received request: /v1/audio/speech")
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        logger.error(f"[{request_id}] Invalid Authentication")
-        return ERROR_HANDLER(1021)
+    # Проверяем авторизацию
+    api_key, error = validate_auth(request, request_id)
+    if error:
+        return error
 
-    api_key = auth_header.split(" ")[1]
-
-    # We get data data
+    # Получаем данные запроса
     request_data = {}
     
-    # We check the availability of data in Memcached if the request has been redirected
+    # Проверяем наличие данных в Memcached если запрос был перенаправлен
     if 'request_id' in request.args and 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
         tts_session_key = f"tts_request_{request.args.get('request_id')}"
         try:
@@ -451,13 +405,13 @@ def text_to_speech():
                 else:
                     request_data = session_data
                     
-                # We delete data from the cache, they are no longer needed
+                # Удаляем данные из кэша, они больше не нужны
                 safe_memcached_operation('delete', tts_session_key)
                 logger.debug(f"[{request_id}] Retrieved TTS request data from memcached")
         except Exception as e:
             logger.error(f"[{request_id}] Error retrieving TTS session data: {str(e)}")
     
-    # If the data is not found in Memcache, we try to get them from the query body
+    # Если данные не найдены в Memcache, пробуем получить их из тела запроса
     if not request_data and request.is_json:
         request_data = request.json
         
@@ -475,7 +429,7 @@ def text_to_speech():
         return jsonify({"error": "No input text provided"}), 400
 
     try:
-        # We form Payload for request_to_Speech
+        # Формируем Payload для TTS
         payload = {
             "type": "TEXT_TO_SPEECH",
             "model": model,
@@ -489,55 +443,36 @@ def text_to_speech():
 
         headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-        # We send a request
+        # Отправляем запрос
         logger.debug(f"[{request_id}] Sending TTS request to {ONE_MIN_API_URL}")
         response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
         logger.debug(f"[{request_id}] TTS response status code: {response.status_code}")
 
         if response.status_code != 200:
-            if response.status_code == 401:
-                return ERROR_HANDLER(1020, key=api_key)
-            logger.error(f"[{request_id}] Error in TTS response: {response.text[:200]}")
-            return (
-                jsonify({"error": response.json().get("error", "Unknown error")}),
-                response.status_code,
-            )
+            return handle_api_error(response, api_key, request_id)
 
-        # We process the answer
+        # Обрабатываем ответ
         one_min_response = response.json()
 
         try:
-            # We get a URL audio from the answer
-            audio_url = ""
-
-            if "aiRecord" in one_min_response and "aiRecordDetail" in one_min_response["aiRecord"]:
-                result_object = one_min_response["aiRecord"]["aiRecordDetail"].get("resultObject", "")
-                if isinstance(result_object, list) and result_object:
-                    audio_url = result_object[0]
-                else:
-                    audio_url = result_object
-            elif "resultObject" in one_min_response:
-                result_object = one_min_response["resultObject"]
-                if isinstance(result_object, list) and result_object:
-                    audio_url = result_object[0]
-                else:
-                    audio_url = result_object
-
+            # Получаем URL аудио из ответа
+            audio_url = extract_audio_url(one_min_response, request_id)
+            
             if not audio_url:
                 logger.error(f"[{request_id}] Could not extract audio URL from API response")
                 return jsonify({"error": "Could not extract audio URL"}), 500
 
-            # We get audio data by URL
+            # Получаем аудио данные по URL
             audio_response = api_request("GET", f"https://asset.1min.ai/{audio_url}")
 
             if audio_response.status_code != 200:
                 logger.error(f"[{request_id}] Failed to download audio: {audio_response.status_code}")
                 return jsonify({"error": "Failed to download audio"}), 500
 
-            # We return the audio to the client
+            # Возвращаем аудио клиенту
             logger.info(f"[{request_id}] Successfully generated speech audio")
 
-            # We create an answer with audio and correct MIME-type
+            # Создаем ответ с аудио и правильным MIME-type
             content_type = "audio/mpeg" if response_format == "mp3" else f"audio/{response_format}"
             response = make_response(audio_response.content)
             response.headers["Content-Type"] = content_type
@@ -552,3 +487,35 @@ def text_to_speech():
     except Exception as e:
         logger.error(f"[{request_id}] Exception during TTS request: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
+def extract_audio_url(response_data, request_id):
+    """
+    Извлекает URL аудио из ответа API
+    
+    Args:
+        response_data: Данные ответа от API
+        request_id: ID запроса для логирования
+        
+    Returns:
+        str: URL аудио или пустая строка в случае ошибки
+    """
+    audio_url = ""
+    
+    if "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
+        result_object = response_data["aiRecord"]["aiRecordDetail"].get("resultObject", "")
+        if isinstance(result_object, list) and result_object:
+            audio_url = result_object[0]
+        else:
+            audio_url = result_object
+    elif "resultObject" in response_data:
+        result_object = response_data["resultObject"]
+        if isinstance(result_object, list) and result_object:
+            audio_url = result_object[0]
+        else:
+            audio_url = result_object
+    
+    if not audio_url:
+        logger.error(f"[{request_id}] Could not extract audio URL from API response")
+        
+    return audio_url
