@@ -208,7 +208,6 @@ VARIATION_SUPPORTED_MODELS = [
     "midjourney",
     "midjourney_6_1",
     "dall-e-2",
-    # "dall-e-3",
     "clipdrop"
 ]
 
@@ -258,13 +257,13 @@ TEXT_TO_SPEECH_MODELS = [
 # Determination of models for speech recognition (STT)
 SPEECH_TO_TEXT_MODELS = [
     "whisper-1"  # ,
-    # "latest_long",
-    # "latest_short",
-    # "phone_call",
-    # "telephony",
-    # "telephony_short",
-    # "medical_dictation",
-    # "medical_conversation"
+    "latest_long",
+    "latest_short",
+    "phone_call",
+    "telephony",
+    "telephony_short",
+    "medical_dictation",
+    "medical_conversation"
 ]
 
 # Default values
