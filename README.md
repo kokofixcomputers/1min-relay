@@ -62,6 +62,11 @@ PERMIT_MODELS_FROM_SUBSET_ONLY=false
 
 ### Запуск сервера
 ```bash
+sudo apt install memcached libmemcached-tools -y
+sudo systemctl enable memcached
+sudo systemctl start memcached
+```
+```bash
 python app.py
 ```
 
@@ -82,8 +87,12 @@ Authorization: Bearer your-1min-api-key
 Вы также можете запустить сервер в Docker-контейнере:
 
 ```bash
-docker build -t 1min-relay .
-docker run -d -p 5001:5001 --name 1min-relay-container -e PORT=5001 1min-relay
+    docker run -d --name 1min-relay-container --restart always --network 1min-relay-network -p 5001:5001 \
+      -e SUBSET_OF_ONE_MIN_PERMITTED_MODELS="mistral-nemo,gpt-4o-mini,deepseek-chat" \
+      -e PERMIT_MODELS_FROM_SUBSET_ONLY=False \
+      -e MEMCACHED_HOST=memcached \
+      -e MEMCACHED_PORT=11211 \
+      1min-relay-container:latest
 ```
 
 ## Лицензия
