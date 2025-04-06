@@ -4,7 +4,7 @@ from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
 from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
-from . import app, limiter  # Импортируем app и limiter из модуля routes
+from . import app, limiter, IMAGE_CACHE, MAX_CACHE_SIZE  # Импортируем app, limiter и IMAGE_CACHE из модуля routes
 
 @app.route("/", methods=["GET", "POST"])
 def index():
