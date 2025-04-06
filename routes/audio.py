@@ -86,7 +86,7 @@ def audio_transcriptions():
             # Если запрошенная модель не в списке, используем все модели из списка
             models_to_try = SPEECH_TO_TEXT_MODELS
             
-        logger.debug(f"[{request_id}] Will try these models: {models_to_try}")
+        logger.debug(f"[{request_id}] Will try these models in order: {models_to_try}")
         
         last_error = None
         
@@ -180,9 +180,9 @@ def audio_transcriptions():
                     # Сохраняем ошибку и пробуем следующую модель
                     last_error = response
                     logger.warning(
-                        f"[{request_id}] Model {current_model} failed with status {response.status_code}. Trying next model."
+                        f"[{request_id}] Model {current_model} failed with status {response.status_code}. Trying next model if available."
                     )
-                    continue
+                    # Не делаем continue здесь - падаем на следующую итерацию цикла автоматически
             
             except Exception as e:
                 # Записываем ошибку в лог и пробуем следующую модель
@@ -190,7 +190,10 @@ def audio_transcriptions():
                     f"[{request_id}] Error with model {current_model}: {str(e)}"
                 )
                 last_error = e
-                continue
+                # Продолжаем цикл, пробуя следующую модель
+        
+        # Если мы дошли до сюда, значит ни одна модель не сработала
+        logger.error(f"[{request_id}] All available models failed: {models_to_try}")
         
         # Если ни одна модель не сработала, возвращаем последнюю ошибку
         if isinstance(last_error, requests.Response):
@@ -199,13 +202,21 @@ def audio_transcriptions():
             logger.error(
                 f"[{request_id}] All models failed. Last error: {last_error.text[:200]}"
             )
+            error_text = "No available providers at the moment"
+            try:
+                error_json = last_error.json()
+                if "error" in error_json:
+                    error_text = error_json["error"]
+            except:
+                pass
+            
             return (
-                jsonify({"error": last_error.json().get("error", "All available models failed")}),
+                jsonify({"error": f"All available models failed. {error_text}"}),
                 last_error.status_code,
             )
         else:
             logger.error(f"[{request_id}] All models failed. Last error: {str(last_error)}")
-            return jsonify({"error": str(last_error)}), 500
+            return jsonify({"error": f"All available models failed. {str(last_error)}"}), 500
 
     except Exception as e:
         logger.error(f"[{request_id}] Exception during transcription request: {str(e)}")
