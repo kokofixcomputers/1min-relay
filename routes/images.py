@@ -4,7 +4,8 @@
 from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
-from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token, safe_memcached_operation
+from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
+from utils.memcached import safe_memcached_operation
 from . import app, limiter, MEMORY_STORAGE  # Импортируем app, limiter и MEMORY_STORAGE из модуля routes
 
 
