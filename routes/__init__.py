@@ -1,9 +1,11 @@
 # routes/__init__.py
-# Полностью переписан для использования прямого импорта app и limiter из app.py
+# Импорт маршрутов
 
 # Импортируем логгер
 from utils.logger import logger
 from utils.imports import *
+from utils.constants import *
+from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
 
 # Делаем app и limiter доступными при импорте routes
 import sys
@@ -16,7 +18,19 @@ try:
     mod.app = root_app.app
     mod.limiter = root_app.limiter
     logger.info("Глобальные app и limiter успешно переданы в модуль маршрутов")
-except ImportError:
-    logger.error("Не удалось импортировать app.py. Маршруты могут работать некорректно.")
+    
+    # Импортируем все модули маршрутов
+    from . import files
+    from . import text
+    from . import images
+    from . import audio
+    logger.info("Все модули маршрутов импортированы")
+    
+    # Обеспечиваем прямой доступ к маршрутам из корневого модуля
+    root_app.routes = mod
+    logger.info("Модуль маршрутов добавлен в корневой модуль app")
+    
+except ImportError as e:
+    logger.error(f"Не удалось импортировать app.py: {str(e)}. Маршруты могут работать некорректно.")
 
-logger.info("Инициализация маршрутов начата")
+logger.info("Инициализация маршрутов завершена")
