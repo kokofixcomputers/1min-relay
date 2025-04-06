@@ -1,97 +1,124 @@
 # utils/common.py
 # Общие утилиты
-# Импортируем необходимые модули из нашего централизованного файла импортов
 from .imports import *
 from .logger import logger
 from .constants import *
 
 def calculate_token(sentence, model="DEFAULT"):
-    """Calculate the number of tokens in a sentence based on the specified model."""
+    """
+    Рассчитывает количество токенов в строке, используя соответствующую модели токенизацию.
+    
+    Args:
+        sentence (str): Текст для подсчета токенов
+        model (str): Модель, для которой необходимо посчитать токены
+        
+    Returns:
+        int: Количество токенов в строке
+    """
+    if not sentence:
+        return 0
+        
     try:
+        # Выбираем энкодер в зависимости от модели
+        encoder_name = "gpt-4"  # Дефолтный энкодер
+        
         if model.startswith("mistral"):
-            # Для моделей Mistral используем OpenAI токенизатор в качестве запасного варианта
-            encoding = tiktoken.encoding_for_model("gpt-4")
-            tokens = encoding.encode(sentence)
-            return len(tokens)
+            encoder_name = "gpt-4"  # Для Mistral используем OpenAI токенизатор
         elif model in ["gpt-3.5-turbo", "gpt-4"]:
-            # Use OpenAI's tiktoken for GPT models
-            encoding = tiktoken.encoding_for_model(model)
-            tokens = encoding.encode(sentence)
-            return len(tokens)
-        else:
-            # Default to openai
-            encoding = tiktoken.encoding_for_model("gpt-4")
-            tokens = encoding.encode(sentence)
-            return len(tokens)
+            encoder_name = model
+            
+        # Получаем токенизатор и считаем токены
+        encoding = tiktoken.encoding_for_model(encoder_name)
+        tokens = encoding.encode(sentence)
+        return len(tokens)
     except Exception as e:
         logger.warning(f"Ошибка при подсчете токенов: {str(e)}. Используем приблизительную оценку.")
         # Приблизительно оцениваем количество токенов как 3/4 количества символов
         return len(sentence) * 3 // 4
 
-# A function for performing a request to the API with a new session
-def api_request(req_method, url, headers=None,
-                requester_ip=None, data=None,
-                files=None, stream=False,
-                timeout=None, json=None, **kwargs):
-    """Performs the HTTP request to the API with the normalization of the URL and error processing"""
+def api_request(req_method, url, headers=None, requester_ip=None, data=None,
+                files=None, stream=False, timeout=None, json=None, **kwargs):
+    """
+    Выполняет HTTP-запрос к API с нормализацией URL и обработкой ошибок.
+    
+    Args:
+        req_method (str): Метод запроса (GET, POST, и т.д.)
+        url (str): URL для запроса
+        headers (dict, optional): Заголовки запроса
+        requester_ip (str, optional): IP запрашивающего для логирования
+        data (dict/str, optional): Данные для запроса
+        files (dict, optional): Файлы для запроса
+        stream (bool, optional): Флаг для потоковой передачи данных
+        timeout (int, optional): Таймаут запроса в секундах
+        json (dict, optional): JSON-данные для запроса
+        **kwargs: Дополнительные параметры для requests
+        
+    Returns:
+        Response: Объект ответа от API
+    """
     req_url = url.strip()
     logger.debug(f"API request URL: {req_url}")
 
-    # Request parameters
-    req_params = {}
-    if headers:
-        req_params["headers"] = headers
-    if data:
-        req_params["data"] = data
-    if files:
-        req_params["files"] = files
-    if stream:
-        req_params["stream"] = stream
-    if json:
-        req_params["json"] = json
-
-    # Add other parameters
+    # Формируем параметры запроса
+    req_params = {k: v for k, v in {
+        "headers": headers, 
+        "data": data, 
+        "files": files, 
+        "stream": stream, 
+        "json": json
+    }.items() if v is not None}
+    
+    # Добавляем остальные параметры
     req_params.update(kwargs)
 
-    # We check whether the request is an operation with images
+    # Определяем, является ли запрос операцией с изображениями
     is_image_operation = False
     if json and isinstance(json, dict):
         operation_type = json.get("type", "")
         if operation_type in [IMAGE_GENERATOR, IMAGE_VARIATOR]:
             is_image_operation = True
-            logger.debug(f"Detected image operation: {operation_type}, using extended timeout")
+            logger.debug(f"Обнаружена операция с изображением: {operation_type}, используем расширенный таймаут")
 
-    # We use increased timaut for operations with images
-    if is_image_operation:
-        req_params["timeout"] = timeout or MIDJOURNEY_TIMEOUT
-        logger.debug(f"Using extended timeout for image operation: {MIDJOURNEY_TIMEOUT}s")
-    else:
-        req_params["timeout"] = timeout or DEFAULT_TIMEOUT
+    # Устанавливаем таймаут в зависимости от типа операции
+    req_params["timeout"] = timeout or (MIDJOURNEY_TIMEOUT if is_image_operation else DEFAULT_TIMEOUT)
 
-    # We fulfill the request
+    # Выполняем запрос
     try:
         response = requests.request(req_method, req_url, **req_params)
         return response
     except Exception as e:
-        logger.error(f"API request error: {str(e)}")
+        logger.error(f"Ошибка API запроса: {str(e)}")
         raise
 
 def set_response_headers(response):
-    """Установка стандартных заголовков для всех ответов API"""
-    response.headers["Content-Type"] = "application/json"
-    response.headers["Access-Control-Allow-Origin"] = "*"  # Corrected the hyphen in the title name
-    response.headers["X-Request-ID"] = str(uuid.uuid4())
-    # Add more Cors headings
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
-    return response  # Return the answer for the chain
-
+    """
+    Устанавливает стандартные заголовки для всех ответов API.
+    
+    Args:
+        response: Объект ответа Flask
+        
+    Returns:
+        Response: Модифицированный объект ответа с добавленными заголовками
+    """
+    response.headers.update({
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "X-Request-ID": str(uuid.uuid4()),
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept"
+    })
+    return response
 
 def create_session():
-    """Creates a new session with optimal settings for APIs"""
+    """
+    Создает новую сессию с оптимальными настройками для API запросов.
+    
+    Returns:
+        Session: Настроенная сессия requests
+    """
     session = requests.Session()
 
-    # Setting up repeated attempts for all requests
+    # Настраиваем стратегию повторных попыток для всех запросов
     retry_strategy = requests.packages.urllib3.util.retry.Retry(
         total=3,
         backoff_factor=1,
@@ -106,51 +133,54 @@ def create_session():
 
 def safe_temp_file(prefix, request_id=None):
     """
-    Safely creates a temporary file and guarantees its deletion after use
+    Безопасно создает временный файл и гарантирует его удаление после использования.
 
     Args:
-        Prefix: Prefix for file name
-        Request_id: ID Request for Logging
+        prefix (str): Префикс для имени файла
+        request_id (str, optional): ID запроса для логирования
 
     Returns:
-        STR: Way to the temporary file
+        str: Путь к временному файлу
     """
     request_id = request_id or str(uuid.uuid4())[:8]
     random_string = "".join(random.choices(string.ascii_letters + string.digits, k=10))
-    temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+    temp_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp")
 
-    # Create a temporary directory if it is not
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
+    # Создаем временную директорию, если её нет
+    os.makedirs(temp_dir, exist_ok=True)
 
-    # Clean old files (over 1 hour)
+    # Очищаем старые файлы (старше 1 часа)
     try:
         current_time = time.time()
         for old_file in os.listdir(temp_dir):
             file_path = os.path.join(temp_dir, old_file)
-            if os.path.isfile(file_path):
-                # If the file is older than 1 hour - delete
-                if current_time - os.path.getmtime(file_path) > 3600:
-                    try:
-                        os.remove(file_path)
-                        logger.debug(
-                            f"[{request_id}] Removed old temp file: {file_path}"
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"[{request_id}] Failed to remove old temp file {file_path}: {str(e)}"
-                        )
+            if os.path.isfile(file_path) and (current_time - os.path.getmtime(file_path) > 3600):
+                try:
+                    os.remove(file_path)
+                    logger.debug(f"[{request_id}] Удален старый временный файл: {file_path}")
+                except Exception as e:
+                    logger.warning(f"[{request_id}] Не удалось удалить старый временный файл {file_path}: {str(e)}")
     except Exception as e:
-        logger.warning(f"[{request_id}] Error while cleaning old temp files: {str(e)}")
+        logger.warning(f"[{request_id}] Ошибка при очистке старых временных файлов: {str(e)}")
 
-    # Create a new temporary file
+    # Создаем новый временный файл
     temp_file_path = os.path.join(temp_dir, f"{prefix}_{request_id}_{random_string}")
     return temp_file_path
 
 def ERROR_HANDLER(code, model=None, key=None):
-    """Обработчик ошибок в формате совместимом с OpenAI API"""
-    # Handle errors in OpenAI-Structued Error
-    error_codes = {  # Internal Error Codes
+    """
+    Обработчик ошибок в формате совместимом с OpenAI API.
+    
+    Args:
+        code (int): Внутренний код ошибки
+        model (str, optional): Имя модели (для ошибок, связанных с моделями)
+        key (str, optional): API ключ (для ошибок аутентификации)
+        
+    Returns:
+        tuple: (JSON с ошибкой, HTTP-код ответа)
+    """
+    # Словарь кодов ошибок
+    error_codes = {
         1002: {
             "message": f"The model {model} does not exist.",
             "type": "invalid_request_error",
@@ -201,52 +231,57 @@ def ERROR_HANDLER(code, model=None, key=None):
             "http_code": 400,
         },
     }
-    error_data = {
-        k: v
-        for k, v in error_codes.get(
-            code,
-            {
-                "message": "Unknown error",
-                "type": "unknown_error",
-                "param": None,
-                "code": None,
-            },
-        ).items()
-        if k != "http_code"
-    }  # Remove http_code from the error data
-    logger.error(
-        f"An error has occurred while processing the user's request. Error code: {code}"
-    )
-    return jsonify({"error": error_data}), error_codes.get(code, {}).get(
-        "http_code", 400
-    )  # Return the error data without http_code inside the payload and get the http_code to return.
+    
+    # Получаем данные об ошибке или используем данные по умолчанию
+    error_data = error_codes.get(code, {
+        "message": f"Unknown error (code: {code})",
+        "type": "unknown_error",
+        "param": None,
+        "code": None,
+        "http_code": 400
+    })
+    
+    # Удаляем http_code из данных ответа
+    http_code = error_data.pop("http_code", 400)
+    
+    logger.error(f"Ошибка при обработке запроса пользователя. Код ошибки: {code}")
+    return jsonify({"error": error_data}), http_code
 
 def handle_options_request():
-    """Обработчик OPTIONS запросов для CORS"""
+    """
+    Обработчик OPTIONS запросов для CORS.
+    
+    Returns:
+        tuple: (Объект ответа, HTTP-код ответа 204)
+    """
     response = make_response()
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
-    response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+    response.headers.update({
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type,Authorization",
+        "Access-Control-Allow-Methods": "POST, OPTIONS"
+    })
     return response, 204
 
 def split_text_for_streaming(text, chunk_size=6):
     """
-    It breaks the text into small parts to emulate streaming output.
+    Разбивает текст на небольшие части для эмуляции потокового вывода.
 
     Args:
-        Text (str): text for breakdown
-        chunk_size (int): the approximate size of the parts in words
+        text (str): Текст для разбивки
+        chunk_size (int): Примерный размер частей в словах
 
     Returns:
-        List: List of parts of the text
+        list: Список частей текста
     """
     if not text:
         return [""]
 
-    # We break the text into sentences
+    # Разбиваем текст на предложения
     sentences = re.split(r'(?<=[.!?])\s+', text)
+    if not sentences:
+        return [text]
 
-    # We are grouping sentences to champs
+    # Группируем предложения в чанки
     chunks = []
     current_chunk = []
     current_word_count = 0
@@ -254,22 +289,18 @@ def split_text_for_streaming(text, chunk_size=6):
     for sentence in sentences:
         words_in_sentence = len(sentence.split())
 
-        # If the current cup is empty or the addition of a sentence does not exceed the limit of words
+        # Если текущий чанк пустой или добавление предложения не превысит лимит слов
         if not current_chunk or current_word_count + words_in_sentence <= chunk_size:
             current_chunk.append(sentence)
             current_word_count += words_in_sentence
         else:
-            # We form a cup and begin the new
+            # Формируем чанк и начинаем новый
             chunks.append(" ".join(current_chunk))
             current_chunk = [sentence]
             current_word_count = words_in_sentence
 
-    # Add the last cup if it is not empty
+    # Добавляем последний чанк, если он не пустой
     if current_chunk:
         chunks.append(" ".join(current_chunk))
 
-    # If there is no Cankov (breakdown did not work), we return the entire text entirely
-    if not chunks:
-        return [text]
-
-    return chunks
+    return chunks or [text]
