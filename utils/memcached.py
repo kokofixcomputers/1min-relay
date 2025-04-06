@@ -112,7 +112,7 @@ def safe_memcached_operation(operation, key, value=None, expiry=3600):
         elif operation == 'set':
             if isinstance(value, (dict, list)):
                 value = json.dumps(value)
-            return MEMCACHED_CLIENT_REF.set(key, value, time=expiry)
+            return MEMCACHED_CLIENT_REF.set(key, value, exp=expiry)
         elif operation == 'delete':
             return MEMCACHED_CLIENT_REF.delete(key)
     except Exception as e:
