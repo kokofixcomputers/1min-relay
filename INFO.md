@@ -65,7 +65,6 @@ from flask import Flask, request, jsonify, make_response, Response, redirect, ur
 # Создаем логгер
 logger = logging.getLogger("1min-relay")
 logger.setLevel(logging.DEBUG)
-logger.propagate = False  # Предотвращаем дублирование логов
 # ...
 ```
 ---
