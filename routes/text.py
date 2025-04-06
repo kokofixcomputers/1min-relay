@@ -8,6 +8,7 @@ from utils.memcached import safe_memcached_operation
 from . import app, limiter, IMAGE_CACHE, MAX_CACHE_SIZE, MEMORY_STORAGE  # Импортируем app, limiter и IMAGE_CACHE из модуля routes
 from .images import retry_image_upload  # Импортируем функцию retry_image_upload из модуля images
 from .files import create_conversation_with_files  # Импортируем функцию create_conversation_with_files из модуля files
+from .utils import format_openai_response  # Импортируем функцию format_openai_response из utils.py
 
 @app.route("/", methods=["GET", "POST"])
 def index():
