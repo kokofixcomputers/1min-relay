@@ -16,17 +16,23 @@ PORT = int(os.getenv("PORT", 5001))
 MEMORY_STORAGE = {}
 MEMCACHED_CLIENT = None
 
+logger.info("Инициализация глобальных переменных завершена, app и limiter будут доступны в routes")
+
 # Инициализируем memcached
 try:
-    from utils.memcached import check_memcached_connection, delete_all_files_task
+    from utils.memcached import check_memcached_connection, delete_all_files_task, safe_memcached_operation
     memcached_available, memcached_uri = check_memcached_connection()
-except ImportError:
-    logger.warning("Модуль memcached не найден. Кэширование отключено.")
+except ImportError as ie:
+    logger.error(f"Модуль memcached не найден: {str(ie)}")
     memcached_available = False
     memcached_uri = None
     # Создаем заглушки функций
     def delete_all_files_task():
         logger.warning("Задача удаления файлов отключена (memcached недоступен)")
+        
+    def safe_memcached_operation(operation, key, value=None, expiry=3600):
+        logger.warning(f"Memcached операция {operation} недоступна: модуль не импортирован")
+        return None
         
 # Инициализация лимитера запросов
 if LIMITER_AVAILABLE:
@@ -109,13 +115,13 @@ AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
 # Для каждого запроса храним уникальный идентификатор изображения и его путь
 IMAGE_CACHE = {}
 
-# Импортируем модули и инициализируем их после создания всех глобальных переменных
-# Для всех маршрутов будут использоваться глобальные app, limiter и другие переменные
-try:
-    from routes import text, images, audio, files
-    logger.info("Все модули маршрутов импортированы успешно")
-except ImportError as e:
-    logger.warning(f"Не удалось импортировать все модули маршрутов: {str(e)}")
+# Импортируем вспомогательные функции для routes
+from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
+
+# Импортируем все маршруты сразу
+from routes import *
+
+logger.info("Все модули маршрутов успешно импортированы")
 
 # Основной код запуска сервера
 if __name__ == "__main__":
