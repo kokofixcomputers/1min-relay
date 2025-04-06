@@ -74,6 +74,9 @@ logger.setLevel(logging.DEBUG)
 def check_memcached_connection():
     # ...
 
+def set_global_refs(memcached_client=None, memory_storage=None):
+    # ...
+
 def safe_memcached_operation(operation, key, value=None, expiry=3600):
     # ...
 
@@ -81,7 +84,51 @@ def delete_all_files_task():
     # ...
 ```
 ---
-7. [routes/text.py](https://github.com/chelaxian/1min-relay/blob/test/routes/text.py)
+7. [routes/utils.py](https://github.com/chelaxian/1min-relay/blob/test/routes/utils.py)
+```python
+# Общие утилиты для маршрутов
+
+def validate_auth(request, request_id=None):
+    # ...
+
+def handle_api_error(response, api_key=None, request_id=None):
+    # ...
+
+def format_openai_response(content, model, request_id=None, prompt_tokens=0):
+    # ...
+
+def get_user_files(api_key, request_id=None):
+    # ...
+
+def save_user_files(api_key, files, request_id=None):
+    # ...
+
+def create_temp_file(file_data, suffix=".tmp", request_id=None):
+    # ...
+
+def upload_asset(file_data, filename, mime_type, api_key, request_id=None, file_type=None):
+    # ...
+
+def get_mime_type(filename):
+    # ...
+
+def extract_image_urls(response_data, request_id=None):
+    # ...
+
+def format_image_response(image_urls, request_id=None, model=None):
+    # ...
+
+def prepare_image_payload(model, prompt, request_data, image_paths=None, request_id=None):
+    # ...
+
+def prepare_chat_payload(model, messages, request_data, request_id=None):
+    # ...
+
+def stream_response(response, request_data, model, prompt_tokens, session=None):
+    # ...
+```
+---
+8. [routes/text.py](https://github.com/chelaxian/1min-relay/blob/test/routes/text.py)
 ```python
 # Маршруты для текстовых моделей
 @app.route("/", methods=["GET", "POST"])
@@ -116,14 +163,11 @@ def prepare_payload(request_data, model, all_messages, image_paths=None, request
 def transform_response(one_min_response, request_data, prompt_token):
     # ...
 
-def stream_response(response, request_data, model, prompt_tokens, session=None):
-    # ...
-
 def emulate_stream_response(full_content, request_data, model, prompt_tokens):
     # ...
 ```
 ---
-8. [routes/images.py](https://github.com/chelaxian/1min-relay/blob/test/routes/images.py)
+9. [routes/images.py](https://github.com/chelaxian/1min-relay/blob/test/routes/images.py)
 ```python
 # Маршруты для работы с изображениями
 @app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
@@ -138,6 +182,15 @@ def image_variations():
     # ...
 
 # Вспомогательные функции для изображений
+def get_full_url(url, asset_host="https://asset.1min.ai"):
+    # ...
+
+def build_generation_payload(model, prompt, request_data, negative_prompt, aspect_ratio, size, mode, request_id):
+    # ...
+
+def extract_image_urls_from_response(response_json, request_id):
+    # ...
+
 def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     # ...
 
@@ -148,7 +201,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
     # ...
 ```
 ---
-9. [routes/audio.py](https://github.com/chelaxian/1min-relay/blob/test/routes/audio.py)
+10. [routes/audio.py](https://github.com/chelaxian/1min-relay/blob/test/routes/audio.py)
 ```python
 # Маршруты для работы с аудио
 @app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
@@ -165,9 +218,31 @@ def audio_translations():
 @limiter.limit("60 per minute")
 def text_to_speech():
     # ...
+
+# Вспомогательные функции для аудио
+def upload_audio_file(audio_file, api_key, request_id):
+    # ...
+
+def try_models_in_sequence(models_to_try, payload_func, api_key, request_id):
+    # ...
+
+def extract_text_from_response(response_data, request_id):
+    # ...
+
+def prepare_models_list(requested_model, available_models):
+    # ...
+
+def get_audio_from_url(audio_url, request_id):
+    # ...
+
+def handle_error_response(error, api_key, request_id):
+    # ...
+
+def extract_audio_url(response_data, request_id):
+    # ...
 ```
 ---
-10. [routes/files.py](https://github.com/chelaxian/1min-relay/blob/test/routes/files.py)
+11. [routes/files.py](https://github.com/chelaxian/1min-relay/blob/test/routes/files.py)
 ```python
 # Маршруты для работы с файлами
 @app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
@@ -185,13 +260,17 @@ def handle_file(file_id):
 def handle_file_content(file_id):
     # ...
 
-@app.route("/v1/files", methods=["POST"])
-@limiter.limit("60 per minute")
-def upload_file():
+# Вспомогательные функции для работы с файлами
+def format_file_response(file_info, file_id=None, purpose="assistants", status="processed"):
     # ...
 
-# Вспомогательные функции для работы с файлами
-def upload_document(file_data, file_name, api_key, request_id=None):
+def create_api_response(data, request_id=None):
+    # ...
+
+def find_conversation_id(response_data, request_id=None):
+    # ...
+
+def find_file_by_id(user_files, file_id):
     # ...
 
 def create_conversation_with_files(file_ids, title, model, api_key, request_id=None):
