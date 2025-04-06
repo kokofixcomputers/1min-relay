@@ -7,6 +7,15 @@ from utils.constants import *
 from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
 from utils.memcached import safe_memcached_operation
 from . import app, limiter, MEMORY_STORAGE  # Импортируем app, limiter и MEMORY_STORAGE из модуля routes
+from .utils import (
+    validate_auth, 
+    handle_api_error, 
+    upload_asset,
+    get_mime_type,
+    extract_image_urls,
+    format_image_response,
+    prepare_image_payload
+)
 
 
 # Маршруты для работы с изображениями
