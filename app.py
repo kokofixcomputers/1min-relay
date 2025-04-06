@@ -109,20 +109,13 @@ AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
 # Для каждого запроса храним уникальный идентификатор изображения и его путь
 IMAGE_CACHE = {}
 
-# Создаем функцию для инициализации маршрутов
-def init_routes():
-    """Инициализирует все маршруты приложения"""
-    try:
-        from routes import init_routes
-        init_routes(app, limiter)
-        logger.info("Маршруты успешно инициализированы")
-    except ImportError:
-        logger.warning("Модуль routes не найден. Маршруты не инициализированы.")
-    except Exception as e:
-        logger.error(f"Ошибка при инициализации маршрутов: {str(e)}")
-
-# Инициализируем маршруты
-init_routes()
+# Импортируем модули и инициализируем их после создания всех глобальных переменных
+# Для всех маршрутов будут использоваться глобальные app, limiter и другие переменные
+try:
+    from routes import text, images, audio, files
+    logger.info("Все модули маршрутов импортированы успешно")
+except ImportError as e:
+    logger.warning(f"Не удалось импортировать все модули маршрутов: {str(e)}")
 
 # Основной код запуска сервера
 if __name__ == "__main__":
