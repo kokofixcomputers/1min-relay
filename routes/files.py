@@ -1,4 +1,12 @@
 # routes/files.py
+
+# Импортируем только необходимые модули
+from utils.imports import *
+from utils.logger import logger
+from utils.constants import *
+from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
+from . import app, limiter  # Импортируем app и limiter из модуля routes
+
 # Маршруты для работы с файлами
 # Functions for working with files in API
 @app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
