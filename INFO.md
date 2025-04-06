@@ -10,12 +10,8 @@ app = Flask(__name__)
 
 # Основные настройки
 if __name__ == "__main__":
-    # Launch the task of deleting files
-    delete_all_files_task()
-
     # Логирование старта сервера
     # ...
-
     # Запуск сервера
     serve(app, host="0.0.0.0", port=PORT, threads=6)
 ```
