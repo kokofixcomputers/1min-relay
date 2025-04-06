@@ -4,6 +4,7 @@ from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
 from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
+from utils.memcached import safe_memcached_operation
 from . import app, limiter, IMAGE_CACHE, MAX_CACHE_SIZE, MEMORY_STORAGE  # Импортируем app, limiter и IMAGE_CACHE из модуля routes
 from .images import retry_image_upload  # Импортируем функцию retry_image_upload из модуля images
 from .files import create_conversation_with_files  # Импортируем функцию create_conversation_with_files из модуля files
