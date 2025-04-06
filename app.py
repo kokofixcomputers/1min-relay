@@ -16,8 +16,6 @@ PORT = int(os.getenv("PORT", 5001))
 MEMORY_STORAGE = {}
 MEMCACHED_CLIENT = None
 
-logger.info("Инициализация глобальных переменных завершена, app и limiter будут доступны в routes")
-
 # Инициализируем memcached
 try:
     from utils.memcached import check_memcached_connection, delete_all_files_task, safe_memcached_operation
@@ -121,6 +119,8 @@ from utils.common import ERROR_HANDLER, handle_options_request, set_response_hea
 # Импортируем все маршруты сразу
 from routes import *
 
+# Добавляем лог о завершении инициализации в одном месте
+logger.info("Инициализация глобальных переменных завершена, app и limiter будут доступны в routes")
 logger.info("Все модули маршрутов успешно импортированы")
 
 # Основной код запуска сервера
