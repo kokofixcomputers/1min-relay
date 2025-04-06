@@ -49,7 +49,7 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     #
     "whisper-1", # speech recognition
     "tts-1",     # Speech synthesis
-    # "tts-1-hd",# Speech synthesis HD
+    "tts-1-hd",  # Speech synthesis HD
     #
     "dall-e-2",  # Generation of images
     "dall-e-3",  # Generation of images
@@ -248,8 +248,8 @@ LEONARDO_SIZES = ALBEDO_SIZES = {"1:1": "1024x1024", "4:3": "1024x768", "3:4": "
 
 # Determination of models for speech synthesis (TTS)
 TEXT_TO_SPEECH_MODELS = [
-    "tts-1"  # ,
-    # "tts-1-hd",
+    "tts-1",
+    "tts-1-hd" #,
     # "google-tts",
     # "elevenlabs-tts"
 ]
@@ -257,13 +257,13 @@ TEXT_TO_SPEECH_MODELS = [
 # Determination of models for speech recognition (STT)
 SPEECH_TO_TEXT_MODELS = [
     "whisper-1"  # ,
-    "latest_long",
-    "latest_short",
-    "phone_call",
-    "telephony",
-    "telephony_short",
-    "medical_dictation",
-    "medical_conversation"
+    #"latest_long",
+    #"latest_short",
+    #"phone_call",
+    #"telephony",
+    #"telephony_short",
+    #"medical_dictation",
+    #"medical_conversation"
 ]
 
 # Default values
