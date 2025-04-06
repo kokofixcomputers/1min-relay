@@ -21,6 +21,9 @@ services:
       - SUBSET_OF_ONE_MIN_PERMITTED_MODELS=mistral-nemo,gpt-4o-mini,deepseek-chat
       # Set your boolean as "True" or "False" for PERMIT_MODELS_FROM_SUBSET_ONLY Default: False
       - PERMIT_MODELS_FROM_SUBSET_ONLY=False
+      # Memcached connection settings
+      - MEMCACHED_HOST=memcached
+      - MEMCACHED_PORT=11211
     restart: unless-stopped
 
 networks:
