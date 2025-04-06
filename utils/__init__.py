@@ -11,7 +11,7 @@ from .logger import logger
 from .constants import *
 
 # Наконец, импортируем остальные модули
-from .common import *
+from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
 
 # Мы не импортируем memcached здесь, чтобы избежать циклической зависимости
 # Пользователи должны импортировать его напрямую при необходимости:
