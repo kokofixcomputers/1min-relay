@@ -1,7 +1,7 @@
 # utils/__init__.py
-# Импортируем важные модули в правильном порядке
+# Инициализация пакета utils, импорт модулей в правильном порядке
 
-# Сначала импортируем наш централизованный модуль импортов
+# Сначала импортируем централизованный модуль импортов
 from .imports import *
 
 # Затем импортируем логгер (баннер уже выводится при импорте logger)
@@ -10,9 +10,22 @@ from .logger import logger
 # Потом импортируем константы
 from .constants import *
 
-# Наконец, импортируем остальные модули
-from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
+# Импортируем функцию для установки глобальных ссылок из memcached
+from .memcached import set_global_refs
 
-# Мы не импортируем memcached здесь, чтобы избежать циклической зависимости
-# Пользователи должны импортировать его напрямую при необходимости:
-# from utils.memcached import *
+# Наконец, импортируем общие функции
+from .common import (
+    ERROR_HANDLER, 
+    handle_options_request, 
+    set_response_headers, 
+    create_session, 
+    api_request, 
+    safe_temp_file, 
+    calculate_token,
+    split_text_for_streaming
+)
+
+# Примечание: остальные функции из модуля memcached не импортируются здесь напрямую,
+# чтобы избежать циклической зависимости. При необходимости их
+# следует импортировать в конкретном модуле:
+# from utils.memcached import safe_memcached_operation, check_memcached_connection
