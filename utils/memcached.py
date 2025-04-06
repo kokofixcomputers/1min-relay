@@ -1,166 +1,207 @@
-# version 1.0.4 #increment every time you make changes
-# 2025-04-06 12:00 #change to actual date and time every time you make changes
-import base64
-import hashlib
-import json
-import os
-import random
-import re
-import socket
-import string
-import tempfile
-import threading
-import time
-import traceback
-import uuid
-import warnings
-import datetime
+# utils/memcached.py
+# Функции для работы с Memcached
+from .imports import *
+from .logger import logger
+from .constants import *
 
-import memcache
-import printedcolors
-import requests
-import tiktoken
-from dotenv import load_dotenv
-from flask import Flask, request, jsonify, make_response, Response, redirect, url_for
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from mistral_common.protocol.instruct.messages import UserMessage
-from mistral_common.protocol.instruct.request import ChatCompletionRequest
-from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
-from waitress import serve
-from werkzeug.datastructures import MultiDict
-from flask_cors import cross_origin
-
-# We download the environment variables from the .env file
-load_dotenv()
-
-# Suppress warnings from flask_limiter
-warnings.filterwarnings(
-    "ignore", category=UserWarning, module="flask_limiter.extension"
-)
-
-# Импортируем логгер из модуля logger
-from utils.logger import logger
-
-# Инициализируем Flask-приложение перед импортом модулей, чтобы оно было доступно в routes
-app = Flask(__name__)
-
-# Параметры порта и другие настройки окружения
-PORT = int(os.getenv("PORT", 5001))
-
-# Импортируем константы из файла constants.py
-from utils.constants import *
-
-# Global storage for use when MemcacheD is not available
+# Глобальные переменные для хранения клиента memcached и в памяти
+MEMCACHED_CLIENT = None
 MEMORY_STORAGE = {}
 
-# Импортируем утилиты
-from utils.common import *
-from utils.memcached import *
+def check_memcached_connection():
+    """
+    Проверяет доступность Memcached, сначала в Docker, затем локально
 
-# Инициализируем memcached
-memcached_available, memcached_uri = check_memcached_connection()
-MEMCACHED_CLIENT = None  # Инициализируем перед использованием
-
-if memcached_available:
-    limiter = Limiter(
-        get_remote_address,
-        app=app,
-        storage_uri=memcached_uri,
-    )
-    # Initialization of the client Memcache
+    Returns:
+        Tuple: (Bool, Str) - (Доступен ли Memcached, строка подключения или None)
+    """
+    # Проверяем наличие библиотек для работы с Memcached
+    if not MEMCACHED_AVAILABLE:
+        logger.warning(
+            "Memcached библиотеки не установлены. Используется локальное хранилище для ограничения запросов. Не рекомендуется."
+        )
+        return False, None
+    
+    # Проверяем Docker Memcached (приоритет)
     try:
-        # First we try Pymemcache
         from pymemcache.client.base import Client
-
-        # We extract a host and a port from URI without using. Split ('@')
-        if memcached_uri.startswith('memcached://'):
-            host_port = memcached_uri.replace('memcached://', '')
-        else:
-            host_port = memcached_uri
-
-        # We share a host and port for Pymemcache
-        if ':' in host_port:
-            host, port = host_port.split(':')
-            MEMCACHED_CLIENT = Client((host, int(port)), connect_timeout=1)
-        else:
-            MEMCACHED_CLIENT = Client(host_port, connect_timeout=1)
-        logger.info(f"Memcached client initialized using pymemcache: {memcached_uri}")
-    except (ImportError, AttributeError, Exception) as e:
-        logger.error(f"Error initializing pymemcache client: {str(e)}")
-        try:
-            # If it doesn't work out, we try Python-Memcache
-            # We extract a host and a port from URI without using. Split ('@')
-            if memcached_uri.startswith('memcached://'):
-                host_port = memcached_uri.replace('memcached://', '')
-            else:
-                host_port = memcached_uri
-
-            MEMCACHED_CLIENT = memcache.Client([host_port], debug=0)
-            logger.info(f"Memcached client initialized using python-memcached: {memcached_uri}")
-        except (ImportError, AttributeError, Exception) as e:
-            logger.error(f"Error initializing memcache client: {str(e)}")
-            logger.warning(f"Failed to initialize memcached client. Session storage disabled.")
-else:
-    # Used for ratelimiting without memcached
-    limiter = Limiter(
-        get_remote_address,
-        app=app,
-    )
-    logger.info("Memcached not available, session storage disabled")
-
-# Read environment variables
-one_min_models_env = os.getenv(
-    "SUBSET_OF_ONE_MIN_PERMITTED_MODELS"
-)  # e.g. "mistral-nemo,gpt-4o,deepseek-chat"
-permit_not_in_available_env = os.getenv(
-    "PERMIT_MODELS_FROM_SUBSET_ONLY"
-)  # e.g. "True" or "False"
-
-# Parse or fall back to defaults
-if one_min_models_env:
-    SUBSET_OF_ONE_MIN_PERMITTED_MODELS = one_min_models_env.split(",")
-
-if permit_not_in_available_env and permit_not_in_available_env.lower() == "true":
-    PERMIT_MODELS_FROM_SUBSET_ONLY = True
-
-# Combine into a single list
-AVAILABLE_MODELS = []
-AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
-
-# Add cache to track processed images
-# For each request, we keep a unique image identifier and its path
-IMAGE_CACHE = {}
-
-# Импортируем маршруты после инициализации всех необходимых глобальных переменных
-from routes import *
-
-# Основные настройки
-# Run the task at the start of the server
-if __name__ == "__main__":
-    # Launch the task of deleting files
-    delete_all_files_task()
-
-    # Run the application
-    internal_ip = socket.gethostbyname(socket.gethostname())
+        client = Client(("memcached", 11211))
+        client.set("test_key", "test_value")
+        if client.get("test_key") == b"test_value":
+            client.delete("test_key")  # Очистка
+            logger.info("Используется Memcached в Docker-контейнере")
+            return True, "memcached://memcached:11211"
+    except Exception as e:
+        logger.debug(f"Docker Memcached недоступен: {str(e)}")
+    
+    # Если Docker недоступен, проверяем локальный Memcached
     try:
-        response = requests.get("https://api.ipify.org")
-        public_ip = response.text
-    except:
-        public_ip = "not found"
+        from pymemcache.client.base import Client
+        client = Client(("127.0.0.1", 11211))
+        client.set("test_key", "test_value")
+        if client.get("test_key") == b"test_value":
+            client.delete("test_key")  # Очистка
+            logger.info("Используется локальный Memcached на 127.0.0.1:11211")
+            return True, "memcached://127.0.0.1:11211"
+    except Exception as e:
+        logger.debug(f"Локальный Memcached недоступен: {str(e)}")
 
-    logger.info(
-        f"""{printedcolors.Color.fg.lightcyan}  
-Server is ready to serve at:
-Internal IP: {internal_ip}:{PORT}
-Public IP: {public_ip} (only if you've setup port forwarding on your router.)
-Enter this url to OpenAI clients supporting custom endpoint:
-{internal_ip}:{PORT}/v1
-If does not work, try:
-{internal_ip}:{PORT}/v1/chat/completions
-{printedcolors.Color.reset}"""
+    # Если ни Docker, ни локальный Memcached недоступны
+    logger.warning(
+        "Memcached недоступен (ни в Docker, ни локально). Используется локальное хранилище для ограничения запросов. Не рекомендуется."
     )
+    return False, None
 
-    serve(
-        app, host="0.0.0.0", port=PORT, threads=6
-    )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
+
+# Функция для безопасного доступа к Memcached
+def safe_memcached_operation(operation, key, value=None, expiry=3600):
+    """
+    Безопасно выполняет операции с Memcached, обрабатывая любые исключения.
+    
+    Args:
+        operation (str): Операция для выполнения ('get', 'set' или 'delete')
+        key (str): Ключ для операции
+        value (any, optional): Значение для установки (только для операции 'set')
+        expiry (int, optional): Время истечения в секундах (только для операции 'set')
+    
+    Returns:
+        Результат операции или None в случае неудачи
+    """
+    if MEMCACHED_CLIENT is None:
+        # Если Memcached недоступен, используем локальное хранилище
+        if operation == 'get':
+            return MEMORY_STORAGE.get(key, None)
+        elif operation == 'set':
+            MEMORY_STORAGE[key] = value
+            logger.info(f"Сохранено в MEMORY_STORAGE: key={key}")
+            return True
+        elif operation == 'delete':
+            if key in MEMORY_STORAGE:
+                del MEMORY_STORAGE[key]
+                return True
+            return False
+        return None
+    
+    try:
+        if operation == 'get':
+            result = MEMCACHED_CLIENT.get(key)
+            if isinstance(result, bytes):
+                try:
+                    return json.loads(result.decode('utf-8'))
+                except:
+                    return result.decode('utf-8')
+            return result
+        elif operation == 'set':
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value)
+            return MEMCACHED_CLIENT.set(key, value, time=expiry)
+        elif operation == 'delete':
+            return MEMCACHED_CLIENT.delete(key)
+    except Exception as e:
+        logger.error(f"Ошибка в операции memcached {operation} на ключе {key}: {str(e)}")
+        # При ошибке Memcached, также используем локальное хранилище
+        if operation == 'get':
+            return MEMORY_STORAGE.get(key, None)
+        elif operation == 'set':
+            MEMORY_STORAGE[key] = value
+            logger.info(f"Сохранено в MEMORY_STORAGE из-за ошибки memcached: key={key}")
+            return True
+        elif operation == 'delete':
+            if key in MEMORY_STORAGE:
+                del MEMORY_STORAGE[key]
+                return True
+            return False
+        return None
+        
+def delete_all_files_task():
+    """
+    Функция для периодического удаления всех файлов пользователей
+    """
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Запуск запланированной задачи очистки файлов")
+
+    try:
+        # Получаем всех пользователей с файлами из MemcacheD
+        if 'MEMCACHED_CLIENT' in globals() and MEMCACHED_CLIENT is not None:
+            # Получаем все ключи, которые начинаются с "user:"
+            try:
+                keys = []
+
+                # Вместо сканирования слэбов, используем список известных пользователей
+                # который должен сохраняться при загрузке файлов
+                known_users = safe_memcached_operation('get', 'known_users_list')
+                if known_users:
+                    try:
+                        if isinstance(known_users, str):
+                            user_list = json.loads(known_users)
+                        elif isinstance(known_users, bytes):
+                            user_list = json.loads(known_users.decode('utf-8'))
+                        else:
+                            user_list = known_users
+
+                        for user in user_list:
+                            user_key = f"user:{user}" if not user.startswith("user:") else user
+                            if user_key not in keys:
+                                keys.append(user_key)
+                    except Exception as e:
+                        logger.warning(f"[{request_id}] Не удалось разобрать список известных пользователей: {str(e)}")
+
+                logger.info(f"[{request_id}] Найдено {len(keys)} ключей пользователей для очистки")
+
+                # Удаляем файлы для каждого пользователя
+                for user_key in keys:
+                    try:
+                        api_key = user_key.replace("user:", "")
+                        user_files_json = safe_memcached_operation('get', user_key)
+
+                        if not user_files_json:
+                            continue
+
+                        user_files = []
+                        try:
+                            if isinstance(user_files_json, str):
+                                user_files = json.loads(user_files_json)
+                            elif isinstance(user_files_json, bytes):
+                                user_files = json.loads(user_files_json.decode('utf-8'))
+                            else:
+                                user_files = user_files_json
+                        except:
+                            continue
+
+                        logger.info(f"[{request_id}] Очистка {len(user_files)} файлов для пользователя {api_key[:8]}...")
+
+                        # Удаляем каждый файл
+                        for file_info in user_files:
+                            file_id = file_info.get("id")
+                            if file_id:
+                                try:
+                                    from .common import api_request  # Импортируем здесь, чтобы избежать циклической зависимости
+                                    delete_url = f"{ONE_MIN_ASSET_URL}/{file_id}"
+                                    headers = {"API-KEY": api_key}
+
+                                    delete_response = api_request("DELETE", delete_url, headers=headers)
+
+                                    if delete_response.status_code == 200:
+                                        logger.info(f"[{request_id}] Запланированная очистка: удален файл {file_id}")
+                                    else:
+                                        logger.error(
+                                            f"[{request_id}] Запланированная очистка: не удалось удалить файл {file_id}: {delete_response.status_code}")
+                                except Exception as e:
+                                    logger.error(
+                                        f"[{request_id}] Запланированная очистка: ошибка при удалении файла {file_id}: {str(e)}")
+
+                        # Очистка списка файлов пользователя
+                        safe_memcached_operation('set', user_key, json.dumps([]))
+                        logger.info(f"[{request_id}] Очищен список файлов для пользователя {api_key[:8]}")
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Ошибка при обработке пользователя {user_key}: {str(e)}")
+            except Exception as e:
+                logger.error(f"[{request_id}] Ошибка получения ключей из memcached: {str(e)}")
+    except Exception as e:
+        logger.error(f"[{request_id}] Ошибка в запланированной задаче очистки: {str(e)}")
+
+    # Планируем следующее выполнение через час
+    cleanup_timer = threading.Timer(3600, delete_all_files_task)
+    cleanup_timer.daemon = True
+    cleanup_timer.start()
+    logger.info(f"[{request_id}] Запланирована следующая очистка через 1 час")
