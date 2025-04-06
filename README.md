@@ -49,6 +49,13 @@
 
 ### Установка зависимостей
 ```bash
+sudo apt update
+sudo apt install python3 python3-venv python3-pip -y
+```
+```bash
+python3 -m venv ven
+source venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
