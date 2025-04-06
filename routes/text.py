@@ -8,7 +8,6 @@ from utils.memcached import safe_memcached_operation
 from . import app, limiter, IMAGE_CACHE, MAX_CACHE_SIZE, MEMORY_STORAGE  # Импортируем app, limiter и IMAGE_CACHE из модуля routes
 from .images import retry_image_upload  # Импортируем функцию retry_image_upload из модуля images
 from .files import create_conversation_with_files  # Импортируем функцию create_conversation_with_files из модуля files
-from .utils import format_openai_response, prepare_image_payload as utils_prepare_image_payload  # Переименовываем при импорте
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -1363,152 +1362,132 @@ def prepare_payload(
         request_data, model, all_messages, image_paths=None, request_id=None
 ):
     """
-    Подготавливает payload для запроса, учитывая возможности модели
-    
+    Prepares Payload for request, taking into account the capabilities of the model
+
     Args:
-        request_data: Данные запроса
-        model: Модель
-        all_messages: Сообщения диалога
-        image_paths: Пути к изображениям
-        request_id: ID запроса
-        
+        Request_Data: Request data
+        Model: Model
+        All_Messages: Posts of Posts
+        image_paths: ways to images
+        Request_id: ID query
+
     Returns:
-        dict: Подготовленный payload
+        DICT: Prepared Payload
     """
-    # Получаем возможности модели
     capabilities = get_model_capabilities(model)
-    
-    # Инициализируем флаги для разных возможностей
+
+    # Check the availability of Openai tools
+    tools = request_data.get("tools", [])
     web_search = False
     code_interpreter = False
-    
-    # Проверяем наличие tools от OpenAI
-    for tool in request_data.get("tools", []):
-        tool_type = tool.get("type", "")
-        
-        if tool_type == "retrieval" and capabilities["retrieval"]:
+
+    if tools:
+        for tool in tools:
+            tool_type = tool.get("type", "")
+            # Trying to include functions, but if they are not supported, we just log in
+            if tool_type == "retrieval":
+                if capabilities["retrieval"]:
+                    web_search = True
+                    logger.debug(
+                        f"[{request_id}] Enabled web search due to retrieval tool"
+                    )
+                else:
+                    logger.debug(
+                        f"[{request_id}] Model {model} does not support web search, ignoring retrieval tool"
+                    )
+            elif tool_type == "code_interpreter":
+                if capabilities["code_interpreter"]:
+                    code_interpreter = True
+                    logger.debug(f"[{request_id}] Enabled code interpreter")
+                else:
+                    logger.debug(
+                        f"[{request_id}] Model {model} does not support code interpreter, ignoring tool"
+                    )
+            else:
+                logger.debug(f"[{request_id}] Ignoring unsupported tool: {tool_type}")
+
+    # We check the direct parameters 1min.ai
+    if not web_search and request_data.get("web_search", False):
+        if capabilities["retrieval"]:
             web_search = True
-            logger.debug(f"[{request_id}] Enabled web search due to retrieval tool")
-        elif tool_type == "code_interpreter" and capabilities["code_interpreter"]:
-            code_interpreter = True
-            logger.debug(f"[{request_id}] Enabled code interpreter")
-        elif tool_type:
-            logger.debug(f"[{request_id}] Ignoring unsupported tool: {tool_type}")
-    
-    # Проверяем прямой параметр web_search
-    if not web_search and request_data.get("web_search", False) and capabilities["retrieval"]:
-        web_search = True
-        logger.debug(f"[{request_id}] Enabled web search due to web_search parameter")
-    
-    # Извлекаем параметры web_search
+        else:
+            logger.debug(
+                f"[{request_id}] Model {model} does not support web search, ignoring web_search parameter"
+            )
+
     num_of_site = request_data.get("num_of_site", 3)
     max_word = request_data.get("max_word", 500)
-    
-    # Формируем основной payload в зависимости от типа запроса
-    if image_paths and len(image_paths) > 0:
-        # Используем правильную сигнатуру функции из utils.py (параметр prompt вместо all_messages)
-        return utils_prepare_image_payload(model, all_messages, request_data, image_paths, request_id)
+
+    # We form the basic Payload
+    if image_paths:
+        # Even if the model does not support images, we try to send as a text request
+        if capabilities["vision"]:
+            # Add instructions to the prompt field
+            enhanced_prompt = all_messages
+            if not enhanced_prompt.strip().startswith(IMAGE_DESCRIPTION_INSTRUCTION):
+                enhanced_prompt = f"{IMAGE_DESCRIPTION_INSTRUCTION}\n\n{all_messages}"
+
+            payload = {
+                "type": "CHAT_WITH_IMAGE",
+                "model": model,
+                "promptObject": {
+                    "prompt": enhanced_prompt,
+                    "isMixed": False,
+                    "imageList": image_paths,
+                    "webSearch": web_search,
+                    "numOfSite": num_of_site if web_search else None,
+                    "maxWord": max_word if web_search else None,
+                },
+            }
+
+            if web_search:
+                logger.debug(
+                    f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
+        else:
+            logger.debug(
+                f"[{request_id}] Model {model} does not support vision, falling back to text-only chat"
+            )
+            payload = {
+                "type": "CHAT_WITH_AI",
+                "model": model,
+                "promptObject": {
+                    "prompt": all_messages,
+                    "isMixed": False,
+                    "webSearch": web_search,
+                    "numOfSite": num_of_site if web_search else None,
+                    "maxWord": max_word if web_search else None,
+                },
+            }
+
+            if web_search:
+                logger.debug(
+                    f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
     elif code_interpreter:
-        return prepare_code_payload(model, all_messages, request_id)
-    else:
-        return prepare_text_payload(model, all_messages, web_search, num_of_site, max_word, request_id)
-
-
-def prepare_image_payload(model, all_messages, request_data, image_paths, request_id=None):
-    """
-    Подготавливает payload для запроса с изображениями
-    
-    Args:
-        model: Название модели
-        all_messages: Сообщения диалога
-        request_data: Данные запроса
-        image_paths: Пути к изображениям
-        request_id: ID запроса
-        
-    Returns:
-        dict: Payload для запроса с изображениями
-    """
-    if capabilities["vision"]:
-        # Добавляем инструкции к запросу
-        enhanced_prompt = all_messages
-        if not enhanced_prompt.strip().startswith(IMAGE_DESCRIPTION_INSTRUCTION):
-            enhanced_prompt = f"{IMAGE_DESCRIPTION_INSTRUCTION}\n\n{all_messages}"
-        
+        # If Code_interpreter is requested and supported
         payload = {
-            "type": "CHAT_WITH_IMAGE",
+            "type": "CODE_GENERATOR",
+            "model": model,
+            "conversationId": "CODE_GENERATOR",
+            "promptObject": {"prompt": all_messages},
+        }
+    else:
+        # Basic text request
+        payload = {
+            "type": "CHAT_WITH_AI",
             "model": model,
             "promptObject": {
-                "prompt": enhanced_prompt,
+                "prompt": all_messages,
                 "isMixed": False,
-                "imageList": image_paths,
                 "webSearch": web_search,
                 "numOfSite": num_of_site if web_search else None,
                 "maxWord": max_word if web_search else None,
             },
         }
-        
-        logger.debug(f"[{request_id}] Created image payload for vision model with {len(image_paths)} images")
-    else:
-        # Если модель не поддерживает зрение, используем обычный текстовый запрос
-        logger.debug(f"[{request_id}] Model {model} doesn't support vision, falling back to text-only request")
-        payload = prepare_text_payload(model, all_messages, web_search, num_of_site, max_word, request_id)
-    
-    return payload
 
+        if web_search:
+            logger.debug(
+                f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
 
-def prepare_code_payload(model, all_messages, request_id=None):
-    """
-    Подготавливает payload для запроса с код-интерпретатором
-    
-    Args:
-        model: Название модели
-        all_messages: Сообщения диалога
-        request_id: ID запроса
-        
-    Returns:
-        dict: Payload для запроса с код-интерпретатором
-    """
-    payload = {
-        "type": "CODE_GENERATOR",
-        "model": model,
-        "conversationId": "CODE_GENERATOR",
-        "promptObject": {"prompt": all_messages},
-    }
-    
-    logger.debug(f"[{request_id}] Created code interpreter payload")
-    return payload
-
-
-def prepare_text_payload(model, all_messages, web_search, num_of_site, max_word, request_id=None):
-    """
-    Подготавливает payload для обычного текстового запроса
-    
-    Args:
-        model: Название модели
-        all_messages: Сообщения диалога
-        web_search: Флаг поиска в интернете
-        num_of_site: Количество сайтов для поиска
-        max_word: Максимальное количество слов
-        request_id: ID запроса
-        
-    Returns:
-        dict: Payload для текстового запроса
-    """
-    payload = {
-        "type": "CHAT_WITH_AI",
-        "model": model,
-        "promptObject": {
-            "prompt": all_messages,
-            "isMixed": False,
-            "webSearch": web_search,
-            "numOfSite": num_of_site if web_search else None,
-            "maxWord": max_word if web_search else None,
-        },
-    }
-    
-    if web_search:
-        logger.debug(f"[{request_id}] Web search enabled with numOfSite={num_of_site}, maxWord={max_word}")
-    
     return payload
 
 
