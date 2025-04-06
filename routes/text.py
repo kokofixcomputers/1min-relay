@@ -8,7 +8,7 @@ from utils.memcached import safe_memcached_operation
 from . import app, limiter, IMAGE_CACHE, MAX_CACHE_SIZE, MEMORY_STORAGE  # Импортируем app, limiter и IMAGE_CACHE из модуля routes
 from .images import retry_image_upload  # Импортируем функцию retry_image_upload из модуля images
 from .files import create_conversation_with_files  # Импортируем функцию create_conversation_with_files из модуля files
-from .utils import format_openai_response  # Импортируем функцию format_openai_response из utils.py
+from .utils import format_openai_response, stream_response  # Импортируем функции из utils.py
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -1571,79 +1571,6 @@ def transform_response(one_min_response, request_data, prompt_token):
             },
         }
 
-
-def stream_response(response, request_data, model, prompt_tokens, session=None):
-    """
-    Stream received from 1min.ai response in a format compatible with Openai API.
-    """
-    all_chunks = ""
-
-    # We send the first fragment: the role of the message
-    first_chunk = {
-        "id": f"chatcmpl-{uuid.uuid4()}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "delta": {"role": "assistant"},
-                "finish_reason": None,
-            }
-        ],
-    }
-
-    yield f"data: {json.dumps(first_chunk)}\n\n"
-
-    # Simple implementation for content processing
-    for chunk in response.iter_content(chunk_size=1024):
-        finish_reason = None
-
-        return_chunk = {
-            "id": f"chatcmpl-{uuid.uuid4()}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {
-                        "content": chunk.decode('utf-8')
-                    },
-                    "finish_reason": finish_reason
-                }
-            ]
-        }
-        all_chunks += chunk.decode('utf-8')
-        yield f"data: {json.dumps(return_chunk)}\n\n"
-
-    tokens = calculate_token(all_chunks)
-    logger.debug(f"Finished processing streaming response. Completion tokens: {str(tokens)}")
-    logger.debug(f"Total tokens: {str(tokens + prompt_tokens)}")
-
-    # Final cup denoting the end of the flow
-    final_chunk = {
-        "id": f"chatcmpl-{uuid.uuid4()}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [
-            {
-                "index": 0,
-                "delta": {
-                    "content": ""
-                },
-                "finish_reason": "stop"
-            }
-        ],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": tokens,
-            "total_tokens": tokens + prompt_tokens
-        }
-    }
-    yield f"data: {json.dumps(final_chunk)}\n\n"
-    yield "data: [DONE]\n\n"
 
 def emulate_stream_response(full_content, request_data, model, prompt_tokens):
     """
