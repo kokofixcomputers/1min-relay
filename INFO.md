@@ -6,8 +6,7 @@
 ```python
 # Инициализация
 app = Flask(__name__)
-CORS(app)
-limiter = Limiter(...)
+# ...
 
 # Основные настройки
 if __name__ == "__main__":
@@ -51,19 +50,18 @@ def split_text_for_streaming(text, chunk_size=6):
 ---
 3. [utils/constants.py](https://github.com/chelaxian/1min-relay/blob/test/utils/constants.py)
 ```python
+ONE_MIN_API_URL = "https://api.1min.ai/api/features"
 PORT = 5000
 # другие глобальные переменные...
 ```
 ---
 4. [utils/imports.py](https://github.com/chelaxian/1min-relay/blob/test/utils/imports.py)
 ```python
-from flask import Flask, request, jsonify, make_response, redirect
-from flask_cors import CORS, cross_origin
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from waitress import serve
+# Стандартные библиотеки Python
+import base64
+# Библиотеки Flask и зависимости
+from flask import Flask, request, jsonify, make_response, Response, redirect, url_for
 # другие импорты...
-...
 ```
 ---
 5. [utils/logger.py](https://github.com/chelaxian/1min-relay/blob/test/utils/logger.py)
