@@ -74,105 +74,138 @@ def audio_transcriptions():
         finally:
             session.close()
 
-            # We form Payload for request Speech_to_text
-            payload = {
-                "type": "SPEECH_TO_TEXT",
-                "model": "whisper-1",
-                "promptObject": {
-                    "audioUrl": audio_path,
-                    "response_format": response_format,
-                },
-            }
+        # Подготовка моделей для перебора
+        models_to_try = []
+        
+        # Если запрошена конкретная модель, пробуем её первой
+        if model in SPEECH_TO_TEXT_MODELS:
+            models_to_try = [model]
+            # Добавляем остальные модели из списка, кроме уже добавленной
+            models_to_try.extend([m for m in SPEECH_TO_TEXT_MODELS if m != model])
+        else:
+            # Если запрошенная модель не в списке, используем все модели из списка
+            models_to_try = SPEECH_TO_TEXT_MODELS
+            
+        logger.debug(f"[{request_id}] Will try these models: {models_to_try}")
+        
+        last_error = None
+        
+        # Перебираем модели, пока одна не сработает
+        for current_model in models_to_try:
+            try:
+                # We form Payload for request Speech_to_text
+                payload = {
+                    "type": "SPEECH_TO_TEXT",
+                    "model": current_model,
+                    "promptObject": {
+                        "audioUrl": audio_path,
+                        "response_format": response_format,
+                    },
+                }
 
-        # Add additional parameters if they are provided
-        if language:
-            payload["promptObject"]["language"] = language
+                # Add additional parameters if they are provided
+                if language:
+                    payload["promptObject"]["language"] = language
 
-        if temperature is not None:
-            payload["promptObject"]["temperature"] = float(temperature)
+                if temperature is not None:
+                    payload["promptObject"]["temperature"] = float(temperature)
 
-        headers = {"API-KEY": api_key, "Content-Type": "application/json"}
+                headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-        # We send a request
-        logger.debug(
-            f"[{request_id}] Sending transcription request to {ONE_MIN_API_URL}"
-        )
-        response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
-        logger.debug(
-            f"[{request_id}] Transcription response status code: {response.status_code}"
-        )
+                # We send a request
+                logger.debug(
+                    f"[{request_id}] Sending transcription request to {ONE_MIN_API_URL} with model {current_model}"
+                )
+                response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
+                logger.debug(
+                    f"[{request_id}] Transcription response status code: {response.status_code} for model {current_model}"
+                )
 
-        if response.status_code != 200:
-            if response.status_code == 401:
+                # Если запрос успешный, обрабатываем ответ
+                if response.status_code == 200:
+                    # We convert the answer to the Openai API format
+                    one_min_response = response.json()
+
+                    # We extract the text from the answer
+                    result_text = ""
+
+                    if (
+                            "aiRecord" in one_min_response
+                            and "aiRecordDetail" in one_min_response["aiRecord"]
+                    ):
+                        result_text = one_min_response["aiRecord"]["aiRecordDetail"].get(
+                            "resultObject", [""]
+                        )[0]
+                    elif "resultObject" in one_min_response:
+                        result_text = (
+                            one_min_response["resultObject"][0]
+                            if isinstance(one_min_response["resultObject"], list)
+                            else one_min_response["resultObject"]
+                        )
+
+                    # Check if the result_text json is
+                    try:
+                        # If result_text is a json line, we rush it
+                        if result_text and result_text.strip().startswith("{"):
+                            parsed_json = json.loads(result_text)
+                            # If Parsed_json has a "Text" field, we use its value
+                            if "text" in parsed_json:
+                                result_text = parsed_json["text"]
+                                logger.debug(f"[{request_id}] Extracted inner text from JSON: {result_text}")
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        # If it was not possible to steam like JSON, we use it as it is
+                        logger.debug(f"[{request_id}] Using result_text as is: {result_text}")
+                        pass
+
+                    if not result_text:
+                        logger.error(
+                            f"[{request_id}] Could not extract transcription text from API response"
+                        )
+                        continue  # Пробуем следующую модель
+
+                    # The most simple and reliable response format
+                    logger.info(f"[{request_id}] Successfully processed audio transcription with model {current_model}: {result_text}")
+
+                    # Create json strictly in Openai API format
+                    response_data = {"text": result_text}
+
+                    # Add Cors headlines
+                    response = jsonify(response_data)
+                    response.headers["Access-Control-Allow-Origin"] = "*"
+                    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+                    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
+
+                    return response
+                else:
+                    # Сохраняем ошибку и пробуем следующую модель
+                    last_error = response
+                    logger.warning(
+                        f"[{request_id}] Model {current_model} failed with status {response.status_code}. Trying next model."
+                    )
+                    continue
+            
+            except Exception as e:
+                # Записываем ошибку в лог и пробуем следующую модель
+                logger.error(
+                    f"[{request_id}] Error with model {current_model}: {str(e)}"
+                )
+                last_error = e
+                continue
+        
+        # Если ни одна модель не сработала, возвращаем последнюю ошибку
+        if isinstance(last_error, requests.Response):
+            if last_error.status_code == 401:
                 return ERROR_HANDLER(1020, key=api_key)
             logger.error(
-                f"[{request_id}] Error in transcription response: {response.text[:200]}"
+                f"[{request_id}] All models failed. Last error: {last_error.text[:200]}"
             )
             return (
-                jsonify({"error": response.json().get("error", "Unknown error")}),
-                response.status_code,
+                jsonify({"error": last_error.json().get("error", "All available models failed")}),
+                last_error.status_code,
             )
-
-        # We convert the answer to the Openai API format
-        one_min_response = response.json()
-
-        try:
-            # We extract the text from the answer
-            result_text = ""
-
-            if (
-                    "aiRecord" in one_min_response
-                    and "aiRecordDetail" in one_min_response["aiRecord"]
-            ):
-                result_text = one_min_response["aiRecord"]["aiRecordDetail"].get(
-                    "resultObject", [""]
-                )[0]
-            elif "resultObject" in one_min_response:
-                result_text = (
-                    one_min_response["resultObject"][0]
-                    if isinstance(one_min_response["resultObject"], list)
-                    else one_min_response["resultObject"]
-                )
-
-            # Check if the result_text json is
-            try:
-                # If result_text is a json line, we rush it
-                if result_text and result_text.strip().startswith("{"):
-                    parsed_json = json.loads(result_text)
-                    # If Parsed_json has a "Text" field, we use its value
-                    if "text" in parsed_json:
-                        result_text = parsed_json["text"]
-                        logger.debug(f"[{request_id}] Extracted inner text from JSON: {result_text}")
-            except (json.JSONDecodeError, TypeError, ValueError):
-                # If it was not possible to steam like JSON, we use it as it is
-                logger.debug(f"[{request_id}] Using result_text as is: {result_text}")
-                pass
-
-            if not result_text:
-                logger.error(
-                    f"[{request_id}] Could not extract transcription text from API response"
-                )
-                return jsonify({"error": "Could not extract transcription text"}), 500
-
-            # The most simple and reliable response format
-            logger.info(f"[{request_id}] Successfully processed audio transcription: {result_text}")
-
-            # Create json strictly in Openai API format
-            response_data = {"text": result_text}
-
-            # Add Cors headlines
-            response = jsonify(response_data)
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
-
-            return response
-
-        except Exception as e:
-            logger.error(
-                f"[{request_id}] Error processing transcription response: {str(e)}"
-            )
-            return jsonify({"error": str(e)}), 500
+        else:
+            logger.error(f"[{request_id}] All models failed. Last error: {str(last_error)}")
+            return jsonify({"error": str(last_error)}), 500
 
     except Exception as e:
         logger.error(f"[{request_id}] Exception during transcription request: {str(e)}")
@@ -244,83 +277,116 @@ def audio_translations():
         finally:
             session.close()
 
-            # We form Payload for request Audio_Translator
-            payload = {
-                "type": "AUDIO_TRANSLATOR",
-                "model": "whisper-1",
-                "promptObject": {
-                    "audioUrl": audio_path,
-                    "response_format": response_format,
-                    "temperature": float(temperature),
-                },
-            }
+        # Подготовка моделей для перебора
+        models_to_try = []
+        
+        # Если запрошена конкретная модель, пробуем её первой
+        if model in SPEECH_TO_TEXT_MODELS:
+            models_to_try = [model]
+            # Добавляем остальные модели из списка, кроме уже добавленной
+            models_to_try.extend([m for m in SPEECH_TO_TEXT_MODELS if m != model])
+        else:
+            # Если запрошенная модель не в списке, используем все модели из списка
+            models_to_try = SPEECH_TO_TEXT_MODELS
+            
+        logger.debug(f"[{request_id}] Will try these models: {models_to_try}")
+        
+        last_error = None
+        
+        # Перебираем модели, пока одна не сработает
+        for current_model in models_to_try:
+            try:
+                # We form Payload for request Audio_Translator
+                payload = {
+                    "type": "AUDIO_TRANSLATOR",
+                    "model": current_model,
+                    "promptObject": {
+                        "audioUrl": audio_path,
+                        "response_format": response_format,
+                        "temperature": float(temperature),
+                    },
+                }
 
-        headers = {"API-KEY": api_key, "Content-Type": "application/json"}
+                headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
-        # We send a request
-        logger.debug(f"[{request_id}] Sending translation request to {ONE_MIN_API_URL}")
-        response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
-        logger.debug(
-            f"[{request_id}] Translation response status code: {response.status_code}"
-        )
+                # We send a request
+                logger.debug(f"[{request_id}] Sending translation request to {ONE_MIN_API_URL} with model {current_model}")
+                response = api_request("POST", ONE_MIN_API_URL, json=payload, headers=headers)
+                logger.debug(
+                    f"[{request_id}] Translation response status code: {response.status_code} for model {current_model}"
+                )
 
-        if response.status_code != 200:
-            if response.status_code == 401:
+                # Если запрос успешный, обрабатываем ответ
+                if response.status_code == 200:
+                    # We convert the answer to the Openai API format
+                    one_min_response = response.json()
+
+                    # We extract the text from the answer
+                    result_text = ""
+
+                    if (
+                            "aiRecord" in one_min_response
+                            and "aiRecordDetail" in one_min_response["aiRecord"]
+                    ):
+                        result_text = one_min_response["aiRecord"]["aiRecordDetail"].get(
+                            "resultObject", [""]
+                        )[0]
+                    elif "resultObject" in one_min_response:
+                        result_text = (
+                            one_min_response["resultObject"][0]
+                            if isinstance(one_min_response["resultObject"], list)
+                            else one_min_response["resultObject"]
+                        )
+
+                    if not result_text:
+                        logger.error(
+                            f"[{request_id}] Could not extract translation text from API response"
+                        )
+                        continue  # Пробуем следующую модель
+
+                    # The most simple and reliable response format
+                    logger.info(f"[{request_id}] Successfully processed audio translation with model {current_model}: {result_text}")
+
+                    # Create json strictly in Openai API format
+                    response_data = {"text": result_text}
+
+                    # Add Cors headlines
+                    response = jsonify(response_data)
+                    response.headers["Access-Control-Allow-Origin"] = "*"
+                    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+                    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
+
+                    return response
+                else:
+                    # Сохраняем ошибку и пробуем следующую модель
+                    last_error = response
+                    logger.warning(
+                        f"[{request_id}] Model {current_model} failed with status {response.status_code}. Trying next model."
+                    )
+                    continue
+            
+            except Exception as e:
+                # Записываем ошибку в лог и пробуем следующую модель
+                logger.error(
+                    f"[{request_id}] Error with model {current_model}: {str(e)}"
+                )
+                last_error = e
+                continue
+        
+        # Если ни одна модель не сработала, возвращаем последнюю ошибку
+        if isinstance(last_error, requests.Response):
+            if last_error.status_code == 401:
                 return ERROR_HANDLER(1020, key=api_key)
             logger.error(
-                f"[{request_id}] Error in translation response: {response.text[:200]}"
+                f"[{request_id}] All models failed. Last error: {last_error.text[:200]}"
             )
             return (
-                jsonify({"error": response.json().get("error", "Unknown error")}),
-                response.status_code,
+                jsonify({"error": last_error.json().get("error", "All available models failed")}),
+                last_error.status_code,
             )
-
-        # We convert the answer to the Openai API format
-        one_min_response = response.json()
-
-        try:
-            # We extract the text from the answer
-            result_text = ""
-
-            if (
-                    "aiRecord" in one_min_response
-                    and "aiRecordDetail" in one_min_response["aiRecord"]
-            ):
-                result_text = one_min_response["aiRecord"]["aiRecordDetail"].get(
-                    "resultObject", [""]
-                )[0]
-            elif "resultObject" in one_min_response:
-                result_text = (
-                    one_min_response["resultObject"][0]
-                    if isinstance(one_min_response["resultObject"], list)
-                    else one_min_response["resultObject"]
-                )
-
-            if not result_text:
-                logger.error(
-                    f"[{request_id}] Could not extract translation text from API response"
-                )
-                return jsonify({"error": "Could not extract translation text"}), 500
-
-            # The most simple and reliable response format
-            logger.info(f"[{request_id}] Successfully processed audio translation: {result_text}")
-
-            # Create json strictly in Openai API format
-            response_data = {"text": result_text}
-
-            # Add Cors headlines
-            response = jsonify(response_data)
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
-
-            return response
-
-        except Exception as e:
-            logger.error(
-                f"[{request_id}] Error processing translation response: {str(e)}"
-            )
-            return jsonify({"error": str(e)}), 500
+        else:
+            logger.error(f"[{request_id}] All models failed. Last error: {str(last_error)}")
+            return jsonify({"error": str(last_error)}), 500
 
     except Exception as e:
         logger.error(f"[{request_id}] Exception during translation request: {str(e)}")
