@@ -7,12 +7,10 @@ from datetime import datetime
 
 # Создаем директорию для логов, если её нет
 log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-if not os.path.exists(log_dir):
-    try:
-        os.makedirs(log_dir)
-    except Exception:
-        # Если не удалось создать директорию, продолжаем без файлового логирования
-        log_dir = None
+try:
+    os.makedirs(log_dir, exist_ok=True)
+except Exception:
+    log_dir = None  # Если не удалось создать директорию, продолжаем без файлового логирования
 
 # Создаем логгер
 logger = logging.getLogger("1min-relay")
@@ -59,7 +57,7 @@ if log_dir:
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
     except Exception as e:
-        print(f"Не удалось настроить файловое логирование: {str(e)}")
+        logger.warning(f"Не удалось настроить файловое логирование: {str(e)}")
 
 # Функция для вывода ASCII-баннера
 def print_banner():
