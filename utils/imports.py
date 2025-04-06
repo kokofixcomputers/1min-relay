@@ -19,88 +19,74 @@ import traceback
 import uuid
 import warnings
 
-# Библиотеки Flask и зависимости
-try:
-    from flask import Flask, request, jsonify, make_response, Response, redirect, url_for
-    from werkzeug.datastructures import MultiDict
-    from waitress import serve
-except ImportError:
-    print("Flask или его зависимости не установлены. Установите пакеты: flask, waitress")
+# Подавляем предупреждения от flask_limiter
+warnings.filterwarnings("ignore", category=UserWarning, module="flask_limiter.extension")
 
-# Дополнительные библиотеки (опциональные)
+# Загружаем переменные окружения
 try:
     from dotenv import load_dotenv
+    load_dotenv()
 except ImportError:
-    print("python-dotenv не установлен. Установите пакет: python-dotenv")
-    load_dotenv = lambda: None  # Пустая функция-заглушка
+    # Заглушка для load_dotenv
+    def load_dotenv(): pass
+    load_dotenv()
 
+# Библиотеки Flask и основные зависимости
+from flask import Flask, request, jsonify, make_response, Response, redirect, url_for
+from werkzeug.datastructures import MultiDict
+from waitress import serve
+import requests
+
+# Опциональные библиотеки с заглушками
 try:
     import tiktoken
 except ImportError:
-    print("tiktoken не установлен. Установите пакет: tiktoken")
-    
+    tiktoken = None
+
 try:
     import printedcolors
 except ImportError:
-    print("printedcolors не установлен.")
-    # Создаем заглушку для printedcolors
+    # Заглушка для printedcolors
     class ColorStub:
         class fg:
             lightcyan = ""
         reset = ""
     printedcolors = type('', (), {'Color': ColorStub})()
 
-try:
-    import requests
-except ImportError:
-    print("requests не установлен. Установите пакет: requests")
-
+# Библиотеки для ограничения запросов
 try:
     from flask_limiter import Limiter
     from flask_limiter.util import get_remote_address
     LIMITER_AVAILABLE = True
 except ImportError:
-    print("flask-limiter не установлен. Ограничение запросов будет отключено.")
     LIMITER_AVAILABLE = False
-    # Создаем заглушку для Limiter
+    # Заглушка для Limiter
     class MockLimiter:
-        def __init__(self, *args, **kwargs):
-            pass
-        
+        def __init__(self, *args, **kwargs): pass
         def limit(self, limit_value):
-            def decorator(f):
-                return f
+            def decorator(f): return f
             return decorator
-    
     Limiter = MockLimiter
     get_remote_address = lambda: "127.0.0.1"
 
+# CORS поддержка
 try:
     from flask_cors import cross_origin
     CORS_AVAILABLE = True
 except ImportError:
-    print("flask-cors не установлен. CORS будет отключен.")
     CORS_AVAILABLE = False
-    # Создаем заглушку для cross_origin
+    # Заглушка для cross_origin
     def cross_origin(*args, **kwargs):
-        def decorator(f):
-            return f
+        def decorator(f): return f
         return decorator
 
+# Библиотеки для работы с Memcached
 try:
     import memcache
     from pymemcache.client.base import Client as PyMemcacheClient
     MEMCACHED_AVAILABLE = True
 except ImportError:
-    print("pymemcache/python-memcache не установлен. Кэширование будет отключено.")
     MEMCACHED_AVAILABLE = False
     memcache = None
     PyMemcacheClient = None
 
-# Загружаем переменные окружения
-load_dotenv()
-
-# Отключаем предупреждения от flask_limiter
-warnings.filterwarnings(
-    "ignore", category=UserWarning, module="flask_limiter.extension"
-) 
