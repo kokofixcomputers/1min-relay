@@ -1,3 +1,6 @@
+#############
+# DON'T USE #
+#############
 services:
   # Memcached for storing rate-limits data.
   memcached:
