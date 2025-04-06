@@ -17,7 +17,11 @@ try:
     # Переносим объекты app и limiter в текущий модуль
     mod.app = root_app.app
     mod.limiter = root_app.limiter
-    logger.info("Глобальные app и limiter успешно переданы в модуль маршрутов")
+    # Добавляем IMAGE_CACHE для доступа из всех модулей маршрутов
+    mod.IMAGE_CACHE = root_app.IMAGE_CACHE
+    # Также добавляем MAX_CACHE_SIZE, который может использоваться вместе с IMAGE_CACHE
+    mod.MAX_CACHE_SIZE = 100  # или другое подходящее значение
+    logger.info("Глобальные app, limiter и IMAGE_CACHE успешно переданы в модуль маршрутов")
     
     # Импортируем все модули маршрутов
     from . import files
