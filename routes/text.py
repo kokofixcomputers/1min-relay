@@ -8,6 +8,7 @@ from utils.memcached import safe_memcached_operation
 from . import app, limiter, IMAGE_CACHE, MAX_CACHE_SIZE, MEMORY_STORAGE  # Импортируем app, limiter и IMAGE_CACHE из модуля routes
 from .images import retry_image_upload  # Импортируем функцию retry_image_upload из модуля images
 from .files import create_conversation_with_files  # Импортируем функцию create_conversation_with_files из модуля files
+from .utils import format_openai_response, prepare_image_payload as utils_prepare_image_payload  # Переименовываем при импорте
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -1405,25 +1406,23 @@ def prepare_payload(
     
     # Формируем основной payload в зависимости от типа запроса
     if image_paths and len(image_paths) > 0:
-        return prepare_image_payload(model, all_messages, image_paths, web_search, num_of_site, max_word, capabilities, request_id)
+        # Используем правильную сигнатуру функции из utils.py (параметр prompt вместо all_messages)
+        return utils_prepare_image_payload(model, all_messages, request_data, image_paths, request_id)
     elif code_interpreter:
         return prepare_code_payload(model, all_messages, request_id)
     else:
         return prepare_text_payload(model, all_messages, web_search, num_of_site, max_word, request_id)
 
 
-def prepare_image_payload(model, all_messages, image_paths, web_search, num_of_site, max_word, capabilities, request_id=None):
+def prepare_image_payload(model, all_messages, request_data, image_paths, request_id=None):
     """
     Подготавливает payload для запроса с изображениями
     
     Args:
         model: Название модели
         all_messages: Сообщения диалога
+        request_data: Данные запроса
         image_paths: Пути к изображениям
-        web_search: Флаг поиска в интернете
-        num_of_site: Количество сайтов для поиска
-        max_word: Максимальное количество слов
-        capabilities: Возможности модели
         request_id: ID запроса
         
     Returns:
