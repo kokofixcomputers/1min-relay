@@ -96,18 +96,18 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
 ]
 
 # Модели, поддерживающие зрение (vision)
-vision_supported_models = [
+VISION_SUPPORTED_MODELS = [
     "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"
 ]
 
 # Модели, поддерживающие интерпретатор кода
-code_interpreter_supported_models = [
+CODE_INTERPRETER_SUPPORTED_MODELS = [
     "gpt-4o", "claude-3-5-sonnet-20240620", "claude-3-5-haiku-20241022", 
     "deepseek-chat", "deepseek-reasoner"
 ]
 
 # Модели, поддерживающие поиск в интернете (retrieval)
-retrieval_supported_models = [
+RETRIEVAL_SUPPORTED_MODELS = [
     "gemini-1.0-pro", "gemini-1.5-pro", "gemini-1.5-flash", "o3-mini", "o1-preview", "o1-mini",
     "gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo", "claude-3-5-sonnet-20240620",
     "claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307",
@@ -118,7 +118,7 @@ retrieval_supported_models = [
 ]
 
 # Модели, поддерживающие вызов функций (function calling)
-function_calling_supported_models = [
+FUNCTION_CALLING_SUPPORTED_MODELS = [
     "gpt-4", "gpt-3.5-turbo"
 ]
 
