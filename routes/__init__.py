@@ -19,9 +19,11 @@ try:
     mod.limiter = root_app.limiter
     # Добавляем IMAGE_CACHE для доступа из всех модулей маршрутов
     mod.IMAGE_CACHE = root_app.IMAGE_CACHE
+    # Добавляем MEMORY_STORAGE для работы с данными в памяти
+    mod.MEMORY_STORAGE = root_app.MEMORY_STORAGE
     # Также добавляем MAX_CACHE_SIZE, который может использоваться вместе с IMAGE_CACHE
     mod.MAX_CACHE_SIZE = 100  # или другое подходящее значение
-    logger.info("Глобальные app, limiter и IMAGE_CACHE успешно переданы в модуль маршрутов")
+    logger.info("Глобальные app, limiter, IMAGE_CACHE и MEMORY_STORAGE успешно переданы в модуль маршрутов")
     
     # Импортируем все модули маршрутов
     from . import files
