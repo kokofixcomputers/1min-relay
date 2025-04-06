@@ -4,18 +4,10 @@
 from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
-from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request
+from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
 from utils.memcached import safe_memcached_operation
-from . import app, limiter, IMAGE_CACHE, MAX_CACHE_SIZE
-from .utils import (
-    validate_auth, 
-    handle_api_error, 
-    upload_asset,
-    get_mime_type,
-    extract_image_urls,
-    format_image_response,
-    prepare_image_payload
-)
+from . import app, limiter, MEMORY_STORAGE  # Импортируем app, limiter и MEMORY_STORAGE из модуля routes
+
 
 # Маршруты для работы с изображениями
 @app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
@@ -27,17 +19,10 @@ def generate_image():
     if request.method == "OPTIONS":
         return handle_options_request()
 
-    request_id = str(uuid.uuid4())[:8]
+    # Create a unique ID for request
+    request_id = str(uuid.uuid4())
     logger.info(f"[{request_id}] Received request: /v1/images/generations")
 
-    # Проверяем авторизацию
-    api_key, error = validate_auth(request, request_id)
-    if error:
-        return error
-
-    # Проверяем формат данных
-    if not request.is_json:
-        logger.error(f"[{request_id}] Request content-type is not application/json")
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         logger.error(f"[{request_id}] Invalid Authentication")
