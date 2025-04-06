@@ -1,10 +1,18 @@
-# Импортируем логгер из модуля utils
-from utils.logger import logger
-# Импортируем Flask app из app.py
-from app import app, limiter
+# utils/__init__.py
+# Импортируем важные модули в правильном порядке
 
-# Импортируем всё содержимое модулей
-from .text import *
-from .images import *
-from .audio import *
-from .files import *
+# Сначала импортируем наш централизованный модуль импортов
+from .imports import *
+
+# Затем импортируем логгер (баннер уже выводится при импорте logger)
+from .logger import logger
+
+# Потом импортируем константы
+from .constants import *
+
+# Наконец, импортируем остальные модули
+from .common import *
+
+# Мы не импортируем memcached здесь, чтобы избежать циклической зависимости
+# Пользователи должны импортировать его напрямую при необходимости:
+# from utils.memcached import *
