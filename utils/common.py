@@ -1,166 +1,275 @@
-# version 1.0.4 #increment every time you make changes
-# 2025-04-06 12:00 #change to actual date and time every time you make changes
-import base64
-import hashlib
-import json
-import os
-import random
-import re
-import socket
-import string
-import tempfile
-import threading
-import time
-import traceback
-import uuid
-import warnings
-import datetime
+# utils/common.py
+# Общие утилиты
+# Импортируем необходимые модули из нашего централизованного файла импортов
+from .imports import *
+from .logger import logger
+from .constants import *
 
-import memcache
-import printedcolors
-import requests
-import tiktoken
-from dotenv import load_dotenv
-from flask import Flask, request, jsonify, make_response, Response, redirect, url_for
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from mistral_common.protocol.instruct.messages import UserMessage
-from mistral_common.protocol.instruct.request import ChatCompletionRequest
-from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
-from waitress import serve
-from werkzeug.datastructures import MultiDict
-from flask_cors import cross_origin
-
-# We download the environment variables from the .env file
-load_dotenv()
-
-# Suppress warnings from flask_limiter
-warnings.filterwarnings(
-    "ignore", category=UserWarning, module="flask_limiter.extension"
-)
-
-# Импортируем логгер из модуля logger
-from utils.logger import logger
-
-# Инициализируем Flask-приложение перед импортом модулей, чтобы оно было доступно в routes
-app = Flask(__name__)
-
-# Параметры порта и другие настройки окружения
-PORT = int(os.getenv("PORT", 5001))
-
-# Импортируем константы из файла constants.py
-from utils.constants import *
-
-# Global storage for use when MemcacheD is not available
-MEMORY_STORAGE = {}
-
-# Импортируем утилиты
-from utils.common import *
-from utils.memcached import *
-
-# Инициализируем memcached
-memcached_available, memcached_uri = check_memcached_connection()
-MEMCACHED_CLIENT = None  # Инициализируем перед использованием
-
-if memcached_available:
-    limiter = Limiter(
-        get_remote_address,
-        app=app,
-        storage_uri=memcached_uri,
-    )
-    # Initialization of the client Memcache
+def calculate_token(sentence, model="DEFAULT"):
+    """Calculate the number of tokens in a sentence based on the specified model."""
     try:
-        # First we try Pymemcache
-        from pymemcache.client.base import Client
-
-        # We extract a host and a port from URI without using. Split ('@')
-        if memcached_uri.startswith('memcached://'):
-            host_port = memcached_uri.replace('memcached://', '')
+        if model.startswith("mistral"):
+            # Для моделей Mistral используем OpenAI токенизатор в качестве запасного варианта
+            encoding = tiktoken.encoding_for_model("gpt-4")
+            tokens = encoding.encode(sentence)
+            return len(tokens)
+        elif model in ["gpt-3.5-turbo", "gpt-4"]:
+            # Use OpenAI's tiktoken for GPT models
+            encoding = tiktoken.encoding_for_model(model)
+            tokens = encoding.encode(sentence)
+            return len(tokens)
         else:
-            host_port = memcached_uri
+            # Default to openai
+            encoding = tiktoken.encoding_for_model("gpt-4")
+            tokens = encoding.encode(sentence)
+            return len(tokens)
+    except Exception as e:
+        logger.warning(f"Ошибка при подсчете токенов: {str(e)}. Используем приблизительную оценку.")
+        # Приблизительно оцениваем количество токенов как 3/4 количества символов
+        return len(sentence) * 3 // 4
 
-        # We share a host and port for Pymemcache
-        if ':' in host_port:
-            host, port = host_port.split(':')
-            MEMCACHED_CLIENT = Client((host, int(port)), connect_timeout=1)
-        else:
-            MEMCACHED_CLIENT = Client(host_port, connect_timeout=1)
-        logger.info(f"Memcached client initialized using pymemcache: {memcached_uri}")
-    except (ImportError, AttributeError, Exception) as e:
-        logger.error(f"Error initializing pymemcache client: {str(e)}")
-        try:
-            # If it doesn't work out, we try Python-Memcache
-            # We extract a host and a port from URI without using. Split ('@')
-            if memcached_uri.startswith('memcached://'):
-                host_port = memcached_uri.replace('memcached://', '')
-            else:
-                host_port = memcached_uri
+# A function for performing a request to the API with a new session
+def api_request(req_method, url, headers=None,
+                requester_ip=None, data=None,
+                files=None, stream=False,
+                timeout=None, json=None, **kwargs):
+    """Performs the HTTP request to the API with the normalization of the URL and error processing"""
+    req_url = url.strip()
+    logger.debug(f"API request URL: {req_url}")
 
-            MEMCACHED_CLIENT = memcache.Client([host_port], debug=0)
-            logger.info(f"Memcached client initialized using python-memcached: {memcached_uri}")
-        except (ImportError, AttributeError, Exception) as e:
-            logger.error(f"Error initializing memcache client: {str(e)}")
-            logger.warning(f"Failed to initialize memcached client. Session storage disabled.")
-else:
-    # Used for ratelimiting without memcached
-    limiter = Limiter(
-        get_remote_address,
-        app=app,
-    )
-    logger.info("Memcached not available, session storage disabled")
+    # Request parameters
+    req_params = {}
+    if headers:
+        req_params["headers"] = headers
+    if data:
+        req_params["data"] = data
+    if files:
+        req_params["files"] = files
+    if stream:
+        req_params["stream"] = stream
+    if json:
+        req_params["json"] = json
 
-# Read environment variables
-one_min_models_env = os.getenv(
-    "SUBSET_OF_ONE_MIN_PERMITTED_MODELS"
-)  # e.g. "mistral-nemo,gpt-4o,deepseek-chat"
-permit_not_in_available_env = os.getenv(
-    "PERMIT_MODELS_FROM_SUBSET_ONLY"
-)  # e.g. "True" or "False"
+    # Add other parameters
+    req_params.update(kwargs)
 
-# Parse or fall back to defaults
-if one_min_models_env:
-    SUBSET_OF_ONE_MIN_PERMITTED_MODELS = one_min_models_env.split(",")
+    # We check whether the request is an operation with images
+    is_image_operation = False
+    if json and isinstance(json, dict):
+        operation_type = json.get("type", "")
+        if operation_type in [IMAGE_GENERATOR, IMAGE_VARIATOR]:
+            is_image_operation = True
+            logger.debug(f"Detected image operation: {operation_type}, using extended timeout")
 
-if permit_not_in_available_env and permit_not_in_available_env.lower() == "true":
-    PERMIT_MODELS_FROM_SUBSET_ONLY = True
+    # We use increased timaut for operations with images
+    if is_image_operation:
+        req_params["timeout"] = timeout or MIDJOURNEY_TIMEOUT
+        logger.debug(f"Using extended timeout for image operation: {MIDJOURNEY_TIMEOUT}s")
+    else:
+        req_params["timeout"] = timeout or DEFAULT_TIMEOUT
 
-# Combine into a single list
-AVAILABLE_MODELS = []
-AVAILABLE_MODELS.extend(SUBSET_OF_ONE_MIN_PERMITTED_MODELS)
-
-# Add cache to track processed images
-# For each request, we keep a unique image identifier and its path
-IMAGE_CACHE = {}
-
-# Импортируем маршруты после инициализации всех необходимых глобальных переменных
-from routes import *
-
-# Основные настройки
-# Run the task at the start of the server
-if __name__ == "__main__":
-    # Launch the task of deleting files
-    delete_all_files_task()
-
-    # Run the application
-    internal_ip = socket.gethostbyname(socket.gethostname())
+    # We fulfill the request
     try:
-        response = requests.get("https://api.ipify.org")
-        public_ip = response.text
-    except:
-        public_ip = "not found"
+        response = requests.request(req_method, req_url, **req_params)
+        return response
+    except Exception as e:
+        logger.error(f"API request error: {str(e)}")
+        raise
 
-    logger.info(
-        f"""{printedcolors.Color.fg.lightcyan}  
-Server is ready to serve at:
-Internal IP: {internal_ip}:{PORT}
-Public IP: {public_ip} (only if you've setup port forwarding on your router.)
-Enter this url to OpenAI clients supporting custom endpoint:
-{internal_ip}:{PORT}/v1
-If does not work, try:
-{internal_ip}:{PORT}/v1/chat/completions
-{printedcolors.Color.reset}"""
+def set_response_headers(response):
+    """Установка стандартных заголовков для всех ответов API"""
+    response.headers["Content-Type"] = "application/json"
+    response.headers["Access-Control-Allow-Origin"] = "*"  # Corrected the hyphen in the title name
+    response.headers["X-Request-ID"] = str(uuid.uuid4())
+    # Add more Cors headings
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
+    return response  # Return the answer for the chain
+
+
+def create_session():
+    """Creates a new session with optimal settings for APIs"""
+    session = requests.Session()
+
+    # Setting up repeated attempts for all requests
+    retry_strategy = requests.packages.urllib3.util.retry.Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"],
     )
+    adapter = requests.adapters.HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
 
-    serve(
-        app, host="0.0.0.0", port=PORT, threads=6
-    )  # Thread has a default of 4 if not specified. We use 6 to increase performance and allow multiple requests at once.
+    return session
+
+def safe_temp_file(prefix, request_id=None):
+    """
+    Safely creates a temporary file and guarantees its deletion after use
+
+    Args:
+        Prefix: Prefix for file name
+        Request_id: ID Request for Logging
+
+    Returns:
+        STR: Way to the temporary file
+    """
+    request_id = request_id or str(uuid.uuid4())[:8]
+    random_string = "".join(random.choices(string.ascii_letters + string.digits, k=10))
+    temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+
+    # Create a temporary directory if it is not
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+
+    # Clean old files (over 1 hour)
+    try:
+        current_time = time.time()
+        for old_file in os.listdir(temp_dir):
+            file_path = os.path.join(temp_dir, old_file)
+            if os.path.isfile(file_path):
+                # If the file is older than 1 hour - delete
+                if current_time - os.path.getmtime(file_path) > 3600:
+                    try:
+                        os.remove(file_path)
+                        logger.debug(
+                            f"[{request_id}] Removed old temp file: {file_path}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[{request_id}] Failed to remove old temp file {file_path}: {str(e)}"
+                        )
+    except Exception as e:
+        logger.warning(f"[{request_id}] Error while cleaning old temp files: {str(e)}")
+
+    # Create a new temporary file
+    temp_file_path = os.path.join(temp_dir, f"{prefix}_{request_id}_{random_string}")
+    return temp_file_path
+
+def ERROR_HANDLER(code, model=None, key=None):
+    """Обработчик ошибок в формате совместимом с OpenAI API"""
+    # Handle errors in OpenAI-Structued Error
+    error_codes = {  # Internal Error Codes
+        1002: {
+            "message": f"The model {model} does not exist.",
+            "type": "invalid_request_error",
+            "param": None,
+            "code": "model_not_found",
+            "http_code": 400,
+        },
+        1020: {
+            "message": f"Incorrect API key provided: {key}. You can find your API key at https://app.1min.ai/api.",
+            "type": "authentication_error",
+            "param": None,
+            "code": "invalid_api_key",
+            "http_code": 401,
+        },
+        1021: {
+            "message": "Invalid Authentication",
+            "type": "invalid_request_error",
+            "param": None,
+            "code": None,
+            "http_code": 401,
+        },
+        1212: {
+            "message": f"Incorrect Endpoint. Please use the /v1/chat/completions endpoint.",
+            "type": "invalid_request_error",
+            "param": None,
+            "code": "model_not_supported",
+            "http_code": 400,
+        },
+        1044: {
+            "message": f"This model does not support image inputs.",
+            "type": "invalid_request_error",
+            "param": None,
+            "code": "model_not_supported",
+            "http_code": 400,
+        },
+        1412: {
+            "message": f"No message provided.",
+            "type": "invalid_request_error",
+            "param": "messages",
+            "code": "invalid_request_error",
+            "http_code": 400,
+        },
+        1423: {
+            "message": f"No content in last message.",
+            "type": "invalid_request_error",
+            "param": "messages",
+            "code": "invalid_request_error",
+            "http_code": 400,
+        },
+    }
+    error_data = {
+        k: v
+        for k, v in error_codes.get(
+            code,
+            {
+                "message": "Unknown error",
+                "type": "unknown_error",
+                "param": None,
+                "code": None,
+            },
+        ).items()
+        if k != "http_code"
+    }  # Remove http_code from the error data
+    logger.error(
+        f"An error has occurred while processing the user's request. Error code: {code}"
+    )
+    return jsonify({"error": error_data}), error_codes.get(code, {}).get(
+        "http_code", 400
+    )  # Return the error data without http_code inside the payload and get the http_code to return.
+
+def handle_options_request():
+    """Обработчик OPTIONS запросов для CORS"""
+    response = make_response()
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+    response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+    return response, 204
+
+def split_text_for_streaming(text, chunk_size=6):
+    """
+    It breaks the text into small parts to emulate streaming output.
+
+    Args:
+        Text (str): text for breakdown
+        chunk_size (int): the approximate size of the parts in words
+
+    Returns:
+        List: List of parts of the text
+    """
+    if not text:
+        return [""]
+
+    # We break the text into sentences
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
+    # We are grouping sentences to champs
+    chunks = []
+    current_chunk = []
+    current_word_count = 0
+
+    for sentence in sentences:
+        words_in_sentence = len(sentence.split())
+
+        # If the current cup is empty or the addition of a sentence does not exceed the limit of words
+        if not current_chunk or current_word_count + words_in_sentence <= chunk_size:
+            current_chunk.append(sentence)
+            current_word_count += words_in_sentence
+        else:
+            # We form a cup and begin the new
+            chunks.append(" ".join(current_chunk))
+            current_chunk = [sentence]
+            current_word_count = words_in_sentence
+
+    # Add the last cup if it is not empty
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    # If there is no Cankov (breakdown did not work), we return the entire text entirely
+    if not chunks:
+        return [text]
+
+    return chunks
