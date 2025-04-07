@@ -4,7 +4,7 @@
 from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
-from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request
+from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, api_request
 from utils.memcached import safe_memcached_operation
 from . import app, limiter
 from .functions import (
@@ -141,6 +141,10 @@ def handle_file(file_id):
             # Ищем файл в списке файлов пользователя
             user_files = get_user_files(api_key, request_id)
             file_info = find_file_by_id(user_files, file_id)
+            
+            if not file_info:
+                logger.error(f"[{request_id}] File {file_id} not found")
+                return jsonify({"error": f"File {file_id} not found"}), 404
                     
             # Формируем ответ
             response_data = format_file_response(file_info, file_id)
@@ -157,13 +161,23 @@ def handle_file(file_id):
             # Получаем список файлов пользователя
             user_files = get_user_files(api_key, request_id)
             
+            # Проверяем, существует ли файл
+            found = False
+            for file in user_files:
+                if file.get("id") == file_id:
+                    found = True
+                    break
+                    
+            if not found:
+                logger.error(f"[{request_id}] File {file_id} not found")
+                return jsonify({"error": f"File {file_id} not found"}), 404
+            
             # Фильтруем список, исключая файл с указанным ID
             new_user_files = [f for f in user_files if f.get("id") != file_id]
             
-            # Если список изменился, сохраняем обновленный список
-            if len(new_user_files) < len(user_files):
-                save_user_files(api_key, new_user_files, request_id)
-                logger.info(f"[{request_id}] Deleted file {file_id} from user's files")
+            # Сохраняем обновленный список
+            save_user_files(api_key, new_user_files, request_id)
+            logger.info(f"[{request_id}] Deleted file {file_id} from user's files")
 
             # Возвращаем ответ об успешном удалении
             response_data = {
@@ -196,6 +210,14 @@ def handle_file_content(file_id):
         return error
 
     try:
+        # Проверяем, существует ли файл
+        user_files = get_user_files(api_key, request_id)
+        file_info = find_file_by_id(user_files, file_id)
+        
+        if not file_info:
+            logger.error(f"[{request_id}] File {file_id} not found")
+            return jsonify({"error": f"File {file_id} not found"}), 404
+            
         # В 1min.ai нет API для получения содержимого файла по ID
         logger.error(f"[{request_id}] File content retrieval not supported")
         return jsonify({"error": "File content retrieval not supported"}), 501
