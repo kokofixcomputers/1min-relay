@@ -65,7 +65,6 @@
 - `build_generation_payload`: Создает нагрузку для генерации изображений
 - `parse_aspect_ratio`: Анализирует соотношение сторон из входных данных
 - `create_image_variations`: Создает вариации изображений
-- `build_img2img_payload`: Создает нагрузку для запросов img2img
 - `process_image_tool_calls`: Обрабатывает вызовы инструментов для изображений
 
 ### Аудио функции: `1min-relay/routes/functions/audio_func.py`
