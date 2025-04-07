@@ -11,11 +11,11 @@ from .functions import (
     format_openai_response, 
     stream_response, 
     get_model_capabilities,
-    prepare_chat_payload,
     emulate_stream_response,
     transform_response,
     create_conversation_with_files,
     format_conversation_history,
+    streaming_request,
     prepare_payload
 )  # Импортируем функции из functions.py
 
@@ -1039,10 +1039,10 @@ def conversation():
             headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
             # Depending on the Stream parameter, select the request method
-            if stream:
+            if request_data.get("stream", False):
                 # Streaming request
                 return streaming_request(
-                    api_url, payload, headers, request_id, model, model_settings, api_params=api_params
+                    api_url, payload, headers, request_id, model, model_settings=None, api_params=api_params
                 )
             else:
                 # The usual request
@@ -1130,44 +1130,7 @@ def conversation():
         headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
         # Request depending on Stream
-        if not request_data.get("stream", False):
-            # The usual request
-            logger.debug(
-                f"[{request_id}] Sending non-streaming request to {ONE_MIN_API_URL}"
-            )
-
-            try:
-                response = api_request(
-                    "POST", ONE_MIN_API_URL, json=payload, headers=headers
-                )
-                logger.debug(
-                    f"[{request_id}] Response status code: {response.status_code}"
-                )
-
-                if response.status_code != 200:
-                    if response.status_code == 401:
-                        return ERROR_HANDLER(1020, key=api_key)
-                    try:
-                        error_content = response.json()
-                        logger.error(f"[{request_id}] Error response: {error_content}")
-                    except:
-                        logger.error(
-                            f"[{request_id}] Could not parse error response as JSON"
-                        )
-                    return ERROR_HANDLER(response.status_code)
-
-                one_min_response = response.json()
-                transformed_response = transform_response(
-                    one_min_response, request_data, prompt_token
-                )
-
-                response = make_response(jsonify(transformed_response))
-                set_response_headers(response)
-                return response, 200
-            except Exception as e:
-                logger.error(f"[{request_id}] Exception during request: {str(e)}")
-                return jsonify({"error": str(e)}), 500
-        else:
+        if request_data.get("stream", False):
             # Streaming request
             logger.debug(f"[{request_id}] Sending streaming request")
 
@@ -1225,6 +1188,43 @@ def conversation():
                 logger.error(
                     f"[{request_id}] Exception during streaming request: {str(e)}"
                 )
+                return jsonify({"error": str(e)}), 500
+        else:
+            # The usual request
+            logger.debug(
+                f"[{request_id}] Sending non-streaming request to {ONE_MIN_API_URL}"
+            )
+
+            try:
+                response = api_request(
+                    "POST", ONE_MIN_API_URL, json=payload, headers=headers
+                )
+                logger.debug(
+                    f"[{request_id}] Response status code: {response.status_code}"
+                )
+
+                if response.status_code != 200:
+                    if response.status_code == 401:
+                        return ERROR_HANDLER(1020, key=api_key)
+                    try:
+                        error_content = response.json()
+                        logger.error(f"[{request_id}] Error response: {error_content}")
+                    except:
+                        logger.error(
+                            f"[{request_id}] Could not parse error response as JSON"
+                        )
+                    return ERROR_HANDLER(response.status_code)
+
+                one_min_response = response.json()
+                transformed_response = transform_response(
+                    one_min_response, request_data, prompt_token
+                )
+
+                response = make_response(jsonify(transformed_response))
+                set_response_headers(response)
+                return response, 200
+            except Exception as e:
+                logger.error(f"[{request_id}] Exception during request: {str(e)}")
                 return jsonify({"error": str(e)}), 500
     except Exception as e:
         logger.error(
@@ -1299,3 +1299,4 @@ def create_assistant():
         return response, 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
