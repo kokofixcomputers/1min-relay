@@ -4,12 +4,20 @@
 from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
-from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request
+from utils.common import (
+    ERROR_HANDLER, 
+    handle_options_request, 
+    set_response_headers, 
+    create_session, 
+    api_request, 
+    safe_temp_file, 
+    calculate_token
+)
 from utils.memcached import safe_memcached_operation
+from routes.functions.shared_func import validate_auth, handle_api_error, extract_text_from_response, extract_audio_url
+from routes.functions.audio_func import prepare_models_list, prepare_whisper_payload, prepare_tts_payload
 from . import app, limiter, MEMORY_STORAGE
 from .functions import (
-    validate_auth, 
-    handle_api_error, 
     upload_audio_file,
     try_models_in_sequence,
     extract_text_from_response,
