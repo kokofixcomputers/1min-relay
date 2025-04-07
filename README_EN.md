@@ -10,6 +10,7 @@
 - Implements data streaming
 - Has a rate limiting function using Memcached
 - Allows you to set a subset of allowed models through environment variables
+- Optimized modular structure with minimal code duplication
 
 ## Project Structure
 The project has a modular structure to facilitate development and maintenance:
@@ -26,10 +27,11 @@ The project has a modular structure to facilitate development and maintenance:
 │   └── memcached.py      # Functions for working with Memcached
 ├── routes/               # API routes
 │   ├── __init__.py       # Routes module initialization
-│   ├── functions.py      # Module re-exporting all functions from submodules
 │   ├── functions/        # Functions for different types of requests
-│   │   ├── __init__.py   # Functions package initialization
+│   │   ├── __init__.py   # Functions package initialization with clear exports
 │   │   ├── shared_func.py# Common functions for all request types
+│   │   │                 # (authentication, error handling, response formatting,
+│   │   │                 # extraction of data from API responses)
 │   │   ├── txt_func.py   # Functions for text models
 │   │   ├── img_func.py   # Functions for working with images
 │   │   ├── audio_func.py # Functions for working with audio
@@ -46,6 +48,22 @@ The project has a modular structure to facilitate development and maintenance:
 ├── CODE_STRUCTURE.md     # Detailed information about code structure
 └── README.md             # Project documentation
 ```
+
+### Key Components:
+
+- **shared_func.py**: Contains common functions used in all types of routes:
+  - Authorization and error handling
+  - Response formatting to match the OpenAI API
+  - Universal functions for extracting data from API responses
+  - Common code for working with URLs and multimedia content
+
+- **Specialized function modules**: Contain only unique logic for specific types of requests:
+  - txt_func.py: Processing text requests
+  - img_func.py: Image generation and processing
+  - audio_func.py: Audio transcription and speech synthesis
+  - file_func.py: File management
+
+- **API Routes**: Implement endpoints compatible with the OpenAI API using the corresponding processing functions.
 
 ## Requirements
 - Python 3.7+
