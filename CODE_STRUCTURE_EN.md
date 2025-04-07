@@ -301,5 +301,4 @@ def handle_file(file_id):
 def handle_file_content(file_id):
     # Route to get file content
 ```
----
-</rewritten_file> 
+
