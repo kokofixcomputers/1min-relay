@@ -74,28 +74,6 @@ def save_user_files(api_key, files, request_id=None):
     except Exception as e:
         logger.error(f"[{request_id}] Error saving user files: {str(e)}")
 
-def create_temp_file(file_data, suffix=".tmp", request_id=None):
-    """
-    Создает временный файл с данными
-    
-    Args:
-        file_data: Данные для записи в файл
-        suffix: Расширение файла
-        request_id: ID запроса для логирования
-    
-    Returns:
-        str: Путь к временному файлу
-    """
-    try:
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        temp_file.write(file_data)
-        temp_file.close()
-        logger.debug(f"[{request_id}] Created temporary file: {temp_file.name}")
-        return temp_file.name
-    except Exception as e:
-        logger.error(f"[{request_id}] Error creating temporary file: {str(e)}")
-        return None 
-
 def upload_asset(file_data, filename, mime_type, api_key, request_id=None, file_type=None):
     """
     Загружает файл в 1min.ai
@@ -245,48 +223,6 @@ def create_api_response(data, request_id=None):
     set_response_headers(response)
     return response
 
-def find_conversation_id(response_data, request_id=None):
-    """
-    Ищет ID разговора в ответе API
-    
-    Args:
-        response_data: Данные ответа от API
-        request_id: ID запроса для логирования
-        
-    Returns:
-        str/None: ID разговора или None, если не найден
-    """
-    # Сначала проверяем наиболее вероятные места
-    if "conversation" in response_data and "uuid" in response_data["conversation"]:
-        return response_data["conversation"]["uuid"]
-    elif "id" in response_data:
-        return response_data["id"]
-    elif "uuid" in response_data:
-        return response_data["uuid"]
-    
-    # Если не нашли, выполняем рекурсивный поиск
-    def search_recursively(obj, path=""):
-        if isinstance(obj, dict):
-            if "id" in obj:
-                logger.debug(f"[{request_id}] Found ID at path '{path}.id': {obj['id']}")
-                return obj["id"]
-            if "uuid" in obj:
-                logger.debug(f"[{request_id}] Found UUID at path '{path}.uuid': {obj['uuid']}")
-                return obj["uuid"]
-                
-            for key, value in obj.items():
-                result = search_recursively(value, f"{path}.{key}")
-                if result:
-                    return result
-        elif isinstance(obj, list):
-            for i, item in enumerate(obj):
-                result = search_recursively(item, f"{path}[{i}]")
-                if result:
-                    return result
-        return None
-    
-    return search_recursively(response_data)
-
 def find_file_by_id(user_files, file_id):
     """
     Находит файл в списке файлов пользователя по ID
@@ -302,6 +238,52 @@ def find_file_by_id(user_files, file_id):
         if file_item.get("id") == file_id:
             return file_item
     return None
+
+def find_conversation_id(response_data, request_id=None):
+    """
+    Ищет ID разговора в ответе API
+    
+    Args:
+        response_data: Данные ответа от API
+        request_id: ID запроса для логирования
+        
+    Returns:
+        str/None: ID разговора или None, если не найден
+    """
+    try:
+        # Сначала проверяем наиболее вероятные места
+        if "conversation" in response_data and "uuid" in response_data["conversation"]:
+            return response_data["conversation"]["uuid"]
+        elif "id" in response_data:
+            return response_data["id"]
+        elif "uuid" in response_data:
+            return response_data["uuid"]
+        
+        # Если не нашли, выполняем рекурсивный поиск
+        def search_recursively(obj, path=""):
+            if isinstance(obj, dict):
+                if "id" in obj:
+                    logger.debug(f"[{request_id}] Found ID at path '{path}.id': {obj['id']}")
+                    return obj["id"]
+                if "uuid" in obj:
+                    logger.debug(f"[{request_id}] Found UUID at path '{path}.uuid': {obj['uuid']}")
+                    return obj["uuid"]
+                    
+                for key, value in obj.items():
+                    result = search_recursively(value, f"{path}.{key}")
+                    if result:
+                        return result
+            elif isinstance(obj, list):
+                for i, item in enumerate(obj):
+                    result = search_recursively(item, f"{path}[{i}]")
+                    if result:
+                        return result
+            return None
+        
+        return search_recursively(response_data)
+    except Exception as e:
+        logger.error(f"[{request_id}] Error finding conversation ID: {str(e)}")
+        return None
 
 def create_conversation_with_files(file_ids, title, model, api_key, request_id=None):
     """
