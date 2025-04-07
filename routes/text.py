@@ -7,14 +7,14 @@ from utils.common import ERROR_HANDLER, handle_options_request, set_response_hea
 from utils.memcached import safe_memcached_operation
 from . import app, limiter, IMAGE_CACHE, MAX_CACHE_SIZE, MEMORY_STORAGE  # Импортируем app, limiter и IMAGE_CACHE из модуля routes
 from .images import retry_image_upload  # Импортируем функцию retry_image_upload из модуля images
-from .files import create_conversation_with_files  # Импортируем функцию create_conversation_with_files из модуля files
 from .functions import (
     format_openai_response, 
     stream_response, 
     get_model_capabilities,
     prepare_chat_payload,
     emulate_stream_response,
-    transform_response
+    transform_response,
+    create_conversation_with_files
 )  # Импортируем функции из functions.py
 
 @app.route("/", methods=["GET", "POST"])
