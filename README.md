@@ -87,7 +87,9 @@ chmod +x *.sh
 sudo ./INSTALL.sh
 ./RUN.sh
 # docker (reinstall)
-sudo ./UPDATE.sh
+mv UPDATE.sh ../
+cd ../
+./UPDATE.sh
 ```
 
 ## Использование с клиентами OpenAI API
