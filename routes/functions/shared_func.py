@@ -194,6 +194,12 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
         str: Строки для стриминга
     """
     all_chunks = ""
+    session_created = False
+    
+    # Если сессия не передана, создаем новую
+    if not session:
+        session = create_session()
+        session_created = True
     
     # Отправляем первый фрагмент с ролью
     first_chunk = {
@@ -210,48 +216,108 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     
     yield f"data: {json.dumps(first_chunk)}\n\n"
     
-    # Обрабатываем контент
-    for chunk in response.iter_content(chunk_size=1024):
-        return_chunk = {
+    try:
+        # Обрабатываем контент
+        for chunk in response.iter_content(chunk_size=1024):
+            if chunk:
+                return_chunk = {
+                    "id": f"chatcmpl-{uuid.uuid4()}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"content": chunk.decode('utf-8')},
+                        "finish_reason": None
+                    }]
+                }
+                all_chunks += chunk.decode('utf-8')
+                yield f"data: {json.dumps(return_chunk)}\n\n"
+        
+        # Считаем токены
+        tokens = calculate_token(all_chunks)
+        
+        # Финальный чанк
+        final_chunk = {
             "id": f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": model,
             "choices": [{
                 "index": 0,
-                "delta": {"content": chunk.decode('utf-8')},
-                "finish_reason": None
-            }]
+                "delta": {"content": ""},
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": tokens,
+                "total_tokens": tokens + prompt_tokens
+            }
         }
-        all_chunks += chunk.decode('utf-8')
-        yield f"data: {json.dumps(return_chunk)}\n\n"
         
-    # Считаем токены
-    tokens = calculate_token(all_chunks)
+        yield f"data: {json.dumps(final_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
     
-    # Финальный чанк
-    final_chunk = {
-        "id": f"chatcmpl-{uuid.uuid4()}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [{
-            "index": 0,
-            "delta": {"content": ""},
-            "finish_reason": "stop"
-        }],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": tokens,
-            "total_tokens": tokens + prompt_tokens
+    except requests.exceptions.ChunkedEncodingError:
+        # Обрабатываем ошибку прерванного соединения
+        logger.warning(f"Соединение с API прервано преждевременно. Получена только часть ответа.")
+        error_message = "Соединение прервано. Получена только часть ответа."
+        
+        # Считаем токены для полученной части ответа
+        tokens = calculate_token(all_chunks)
+        
+        # Отправляем уведомление об ошибке клиенту
+        error_chunk = {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": f"\n\n{error_message}"},
+                "finish_reason": "error"
+            }],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": tokens,
+                "total_tokens": tokens + prompt_tokens
+            }
         }
-    }
+        yield f"data: {json.dumps(error_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
     
-    yield f"data: {json.dumps(final_chunk)}\n\n"
-    yield "data: [DONE]\n\n"
+    except Exception as e:
+        # Обрабатываем другие возможные исключения
+        logger.error(f"Ошибка при потоковой передаче: {str(e)}")
+        error_message = f"Ошибка при получении ответа: {str(e)}"
+        
+        # Считаем токены для полученной части ответа
+        tokens = calculate_token(all_chunks)
+        
+        # Отправляем уведомление об ошибке клиенту
+        error_chunk = {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": f"\n\n{error_message}"},
+                "finish_reason": "error"
+            }],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": tokens,
+                "total_tokens": tokens + prompt_tokens
+            }
+        }
+        yield f"data: {json.dumps(error_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
     
-    if session:
-        session.close()
+    finally:
+        # Закрываем сессию, если она была создана внутри функции
+        if session_created and session:
+            session.close()
 
 #=======================================================#
 # ----------- Функции извлечения данных из API ---------#
