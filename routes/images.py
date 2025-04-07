@@ -14,13 +14,11 @@ from .functions import (
     get_mime_type,
     extract_image_urls,
     format_image_response,
-    prepare_image_payload,
     parse_aspect_ratio,
     retry_image_upload,
     create_image_variations,
     build_generation_payload,
-    get_full_url,
-    extract_image_urls_from_response
+    get_full_url
 )
 
 # ----------------------- Endpoints -----------------------
@@ -116,7 +114,7 @@ def generate_image():
                 return ERROR_HANDLER(1020, key=api_key)
             return jsonify({"error": error_msg}), response.status_code
 
-        image_urls = extract_image_urls_from_response(api_response, request_id)
+        image_urls = extract_image_urls(api_response, request_id)
         if not image_urls:
             return jsonify({"error": "Could not extract image URLs from API response"}), 500
 
@@ -497,3 +495,5 @@ def image_variations():
     session.close()
     logger.info(f"[{request_id}] Successfully generated {len(openai_data)} image variations using model {current_model}")
     return jsonify(openai_response), 200
+
+
