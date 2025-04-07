@@ -15,15 +15,8 @@ from utils.common import (
 )
 from utils.memcached import safe_memcached_operation
 from routes.functions.shared_func import validate_auth, handle_api_error, extract_text_from_response, extract_audio_url
-from routes.functions.audio_func import prepare_models_list, prepare_whisper_payload, prepare_tts_payload
+from routes.functions.audio_func import upload_audio_file, try_models_in_sequence, prepare_models_list, prepare_whisper_payload, prepare_tts_payload
 from . import app, limiter, MEMORY_STORAGE
-from .functions import (
-    upload_audio_file,
-    try_models_in_sequence,
-    extract_text_from_response,
-    prepare_models_list,
-    extract_audio_url
-)
 
 @app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
 @limiter.limit("60 per minute")
