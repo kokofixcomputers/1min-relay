@@ -95,9 +95,15 @@ def build_generation_payload(model, prompt, request_data, negative_prompt, aspec
                    "black-forest-labs/flux-dev", "flux-dev",
                    "black-forest-labs/flux-pro", "flux-pro",
                    "black-forest-labs/flux-1.1-pro", "flux-1.1-pro"]:
+        # Всегда добавляем префикс black-forest-labs/ для моделей flux, если его нет
+        model_name = model
+        if not model.startswith("black-forest-labs/"):
+            model_name = f"black-forest-labs/{model}"
+            logger.debug(f"[{request_id}] Добавлен префикс к модели Flux: {model_name}")
+            
         payload = {
             "type": "IMAGE_GENERATOR",
-            "model": model.split("/")[-1] if "/" in model else model,
+            "model": model_name,
             "promptObject": {
                 "prompt": prompt,
                 "num_outputs": request_data.get("n", 1),
