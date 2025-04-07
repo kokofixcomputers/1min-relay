@@ -60,12 +60,13 @@
 - `prepare_payload`: Подготавливает нагрузку для API-запросов
 - `transform_response`: Преобразует ответы API
 - `emulate_stream_response`: Эмулирует потоковый ответ
+- `streaming_request`: Обрабатывает потоковые запросы к API
 
 ### Функции для изображений: `1min-relay/routes/functions/img_func.py`
 - `build_generation_payload`: Создает нагрузку для генерации изображений
 - `parse_aspect_ratio`: Анализирует соотношение сторон из входных данных
 - `create_image_variations`: Создает вариации изображений
-- `process_image_tool_calls`: Обрабатывает вызовы инструментов для изображений
+- `retry_image_upload`: Повторяет загрузку изображения при сбое
 
 ### Аудио функции: `1min-relay/routes/functions/audio_func.py`
 - `upload_audio_file`: Загружает аудиофайлы
@@ -77,14 +78,12 @@
 ### Файловые функции: `1min-relay/routes/functions/file_func.py`
 - `get_user_files`: Получает файлы пользователя из Memcached
 - `save_user_files`: Сохраняет файлы пользователя в Memcached
-- `create_temp_file`: Создает временные файлы
 - `upload_asset`: Загружает активы на сервер
 - `get_mime_type`: Получает MIME-тип файла
-- `retry_image_upload`: Повторяет загрузку изображения при сбое
 - `format_file_response`: Форматирует ответ о файле в формате OpenAI
 - `create_api_response`: Создает HTTP-ответ с правильными заголовками
-- `find_conversation_id`: Находит ID разговора в ответе API
 - `find_file_by_id`: Находит файл по ID в списке файлов пользователя
+- `find_conversation_id`: Находит ID разговора в ответе API
 - `create_conversation_with_files`: Создает новый разговор с файлами
 
 ## Маршруты
