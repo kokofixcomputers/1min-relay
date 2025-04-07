@@ -7,114 +7,17 @@ from utils.constants import *
 from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request
 from utils.memcached import safe_memcached_operation
 from . import app, limiter
-from .utils import validate_auth, handle_api_error, get_user_files, save_user_files, upload_asset, get_mime_type
-
-# Вспомогательные функции для устранения дублирования кода
-def format_file_response(file_info, file_id=None, purpose="assistants", status="processed"):
-    """
-    Форматирует информацию о файле в формат OpenAI API
-    
-    Args:
-        file_info: Словарь с информацией о файле
-        file_id: ID файла (если не указан в file_info)
-        purpose: Назначение файла
-        status: Статус обработки файла
-        
-    Returns:
-        dict: Информация о файле в формате OpenAI API
-    """
-    # Если file_info не предоставлен, создаем пустой словарь
-    if file_info is None:
-        file_info = {}
-    
-    # Устанавливаем значения по умолчанию, если не указаны
-    file_id = file_info.get("id", file_id)
-    filename = file_info.get("filename", f"file_{file_id}")
-    bytes_size = file_info.get("bytes", 0)
-    created_at = file_info.get("created_at", int(time.time()))
-    
-    return {
-        "id": file_id,
-        "object": "file",
-        "bytes": bytes_size,
-        "created_at": created_at,
-        "filename": filename,
-        "purpose": purpose,
-        "status": status
-    }
-
-def create_api_response(data, request_id=None):
-    """
-    Создает HTTP-ответ с правильными заголовками
-    
-    Args:
-        data: Данные для ответа
-        request_id: ID запроса для логирования
-        
-    Returns:
-        Response: HTTP-ответ
-    """
-    response = make_response(jsonify(data))
-    set_response_headers(response)
-    return response
-
-def find_conversation_id(response_data, request_id=None):
-    """
-    Ищет ID разговора в ответе API
-    
-    Args:
-        response_data: Данные ответа от API
-        request_id: ID запроса для логирования
-        
-    Returns:
-        str/None: ID разговора или None, если не найден
-    """
-    # Сначала проверяем наиболее вероятные места
-    if "conversation" in response_data and "uuid" in response_data["conversation"]:
-        return response_data["conversation"]["uuid"]
-    elif "id" in response_data:
-        return response_data["id"]
-    elif "uuid" in response_data:
-        return response_data["uuid"]
-    
-    # Если не нашли, выполняем рекурсивный поиск
-    def search_recursively(obj, path=""):
-        if isinstance(obj, dict):
-            if "id" in obj:
-                logger.debug(f"[{request_id}] Found ID at path '{path}.id': {obj['id']}")
-                return obj["id"]
-            if "uuid" in obj:
-                logger.debug(f"[{request_id}] Found UUID at path '{path}.uuid': {obj['uuid']}")
-                return obj["uuid"]
-                
-            for key, value in obj.items():
-                result = search_recursively(value, f"{path}.{key}")
-                if result:
-                    return result
-        elif isinstance(obj, list):
-            for i, item in enumerate(obj):
-                result = search_recursively(item, f"{path}[{i}]")
-                if result:
-                    return result
-        return None
-    
-    return search_recursively(response_data)
-
-def find_file_by_id(user_files, file_id):
-    """
-    Находит файл в списке файлов пользователя по ID
-    
-    Args:
-        user_files: Список файлов пользователя
-        file_id: ID искомого файла
-        
-    Returns:
-        dict/None: Информация о файле или None, если файл не найден
-    """
-    for file_item in user_files:
-        if file_item.get("id") == file_id:
-            return file_item
-    return None
+from .functions import (
+    validate_auth, 
+    handle_api_error, 
+    get_user_files, 
+    save_user_files, 
+    upload_asset, 
+    get_mime_type,
+    format_file_response,
+    create_api_response,
+    find_file_by_id
+)
 
 # Маршруты для работы с файлами
 @app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
@@ -301,60 +204,3 @@ def handle_file_content(file_id):
         logger.error(f"[{request_id}] Exception during file content request: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-def create_conversation_with_files(file_ids, title, model, api_key, request_id=None):
-    """
-    Creates a new conversation with files
-    
-    Args:
-        file_ids: List of file IDs
-        title: The name of the conversation
-        model: AI model
-        api_key: API Key
-        request_id: Request ID for logging
-        
-    Returns:
-        str: Conversation ID or None in case of error
-    """
-    request_id = request_id or str(uuid.uuid4())[:8]
-    logger.info(f"[{request_id}] Creating conversation with {len(file_ids)} files")
-    
-    try:
-        # Формируем payload для запроса
-        payload = {
-            "title": title,
-            "type": "CHAT_WITH_PDF",
-            "model": model,
-            "fileIds": file_ids,
-        }
-        
-        logger.debug(f"[{request_id}] Conversation payload: {json.dumps(payload)}")
-        
-        # Используем правильный URL API
-        conversation_url = "https://api.1min.ai/api/features/conversations?type=CHAT_WITH_PDF"
-        
-        logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
-        
-        headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-        response = api_request("POST", conversation_url, json=payload, headers=headers)
-        
-        logger.debug(f"[{request_id}] Create conversation response status: {response.status_code}")
-        
-        if response.status_code != 200:
-            logger.error(f"[{request_id}] Failed to create conversation: {response.status_code} - {response.text}")
-            return None
-            
-        response_data = response.json()
-        logger.debug(f"[{request_id}] Conversation response data: {json.dumps(response_data)}")
-        
-        # Ищем ID разговора в разных местах ответа
-        conversation_id = find_conversation_id(response_data, request_id)
-            
-        if not conversation_id:
-            logger.error(f"[{request_id}] Could not find conversation ID in response: {response_data}")
-            return None
-            
-        logger.info(f"[{request_id}] Conversation created successfully: {conversation_id}")
-        return conversation_id
-    except Exception as e:
-        logger.error(f"[{request_id}] Error creating conversation: {str(e)}")
-        return None
