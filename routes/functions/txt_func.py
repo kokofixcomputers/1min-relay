@@ -18,62 +18,6 @@ from .shared_func import (
 # ----------- Функции для работы с текстовыми моделями -----------#
 #=================================================================#
 
-def prepare_chat_payload(model, messages, request_data, request_id=None):
-    """
-    Подготавливает payload для запроса чата
-    
-    Args:
-        model: Название модели
-        messages: Список сообщений
-        request_data: Данные запроса
-        request_id: ID запроса для логирования
-        
-    Returns:
-        dict: Подготовленный payload
-    """
-    # Форматируем историю диалога
-    formatted_history = []
-    for message in messages:
-        role = message.get("role", "")
-        content = message.get("content", "")
-        
-        if isinstance(content, list):
-            processed_content = []
-            for item in content:
-                if "text" in item:
-                    processed_content.append(item["text"])
-            content = "\n".join(processed_content)
-            
-        if role == "system":
-            formatted_history.append(f"System: {content}")
-        elif role == "user":
-            formatted_history.append(f"User: {content}")
-        elif role == "assistant":
-            formatted_history.append(f"Assistant: {content}")
-            
-    all_messages = "\n".join(formatted_history)
-    
-    # Проверяем запрос веб-поиска
-    web_search = request_data.get("web_search", False)
-    num_of_site = request_data.get("num_of_site", 3)
-    max_word = request_data.get("max_word", 500)
-    
-    # Формируем payload
-    payload = {
-        "type": "CHAT_WITH_AI",
-        "model": model,
-        "promptObject": {
-            "prompt": all_messages,
-            "isMixed": False,
-            "webSearch": web_search,
-            "numOfSite": num_of_site if web_search else None,
-            "maxWord": max_word if web_search else None,
-        }
-    }
-    
-    logger.debug(f"[{request_id}] Prepared chat payload for model {model}")
-    return payload
-
 def format_conversation_history(messages, new_input):
     """
     Formats the conversation history into a structured string.
@@ -399,3 +343,63 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
 
     yield f"data: {json.dumps(final_chunk)}\n\n"
     yield "data: [DONE]\n\n"
+# Определяем функцию streaming_request, которая используется для обработки потоковых запросов
+def streaming_request(api_url, payload, headers, request_id, model, model_settings=None, api_params=None):
+    """
+    Выполняет потоковый запрос к API и возвращает ответ в формате потока
+    
+    Args:
+        api_url: URL для запроса
+        payload: Данные запроса
+        headers: Заголовки запроса
+        request_id: ID запроса для логирования
+        model: Модель для запроса
+        model_settings: Настройки модели (опционально)
+        api_params: Дополнительные параметры запроса (опционально)
+        
+    Returns:
+        Response: Объект потокового ответа
+    """
+    try:
+        # Используем сессию для контроля соединения
+        session = create_session()
+        
+        # Добавляем параметры запроса, если они есть
+        if api_params:
+            response_stream = session.post(
+                api_url, json=payload, headers=headers, params=api_params, stream=True
+            )
+        else:
+            response_stream = session.post(
+                api_url, json=payload, headers=headers, stream=True
+            )
+        
+        logger.debug(f"[{request_id}] Streaming response status code: {response_stream.status_code}")
+        
+        if response_stream.status_code != 200:
+            if response_stream.status_code == 401:
+                session.close()
+                return ERROR_HANDLER(1020, key=headers.get("API-KEY", ""))
+                
+            logger.error(f"[{request_id}] Error status code: {response_stream.status_code}")
+            try:
+                error_content = response_stream.json()
+                logger.error(f"[{request_id}] Error response: {error_content}")
+            except:
+                logger.error(f"[{request_id}] Could not parse error response as JSON")
+                
+            session.close()
+            return ERROR_HANDLER(response_stream.status_code)
+            
+        # Вычисляем количество токенов
+        prompt_token = calculate_token(payload["message"] if "message" in payload else 
+                                      payload.get("promptObject", {}).get("prompt", ""))
+        
+        # Передаем сессию генератору
+        return Response(
+            stream_response(response_stream, {"model": model}, model, prompt_token, session),
+            content_type="text/event-stream"
+        )
+    except Exception as e:
+        logger.error(f"[{request_id}] Exception during streaming request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
