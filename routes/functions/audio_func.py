@@ -4,10 +4,16 @@ from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
 from utils.common import (
+    ERROR_HANDLER, 
+    handle_options_request, 
+    set_response_headers, 
     create_session, 
-    api_request
+    api_request, 
+    safe_temp_file, 
+    calculate_token
 )
-import json
+from utils.memcached import safe_memcached_operation
+from routes.functions.shared_func import extract_text_from_response, extract_audio_url
 
 #=======================================================#
 # ----------- Функции для работы с аудио ---------------
@@ -91,111 +97,98 @@ def try_models_in_sequence(models_to_try, payload_func, api_key, request_id):
     # Возвращаем последнюю ошибку
     return None, last_error
 
-def extract_text_from_response(response_data, request_id):
-    """
-    Извлекает текст из ответа API
-    
-    Args:
-        response_data: Данные ответа от API
-        request_id: ID запроса для логирования
-        
-    Returns:
-        str: Извлеченный текст или пустая строка в случае ошибки
-    """
-    result_text = ""
-    
-    try:
-        # Проверяем структуру aiRecord (основная структура ответа)
-        if "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
-            result_object = response_data["aiRecord"]["aiRecordDetail"].get("resultObject", "")
-            if isinstance(result_object, list) and result_object:
-                result_text = result_object[0]
-            else:
-                result_text = result_object
-                
-        # Проверяем прямую структуру resultObject
-        elif "resultObject" in response_data:
-            result_object = response_data["resultObject"]
-            if isinstance(result_object, list) and result_object:
-                result_text = result_object[0]
-            else:
-                result_text = result_object
-        
-        # Проверяем если result_text это json
-        if result_text and isinstance(result_text, str) and result_text.strip().startswith("{"):
-            try:
-                parsed_json = json.loads(result_text)
-                if "text" in parsed_json:
-                    result_text = parsed_json["text"]
-                    logger.debug(f"[{request_id}] Extracted inner text from JSON")
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
-        
-        if not result_text:
-            logger.error(f"[{request_id}] Could not extract text from API response")
-            
-    except Exception as e:
-        logger.error(f"[{request_id}] Error extracting text from response: {str(e)}")
-        
-    return result_text
-
 def prepare_models_list(requested_model, available_models):
     """
-    Подготавливает список моделей для последовательного перебора
+    Подготавливает список моделей для обработки
     
     Args:
         requested_model: Запрошенная модель
-        available_models: Список доступных моделей
+        available_models: Доступные модели
         
     Returns:
-        list: Список моделей для перебора
+        list: Список моделей для обработки
     """
+    # Проверяем наличие модели в списке доступных
     if requested_model in available_models:
-        # Если запрошена конкретная модель, пробуем её первой
-        models_to_try = [requested_model]
-        # Добавляем остальные модели из списка, кроме уже добавленной
-        models_to_try.extend([m for m in available_models if m != requested_model])
+        # Если модель есть в списке, пробуем её первой
+        models = [requested_model] + [m for m in available_models if m != requested_model]
     else:
-        # Если запрошенная модель не в списке, используем все модели из списка
-        models_to_try = available_models
+        # Если модели нет, используем все доступные
+        models = available_models
         
-    return models_to_try
+    return models
 
-def extract_audio_url(response_data, request_id):
+def prepare_whisper_payload(model, file_path, language=None, prompt=None, temperature=None, response_format=None):
     """
-    Извлекает URL аудио из ответа API
+    Подготавливает данные для запроса к API транскрипции аудио
     
     Args:
-        response_data: Данные ответа от API
-        request_id: ID запроса для логирования
+        model: Модель для транскрипции
+        file_path: Путь к аудиофайлу
+        language: Язык аудио (опционально)
+        prompt: Подсказка для транскрипции (опционально)
+        temperature: Температура генерации (опционально)
+        response_format: Формат ответа (опционально)
         
     Returns:
-        str: URL аудио или пустая строка в случае ошибки
+        dict: Данные для запроса
     """
-    audio_url = ""
+    payload = {
+        "model": "whisper_v2",
+        "file": (os.path.basename(file_path), open(file_path, "rb"), "audio/mpeg")
+    }
     
-    try:
-        # Проверяем структуру aiRecord (основная структура ответа)
-        if "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
-            result_object = response_data["aiRecord"]["aiRecordDetail"].get("resultObject", "")
-            if isinstance(result_object, list) and result_object:
-                audio_url = result_object[0]
-            else:
-                audio_url = result_object
-                
-        # Проверяем прямую структуру resultObject
-        elif "resultObject" in response_data:
-            result_object = response_data["resultObject"]
-            if isinstance(result_object, list) and result_object:
-                audio_url = result_object[0]
-            else:
-                audio_url = result_object
+    # Добавляем дополнительные параметры, если они указаны
+    if language:
+        payload["language"] = language
         
-        if not audio_url:
-            logger.error(f"[{request_id}] Could not extract audio URL from API response")
+    if prompt:
+        payload["prompt"] = prompt
+        
+    if temperature is not None:
+        try:
+            temp = float(temperature)
+            if 0 <= temp <= 1:
+                payload["temperature"] = temp
+        except (ValueError, TypeError):
+            pass
             
-    except Exception as e:
-        logger.error(f"[{request_id}] Error extracting audio URL from response: {str(e)}")
+    if response_format and response_format in ["json", "text", "srt", "vtt"]:
+        payload["response_format"] = response_format
         
-    return audio_url
+    return payload
+
+def prepare_tts_payload(model, input_text, voice, speed=None, format=None):
+    """
+    Подготавливает данные для запроса к API генерации речи из текста
+    
+    Args:
+        model: Модель для генерации речи
+        input_text: Текст для озвучивания
+        voice: Голос для озвучивания
+        speed: Скорость речи (опционально)
+        format: Формат аудиофайла (опционально)
+        
+    Returns:
+        dict: Данные для запроса
+    """
+    payload = {
+        "model": "tts_1",
+        "input": input_text,
+        "voice": voice
+    }
+    
+    # Добавляем дополнительные параметры, если они указаны
+    if speed is not None:
+        try:
+            spd = float(speed)
+            if 0.25 <= spd <= 4.0:
+                payload["speed"] = spd
+        except (ValueError, TypeError):
+            pass
+            
+    if format and format in ["mp3", "opus", "aac", "flac"]:
+        payload["response_format"] = format
+        
+    return payload
 
