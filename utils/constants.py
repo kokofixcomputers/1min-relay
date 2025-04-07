@@ -8,8 +8,8 @@ ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
 
 # Add Constant Tamout used in the API_Request API
-DEFAULT_TIMEOUT = 120 # 120 seconds for regular requests
-MIDJOURNEY_TIMEOUT = 900  # 15 minutes for requests for Midjourney
+DEFAULT_TIMEOUT = 60 # 60 seconds for regular requests
+MIDJOURNEY_TIMEOUT = 600  # 10 minutes for requests for Midjourney
 
 # Constants for query types
 IMAGE_GENERATOR = "IMAGE_GENERATOR"
