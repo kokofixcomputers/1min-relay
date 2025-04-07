@@ -2,21 +2,21 @@
 
 разбивка на логические модули:
 ---
-1. [app.py](https://github.com/chelaxian/1min-relay/main/app.py) (основной файл)
+1. [app.py](https://github.com/chelaxian/1min-relay/blob/main/app.py) (основной файл)
 ```python
 # Инициализация
 app = Flask(__name__)
 # ...
 
 # Основные настройки
-if __name__ == "__main__":
+if __name__ == "__blob/main__":
     # Логирование старта сервера
     # ...
     # Запуск сервера
     serve(app, host="0.0.0.0", port=PORT, threads=6)
 ```
 ---
-2. [utils/common.py](https://github.com/chelaxian/1min-relay/main/utils/common.py)
+2. [utils/common.py](https://github.com/chelaxian/1min-relay/blob/main/utils/common.py)
 ```python
 # Общие утилиты
 def calculate_token(sentence, model="DEFAULT"):
@@ -44,14 +44,14 @@ def split_text_for_streaming(text, chunk_size=6):
     # ...
 ```
 ---
-3. [utils/constants.py](https://github.com/chelaxian/1min-relay/main/utils/constants.py)
+3. [utils/constants.py](https://github.com/chelaxian/1min-relay/blob/main/utils/constants.py)
 ```python
 ONE_MIN_API_URL = "https://api.1min.ai/api/features"
 PORT = 5000
 # другие глобальные переменные...
 ```
 ---
-4. [utils/imports.py](https://github.com/chelaxian/1min-relay/main/utils/imports.py)
+4. [utils/imports.py](https://github.com/chelaxian/1min-relay/blob/main/utils/imports.py)
 ```python
 # Стандартные библиотеки Python
 import base64
@@ -60,7 +60,7 @@ from flask import Flask, request, jsonify, make_response, Response, redirect, ur
 # другие импорты...
 ```
 ---
-5. [utils/logger.py](https://github.com/chelaxian/1min-relay/main/utils/logger.py)
+5. [utils/logger.py](https://github.com/chelaxian/1min-relay/blob/main/utils/logger.py)
 ```python
 # Создаем логгер
 logger = logging.getLogger("1min-relay")
@@ -68,7 +68,7 @@ logger.setLevel(logging.DEBUG)
 # ...
 ```
 ---
-6. [utils/memcached.py](https://github.com/chelaxian/1min-relay/main/utils/memcached.py)
+6. [utils/memcached.py](https://github.com/chelaxian/1min-relay/blob/main/utils/memcached.py)
 ```python
 # Функции для работы с Memcached
 def check_memcached_connection():
@@ -84,7 +84,7 @@ def delete_all_files_task():
     # ...
 ```
 ---
-7. [routes/functions.py](https://github.com/chelaxian/1min-relay/main/routes/functions.py)
+7. [routes/functions.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions.py)
 ```python
 # Общие утилиты для маршрутов - реэкспортирует функции из субмодулей
 
@@ -96,7 +96,7 @@ from .functions.audio_func import *
 from .functions.file_func import *
 ```
 ---
-8. [routes/functions/shared_func.py](https://github.com/chelaxian/1min-relay/main/routes/functions/shared_func.py)
+8. [routes/functions/shared_func.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions/shared_func.py)
 ```python
 # Общие функции аутентификации и форматирования ответов
 
@@ -116,7 +116,7 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     # ...
 ```
 ---
-9. [routes/functions/txt_func.py](https://github.com/chelaxian/1min-relay/main/routes/functions/txt_func.py)
+9. [routes/functions/txt_func.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions/txt_func.py)
 ```python
 # Функции для работы с текстовыми моделями
 
@@ -139,7 +139,7 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
     # ...
 ```
 ---
-10. [routes/functions/img_func.py](https://github.com/chelaxian/1min-relay/main/routes/functions/img_func.py)
+10. [routes/functions/img_func.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions/img_func.py)
 ```python
 # Функции для работы с изображениями
 
@@ -168,7 +168,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
     # ...
 ```
 ---
-11. [routes/functions/audio_func.py](https://github.com/chelaxian/1min-relay/main/routes/functions/audio_func.py)
+11. [routes/functions/audio_func.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions/audio_func.py)
 ```python
 # Функции для работы с аудио
 
@@ -191,7 +191,7 @@ def extract_audio_url(response_data, request_id):
     # ...
 ```
 ---
-12. [routes/functions/file_func.py](https://github.com/chelaxian/1min-relay/main/routes/functions/file_func.py)
+12. [routes/functions/file_func.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions/file_func.py)
 ```python
 # Функции для работы с файлами
 
@@ -226,7 +226,7 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
     # ...
 ```
 ---
-13. [routes/text.py](https://github.com/chelaxian/1min-relay/main/routes/text.py)
+13. [routes/text.py](https://github.com/chelaxian/1min-relay/blob/main/routes/text.py)
 ```python
 # Маршруты для текстовых моделей
 @app.route("/", methods=["GET", "POST"])
@@ -249,7 +249,7 @@ def create_assistant():
     # ...
 ```
 ---
-14. [routes/images.py](https://github.com/chelaxian/1min-relay/main/routes/images.py)
+14. [routes/images.py](https://github.com/chelaxian/1min-relay/blob/main/routes/images.py)
 ```python
 # Маршруты для работы с изображениями
 @app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
@@ -264,7 +264,7 @@ def image_variations():
     # ...
 ```
 ---
-15. [routes/audio.py](https://github.com/chelaxian/1min-relay/main/routes/audio.py)
+15. [routes/audio.py](https://github.com/chelaxian/1min-relay/blob/main/routes/audio.py)
 ```python
 # Маршруты для работы с аудио
 @app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
@@ -283,7 +283,7 @@ def text_to_speech():
     # ...
 ```
 ---
-16. [routes/files.py](https://github.com/chelaxian/1min-relay/main/routes/files.py)
+16. [routes/files.py](https://github.com/chelaxian/1min-relay/blob/main/routes/files.py)
 ```python
 # Маршруты для работы с файлами
 @app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
