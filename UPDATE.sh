@@ -7,6 +7,7 @@
 # chmod +x UPDATE.sh    #
 # ./UPDATE.sh           #
 #########################
+# run with sudo
 set -eu
 
 # Удаление старой папки
