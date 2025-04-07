@@ -60,12 +60,13 @@
 - `prepare_payload`: Prepares the payload for API requests
 - `transform_response`: Transforms API responses
 - `emulate_stream_response`: Emulates a streaming response
+- `streaming_request`: Handles streaming requests to the API
 
 ### Image functions: `1min-relay/routes/functions/img_func.py`
 - `build_generation_payload`: Builds the payload for image generation
 - `parse_aspect_ratio`: Parses the aspect ratio from input
 - `create_image_variations`: Creates variations of images
-- `process_image_tool_calls`: Processes image tool calls
+- `retry_image_upload`: Retries image upload on failure
 
 ### Audio functions: `1min-relay/routes/functions/audio_func.py`
 - `upload_audio_file`: Uploads audio files
@@ -77,14 +78,12 @@
 ### File functions: `1min-relay/routes/functions/file_func.py`
 - `get_user_files`: Gets user files from Memcached
 - `save_user_files`: Saves user files to Memcached
-- `create_temp_file`: Creates temporary files
 - `upload_asset`: Uploads assets to the server
 - `get_mime_type`: Gets the MIME type of a file
-- `retry_image_upload`: Retries image upload on failure
 - `format_file_response`: Formats file response in OpenAI format
 - `create_api_response`: Creates HTTP response with proper headers
-- `find_conversation_id`: Finds conversation ID in API response
 - `find_file_by_id`: Finds file by ID in user's files list
+- `find_conversation_id`: Finds conversation ID in API response
 - `create_conversation_with_files`: Creates a new conversation with files
 
 ## Routes
