@@ -8,15 +8,16 @@ from utils.memcached import safe_memcached_operation
 from . import app, limiter, IMAGE_CACHE, MAX_CACHE_SIZE, MEMORY_STORAGE  # Импортируем app, limiter и IMAGE_CACHE из модуля routes
 from .images import retry_image_upload  # Импортируем функцию retry_image_upload из модуля images
 from .functions import (
+    validate_auth,
     format_openai_response, 
     stream_response, 
     get_model_capabilities,
-    emulate_stream_response,
-    transform_response,
-    create_conversation_with_files,
     format_conversation_history,
+    prepare_payload,
+    transform_response,
+    emulate_stream_response,
     streaming_request,
-    prepare_payload
+    create_conversation_with_files
 )  # Импортируем функции из functions.py
 
 @app.route("/", methods=["GET", "POST"])
