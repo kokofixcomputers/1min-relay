@@ -128,6 +128,10 @@ def create_session():
     adapter = requests.adapters.HTTPAdapter(max_retries=retry_strategy)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
+    
+    # Устанавливаем увеличенные таймауты по умолчанию для всей сессии
+    # 30 секунд на подключение, 120 секунд на получение данных
+    session.request = functools.partial(session.request, timeout=(60, 300))
 
     return session
 

@@ -194,6 +194,12 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
         str: Строки для стриминга
     """
     all_chunks = ""
+    session_created = False
+    
+    # Если сессия не передана, создаем новую
+    if not session:
+        session = create_session()
+        session_created = True
     
     # Отправляем первый фрагмент с ролью
     first_chunk = {
@@ -210,45 +216,269 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     
     yield f"data: {json.dumps(first_chunk)}\n\n"
     
-    # Обрабатываем контент
-    for chunk in response.iter_content(chunk_size=1024):
-        return_chunk = {
+    try:
+        # Обрабатываем контент
+        for chunk in response.iter_content(chunk_size=1024):
+            if chunk:
+                return_chunk = {
+                    "id": f"chatcmpl-{uuid.uuid4()}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"content": chunk.decode('utf-8')},
+                        "finish_reason": None
+                    }]
+                }
+                all_chunks += chunk.decode('utf-8')
+                yield f"data: {json.dumps(return_chunk)}\n\n"
+        
+        # Считаем токены
+        tokens = calculate_token(all_chunks)
+        
+        # Финальный чанк
+        final_chunk = {
             "id": f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": model,
             "choices": [{
                 "index": 0,
-                "delta": {"content": chunk.decode('utf-8')},
-                "finish_reason": None
-            }]
+                "delta": {"content": ""},
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": tokens,
+                "total_tokens": tokens + prompt_tokens
+            }
         }
-        all_chunks += chunk.decode('utf-8')
-        yield f"data: {json.dumps(return_chunk)}\n\n"
         
-    # Считаем токены
-    tokens = calculate_token(all_chunks)
+        yield f"data: {json.dumps(final_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
     
-    # Финальный чанк
-    final_chunk = {
-        "id": f"chatcmpl-{uuid.uuid4()}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": model,
-        "choices": [{
-            "index": 0,
-            "delta": {"content": ""},
-            "finish_reason": "stop"
-        }],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": tokens,
-            "total_tokens": tokens + prompt_tokens
+    except requests.exceptions.ChunkedEncodingError:
+        # Обрабатываем ошибку прерванного соединения
+        logger.warning(f"Соединение с API прервано преждевременно. Получена только часть ответа.")
+        error_message = "Соединение прервано. Получена только часть ответа."
+        
+        # Считаем токены для полученной части ответа
+        tokens = calculate_token(all_chunks)
+        
+        # Отправляем уведомление об ошибке клиенту
+        error_chunk = {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": f"\n\n{error_message}"},
+                "finish_reason": "error"
+            }],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": tokens,
+                "total_tokens": tokens + prompt_tokens
+            }
         }
-    }
+        yield f"data: {json.dumps(error_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
     
-    yield f"data: {json.dumps(final_chunk)}\n\n"
-    yield "data: [DONE]\n\n"
+    except Exception as e:
+        # Обрабатываем другие возможные исключения
+        logger.error(f"Ошибка при потоковой передаче: {str(e)}")
+        error_message = f"Ошибка при получении ответа: {str(e)}"
+        
+        # Считаем токены для полученной части ответа
+        tokens = calculate_token(all_chunks)
+        
+        # Отправляем уведомление об ошибке клиенту
+        error_chunk = {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": f"\n\n{error_message}"},
+                "finish_reason": "error"
+            }],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": tokens,
+                "total_tokens": tokens + prompt_tokens
+            }
+        }
+        yield f"data: {json.dumps(error_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
     
-    if session:
-        session.close() 
+    finally:
+        # Закрываем сессию, если она была создана внутри функции
+        if session_created and session:
+            session.close()
+
+#=======================================================#
+# ----------- Функции извлечения данных из API ---------#
+#=======================================================#
+
+def get_full_url(url, asset_host="https://asset.1min.ai"):
+    """
+    Формирует полный URL для ресурса
+    
+    Args:
+        url: Относительный или абсолютный URL
+        asset_host: Базовый URL хоста
+        
+    Returns:
+        str: Полный URL
+    """
+    if not url.startswith("http"):
+        return f"{asset_host}{url}" if url.startswith("/") else f"{asset_host}/{url}"
+    return url
+
+def extract_data_from_api_response(response_data, request_id=None):
+    """
+    Общая функция для извлечения данных из ответа API 1min.ai
+    
+    Args:
+        response_data: Данные ответа от API
+        request_id: ID запроса для логирования
+        
+    Returns:
+        object: Извлеченный объект данных или None
+    """
+    try:
+        # Проверяем структуру aiRecord (основная структура ответа)
+        if "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
+            result_object = response_data["aiRecord"]["aiRecordDetail"].get("resultObject", None)
+            return result_object
+                
+        # Проверяем прямую структуру resultObject
+        elif "resultObject" in response_data:
+            return response_data["resultObject"]
+        
+        # Ничего не найдено
+        logger.error(f"[{request_id}] Could not extract data from API response")
+        return None
+            
+    except Exception as e:
+        logger.error(f"[{request_id}] Error extracting data from response: {str(e)}")
+        return None
+
+def extract_text_from_response(response_data, request_id=None):
+    """
+    Извлекает текст из ответа API
+    
+    Args:
+        response_data: Данные ответа от API
+        request_id: ID запроса для логирования
+        
+    Returns:
+        str: Извлеченный текст или пустая строка в случае ошибки
+    """
+    result_text = ""
+    
+    try:
+        # Получаем данные через общую функцию
+        result_object = extract_data_from_api_response(response_data, request_id)
+        
+        if result_object:
+            # Обработка в зависимости от типа данных
+            if isinstance(result_object, list) and result_object:
+                result_text = result_object[0]
+            elif isinstance(result_object, str):
+                result_text = result_object
+            else:
+                result_text = str(result_object)
+        
+        # Проверяем если result_text это json
+        if result_text and isinstance(result_text, str) and result_text.strip().startswith("{"):
+            try:
+                parsed_json = json.loads(result_text)
+                if "text" in parsed_json:
+                    result_text = parsed_json["text"]
+                    logger.debug(f"[{request_id}] Extracted inner text from JSON")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+        
+        if not result_text:
+            logger.error(f"[{request_id}] Could not extract text from API response")
+            
+    except Exception as e:
+        logger.error(f"[{request_id}] Error extracting text from response: {str(e)}")
+        
+    return result_text
+
+def extract_image_urls(response_data, request_id=None):
+    """
+    Извлекает URL изображений из ответа API
+    
+    Args:
+        response_data: Ответ от API
+        request_id: ID запроса для логирования
+        
+    Returns:
+        list: Список URL изображений
+    """
+    image_urls = []
+    
+    try:
+        # Получаем данные через общую функцию
+        result_object = extract_data_from_api_response(response_data, request_id)
+        
+        if result_object:
+            # Обработка в зависимости от типа данных
+            if isinstance(result_object, list):
+                image_urls.extend(result_object)
+            elif isinstance(result_object, str):
+                image_urls.append(result_object)
+                
+        # Специфичная проверка для OpenAI-совместимых ответов
+        elif "data" in response_data and isinstance(response_data["data"], list):
+            for item in response_data["data"]:
+                if "url" in item:
+                    image_urls.append(item["url"])
+                    
+        logger.debug(f"[{request_id}] Extracted {len(image_urls)} image URLs")
+        
+        if not image_urls:
+            logger.error(f"[{request_id}] Could not extract image URLs from API response: {json.dumps(response_data)[:500]}")
+            
+    except Exception as e:
+        logger.error(f"[{request_id}] Error extracting image URLs: {str(e)}")
+        
+    return image_urls
+
+def extract_audio_url(response_data, request_id=None):
+    """
+    Извлекает URL аудио из ответа API
+    
+    Args:
+        response_data: Данные ответа от API
+        request_id: ID запроса для логирования
+        
+    Returns:
+        str: URL аудио или пустая строка в случае ошибки
+    """
+    audio_url = ""
+    
+    try:
+        # Получаем данные через общую функцию
+        result_object = extract_data_from_api_response(response_data, request_id)
+        
+        if result_object:
+            # Обработка в зависимости от типа данных
+            if isinstance(result_object, list) and result_object:
+                audio_url = result_object[0]
+            elif isinstance(result_object, str):
+                audio_url = result_object
+        
+        if not audio_url:
+            logger.error(f"[{request_id}] Could not extract audio URL from API response")
+            
+    except Exception as e:
+        logger.error(f"[{request_id}] Error extracting audio URL from response: {str(e)}")
+        
+    return audio_url 

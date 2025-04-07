@@ -1,304 +1,108 @@
-# Code Structure
+# Project Code Structure
 
-Division into logical modules:
----
-1. [app.py](https://github.com/chelaxian/1min-relay/blob/main/app.py) (blob/main file)
-```python
-# Initialization
-app = Flask(__name__)
-# ...
+## Main application file: `1min-relay/app.py`
+- Initializes the Flask app and starts the server
+- Imports all the necessary modules
+- Configures server settings
 
-# blob/main settings
-if __name__ == "__blob/main__":
-    # Logging server start
-    # ...
-    # Server launch
-    serve(app, host="0.0.0.0", port=PORT, threads=6)
-```
----
-2. [utils/common.py](https://github.com/chelaxian/1min-relay/blob/main/utils/common.py)
-```python
-# Common utilities
-def calculate_token(sentence, model="DEFAULT"):
-    # Function to calculate token count in text
+## Utilities
 
-def api_request(req_method, url, headers=None, requester_ip=None, data=None, files=None, stream=False, timeout=None, json=None, **kwargs):
-    # Function to make API requests with error handling
+### Common Utilities: `1min-relay/utils/common.py`
+- `ERROR_HANDLER`: Creates standardized error responses with appropriate status codes
+- `handle_options_request`: Handles OPTIONS requests for CORS preflight
+- `set_response_headers`: Sets response headers for CORS
+- `create_session`: Creates a session for API requests
+- `api_request`: Makes requests to external APIs with error handling
+- `safe_temp_file`: Creates a temporary file with proper resource management
+- `calculate_token`: Calculates the number of tokens in a text using tiktoken
 
-def set_response_headers(response):
-    # Function to set CORS headers on responses
+### Constants: `1min-relay/utils/constants.py`
+- `ENDPOINTS`: Dictionary of API endpoints
+- `ROLES_MAPPING`: Mapping of roles for different models
+- `MODEL_CAPABILITIES`: Dictionary of model capabilities
+- Various other constants used throughout the application
 
-def create_session():
-    # Function to create a request session
+### Imports: `1min-relay/utils/imports.py`
+- Central place for all standard library imports
+- Imports used across multiple modules
 
-def safe_temp_file(prefix, request_id=None):
-    # Function to create temporary files safely
+### Logger: `1min-relay/utils/logger.py`
+- `logger`: Configured logging instance
+- Functions for setting up and using the logger
 
-def ERROR_HANDLER(code, model=None, key=None):
-    # Function to handle error codes and return formatted messages
+### Memcached: `1min-relay/utils/memcached.py`
+- `MEMORY_STORAGE`: Dictionary for temporary storage
+- `safe_memcached_operation`: Safely performs operations on memcached
+- `delete_all_files_task`: Periodically cleans up outdated user files
 
-def handle_options_request():
-    # Function to handle OPTIONS requests for CORS
+## Functions
 
-def split_text_for_streaming(text, chunk_size=6):
-    # Function to split text into chunks for streaming
-```
----
-3. [utils/constants.py](https://github.com/chelaxian/1min-relay/blob/main/utils/constants.py)
-```python
-ONE_MIN_API_URL = "https://api.1min.ai/api/features"  # Base API URL
-PORT = 5000  # Default port
-# other global variables...
-```
----
-4. [utils/imports.py](https://github.com/chelaxian/1min-relay/blob/main/utils/imports.py)
-```python
-# Standard Python libraries
-import base64
-# Flask libraries and dependencies
-from flask import Flask, request, jsonify, make_response, Response, redirect, url_for
-# other imports...
-```
----
-5. [utils/logger.py](https://github.com/chelaxian/1min-relay/blob/main/utils/logger.py)
-```python
-# Create logger
-logger = logging.getLogger("1min-relay")
-logger.setLevel(logging.DEBUG)
-# ...
-```
----
-6. [utils/memcached.py](https://github.com/chelaxian/1min-relay/blob/main/utils/memcached.py)
-```python
-# Functions for working with Memcached
-def check_memcached_connection():
-    # Function to check and initialize memcached connection
+### Functions initialization: `1min-relay/routes/functions/__init__.py`
+- Clear export of all necessary functions from submodules
+- Grouping and documenting functions by categories
+- Provides convenient import of functions in routes
 
-def set_global_refs(memcached_client=None, memory_storage=None):
-    # Function to set global references to memcached client
+### Shared functions: `1min-relay/routes/functions/shared_func.py`
+- `validate_auth`: Validates the authorization header
+- `handle_api_error`: Standardized error handling for API responses
+- `format_openai_response`: Formats responses to match OpenAI API
+- `format_image_response`: Formats image responses to match OpenAI API
+- `stream_response`: Streams API responses
+- `get_full_url`: Creates a full URL from a relative path
+- `extract_data_from_api_response`: Common function for extracting data from API responses
+- `extract_text_from_response`: Extracts text from API responses
+- `extract_image_urls`: Extracts image URLs from API responses
+- `extract_audio_url`: Extracts audio URL from API responses
 
-def safe_memcached_operation(operation, key, value=None, expiry=3600):
-    # Function to safely perform memcached operations
+### Text functions: `1min-relay/routes/functions/txt_func.py`
+- `format_conversation_history`: Formats conversation history for models
+- `get_model_capabilities`: Gets capability information for a model
+- `prepare_payload`: Prepares the payload for API requests
+- `transform_response`: Transforms API responses
+- `emulate_stream_response`: Emulates a streaming response
+- `streaming_request`: Handles streaming requests to the API
 
-def delete_all_files_task():
-    # Function to clean up old files
-```
----
-7. [routes/functions.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions.py)
-```python
-# Common utilities for routes - re-exports functions from submodules
+### Image functions: `1min-relay/routes/functions/img_func.py`
+- `build_generation_payload`: Builds the payload for image generation
+- `parse_aspect_ratio`: Parses the aspect ratio from input
+- `create_image_variations`: Creates variations of images
+- `retry_image_upload`: Retries image upload on failure
 
-# Import all functions from submodules
-from .functions.shared_func import *
-from .functions.txt_func import *
-from .functions.img_func import *
-from .functions.audio_func import *
-from .functions.file_func import *
-```
----
-8. [routes/functions/shared_func.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions/shared_func.py)
-```python
-# Common authentication and response formatting functions
+### Audio functions: `1min-relay/routes/functions/audio_func.py`
+- `upload_audio_file`: Uploads audio files
+- `try_models_in_sequence`: Tries different models sequentially
+- `prepare_models_list`: Prepares a list of models to try
+- `prepare_whisper_payload`: Prepares payload for Whisper API
+- `prepare_tts_payload`: Prepares payload for text-to-speech
 
-def validate_auth(request, request_id=None):
-    # Function to validate API key in requests
+### File functions: `1min-relay/routes/functions/file_func.py`
+- `get_user_files`: Gets user files from Memcached
+- `save_user_files`: Saves user files to Memcached
+- `upload_asset`: Uploads assets to the server
+- `get_mime_type`: Gets the MIME type of a file
+- `format_file_response`: Formats file response in OpenAI format
+- `create_api_response`: Creates HTTP response with proper headers
+- `find_file_by_id`: Finds file by ID in user's files list
+- `find_conversation_id`: Finds conversation ID in API response
+- `create_conversation_with_files`: Creates a new conversation with files
 
-def handle_api_error(response, api_key=None, request_id=None):
-    # Function to process API errors
+## Routes
 
-def format_openai_response(content, model, request_id=None, prompt_tokens=0):
-    # Function to format responses in OpenAI format
+### Text routes: `1min-relay/routes/text.py`
+- `/v1/models`: Returns a list of available models
+- `/v1/chat/completions`: Handles chat completion requests
+- Various other text model endpoints
 
-def format_image_response(image_urls, request_id=None, model=None):
-    # Function to format image responses in OpenAI format
+### Image routes: `1min-relay/routes/images.py`
+- `/v1/images/generations`: Generates images from text
+- `/v1/images/variations`: Creates variations of images
 
-def stream_response(response, request_data, model, prompt_tokens, session=None):
-    # Function to stream API responses in OpenAI format
-```
----
-9. [routes/functions/txt_func.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions/txt_func.py)
-```python
-# Functions for working with text models
+### Audio routes: `1min-relay/routes/audio.py`
+- `/v1/audio/transcriptions`: Transcribes audio to text
+- `/v1/audio/translations`: Translates audio to another language
+- `/v1/audio/speech`: Converts text to speech
 
-def prepare_chat_payload(model, messages, request_data, request_id=None):
-    # Function to prepare payload for chat requests
-
-def format_conversation_history(messages, new_input):
-    # Function to format conversation history
-
-def get_model_capabilities(model):
-    # Function to determine model capabilities
-
-def prepare_payload(request_data, model, all_messages, image_paths=None, request_id=None):
-    # Function to prepare API request payload
-
-def transform_response(one_min_response, request_data, prompt_token):
-    # Function to transform API response into OpenAI format
-
-def emulate_stream_response(full_content, request_data, model, prompt_tokens):
-    # Function to emulate streaming for models that don't support it
-```
----
-10. [routes/functions/img_func.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions/img_func.py)
-```python
-# Functions for working with images
-
-def get_full_url(url, asset_host="https://asset.1min.ai"):
-    # Function to build complete image URLs
-
-def build_generation_payload(model, prompt, request_data, negative_prompt, aspect_ratio, size, mode, request_id):
-    # Function to build payload for image generation
-
-def extract_image_urls_from_response(response_json, request_id):
-    # Function to extract image URLs from API response
-
-def extract_image_urls(response_data, request_id=None):
-    # Function to extract image URLs from various response formats
-
-def prepare_image_payload(model, prompt, request_data, image_paths=None, request_id=None):
-    # Function to prepare payload for image generation
-
-def parse_aspect_ratio(prompt, model, request_data, request_id=None):
-    # Function to parse aspect ratio from user prompt
-
-def retry_image_upload(image_url, api_key, request_id=None):
-    # Function to retry image uploads
-
-def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
-    # Function to create variations of images
-```
----
-11. [routes/functions/audio_func.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions/audio_func.py)
-```python
-# Functions for working with audio
-
-def upload_audio_file(audio_file, api_key, request_id):
-    # Function to upload audio files
-
-def try_models_in_sequence(models_to_try, payload_func, api_key, request_id):
-    # Function to try different models sequentially
-
-def extract_text_from_response(response_data, request_id):
-    # Function to extract transcription text from API response
-
-def prepare_models_list(requested_model, available_models):
-    # Function to prepare a list of models to try
-
-def get_audio_from_url(audio_url, request_id):
-    # Function to download audio from URL
-
-def extract_audio_url(response_data, request_id):
-    # Function to extract audio URL from API response
-```
----
-12. [routes/functions/file_func.py](https://github.com/chelaxian/1min-relay/blob/main/routes/functions/file_func.py)
-```python
-# Functions for working with files
-
-def get_user_files(api_key, request_id=None):
-    # Function to get user files from Memcached
-
-def save_user_files(api_key, files, request_id=None):
-    # Function to save user files to Memcached
-
-def create_temp_file(file_data, suffix=".tmp", request_id=None):
-    # Function to create temporary files
-
-def upload_asset(file_data, filename, mime_type, api_key, request_id=None, file_type=None):
-    # Function to upload files to 1min.ai
-
-def get_mime_type(filename):
-    # Function to determine MIME type from filename
-
-def format_file_response(file_info, file_id=None, purpose="assistants", status="processed"):
-    # Function to format file response in OpenAI format
-
-def create_api_response(data, request_id=None):
-    # Function to create HTTP response with proper headers
-
-def find_conversation_id(response_data, request_id=None):
-    # Function to find conversation ID in API response
-
-def find_file_by_id(user_files, file_id):
-    # Function to find file in user's files by ID
-
-def create_conversation_with_files(file_ids, title, model, api_key, request_id=None):
-    # Function to create a new conversation with files
-```
----
-13. [routes/text.py](https://github.com/chelaxian/1min-relay/blob/main/routes/text.py)
-```python
-# Routes for text models
-@app.route("/", methods=["GET", "POST"])
-def index():
-    # blob/main index route
-
-@app.route("/v1/models")
-@limiter.limit("60 per minute")
-def models():
-    # Route to list available models
-
-@app.route("/v1/chat/completions", methods=["POST"])
-@limiter.limit("60 per minute")
-def conversation():
-    # Route for chat completions
-
-@app.route("/v1/assistants", methods=["POST", "OPTIONS"])
-@limiter.limit("60 per minute")
-def create_assistant():
-    # Route to create assistants
-```
----
-14. [routes/images.py](https://github.com/chelaxian/1min-relay/blob/main/routes/images.py)
-```python
-# Routes for working with images
-@app.route("/v1/images/generations", methods=["POST", "OPTIONS"])
-@limiter.limit("60 per minute")
-def generate_image():
-    # Route to generate images
-
-@app.route("/v1/images/variations", methods=["POST", "OPTIONS"])
-@limiter.limit("60 per minute")
-@cross_origin()
-def image_variations():
-    # Route to create image variations
-```
----
-15. [routes/audio.py](https://github.com/chelaxian/1min-relay/blob/main/routes/audio.py)
-```python
-# Routes for working with audio
-@app.route("/v1/audio/transcriptions", methods=["POST", "OPTIONS"])
-@limiter.limit("60 per minute")
-def audio_transcriptions():
-    # Route for audio transcription
-
-@app.route("/v1/audio/translations", methods=["POST", "OPTIONS"])
-@limiter.limit("60 per minute")
-def audio_translations():
-    # Route for audio translation
-
-@app.route("/v1/audio/speech", methods=["POST", "OPTIONS"])
-@limiter.limit("60 per minute")
-def text_to_speech():
-    # Route for text-to-speech conversion
-```
----
-16. [routes/files.py](https://github.com/chelaxian/1min-relay/blob/main/routes/files.py)
-```python
-# Routes for working with files
-@app.route("/v1/files", methods=["GET", "POST", "OPTIONS"])
-@limiter.limit("60 per minute")
-def handle_files():
-    # Route to list or upload files
-
-@app.route("/v1/files/<file_id>", methods=["GET", "DELETE", "OPTIONS"])
-@limiter.limit("60 per minute")
-def handle_file(file_id):
-    # Route to get or delete specific file
-
-@app.route("/v1/files/<file_id>/content", methods=["GET", "OPTIONS"])
-@limiter.limit("60 per minute")
-def handle_file_content(file_id):
-    # Route to get file content
-```
-
+### File routes: `1min-relay/routes/files.py`
+- `/v1/files`: Handles file upload and management
+- `/v1/files/<file_id>`: Gets or deletes a specific file
+- `/v1/files/<file_id>/content`: Gets file content 

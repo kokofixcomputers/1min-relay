@@ -30,8 +30,20 @@ try:
     mod.MAX_CACHE_SIZE = 100  # Максимальный размер кэша изображений
     logger.info("Глобальные объекты успешно переданы в модуль маршрутов")
     
-    # Импортируем модуль функций
-    from . import functions
+    # Импортируем модуль функций вместо прямого импорта из shared_func
+    from .functions import (
+        validate_auth,
+        handle_api_error,
+        format_openai_response,
+        format_image_response,
+        stream_response,
+        get_full_url,
+        extract_data_from_api_response,
+        extract_text_from_response,
+        extract_image_urls,
+        extract_audio_url
+    )
+    
     # Импортируем модули маршрутов (blueprints регистрируются при импорте)
     from . import text, images, audio, files
     

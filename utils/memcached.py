@@ -112,7 +112,32 @@ def safe_memcached_operation(operation, key, value=None, expiry=3600):
         elif operation == 'set':
             if isinstance(value, (dict, list)):
                 value = json.dumps(value)
-            return MEMCACHED_CLIENT_REF.set(key, value, exp=expiry)
+            
+            # Пробуем разные варианты параметров для времени истечения
+            # в зависимости от используемой библиотеки Memcached
+            for exp_param_name in ['exp', 'exptime', 'expire', 'time']:
+                try:
+                    # Создаем словарь с параметром
+                    params = {exp_param_name: expiry}
+                    # Вызываем set с текущим вариантом параметра
+                    return MEMCACHED_CLIENT_REF.set(key, value, **params)
+                except TypeError as te:
+                    # Если получили ошибку о неизвестном параметре, пробуем следующий
+                    error_text = str(te)
+                    if f"unexpected keyword argument '{exp_param_name}'" in error_text:
+                        logger.debug(f"Параметр времени истечения '{exp_param_name}' не поддерживается, пробуем другой")
+                        continue
+                    else:
+                        # Если ошибка не связана с параметром, пробрасываем её дальше
+                        raise
+                except Exception as e:
+                    # Пробрасываем остальные исключения
+                    raise
+            
+            # Если все варианты не подошли, пробуем без параметра времени истечения
+            logger.warning(f"Не удалось найти подходящий параметр для времени истечения, используем без параметра")
+            return MEMCACHED_CLIENT_REF.set(key, value)
+            
         elif operation == 'delete':
             return MEMCACHED_CLIENT_REF.delete(key)
     except Exception as e:

@@ -4,22 +4,19 @@
 from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
-from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
-from utils.memcached import safe_memcached_operation
-from . import app, limiter, MEMORY_STORAGE  # Импортируем app, limiter и MEMORY_STORAGE из модуля routes
-from .functions import (
-    validate_auth, 
-    handle_api_error, 
-    upload_asset,
-    get_mime_type,
-    extract_image_urls,
-    format_image_response,
-    parse_aspect_ratio,
-    retry_image_upload,
-    create_image_variations,
-    build_generation_payload,
-    get_full_url
+from utils.common import (
+    ERROR_HANDLER, 
+    handle_options_request, 
+    set_response_headers, 
+    create_session, 
+    api_request, 
+    safe_temp_file, 
+    calculate_token
 )
+from utils.memcached import safe_memcached_operation
+from routes.functions.shared_func import validate_auth, handle_api_error, format_image_response, get_full_url, extract_image_urls
+from routes.functions.img_func import build_generation_payload, parse_aspect_ratio, create_image_variations, retry_image_upload
+from . import app, limiter, MEMORY_STORAGE  # Импортируем app, limiter и MEMORY_STORAGE из модуля routes
 
 # ----------------------- Endpoints -----------------------
 
@@ -495,5 +492,6 @@ def image_variations():
     session.close()
     logger.info(f"[{request_id}] Successfully generated {len(openai_data)} image variations using model {current_model}")
     return jsonify(openai_response), 200
+
 
 
