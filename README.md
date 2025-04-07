@@ -82,10 +82,12 @@ python app.py
 ### Скрипты для автоматизации локальной установки (venv), локального запуска (venv), обновления (Docker-контейнер)
 
 ```bash
+# python-venv
 chmod +x *.sh
 sudo ./INSTALL.sh
-sudo ./UPDATE.sh
 ./RUN.sh
+# docker (reinstall)
+sudo ./UPDATE.sh
 ```
 
 ## Использование с клиентами OpenAI API
