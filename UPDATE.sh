@@ -19,6 +19,8 @@ git clone https://github.com/chelaxian/1min-relay.git ./1min-relay
 
 # Переход в директорию
 cd ./1min-relay
+chmod +x UPDATE.sh
+cp UPDATE.sh ../
 
 # Проверяем, что мы находимся в директории проекта
 if [ ! -f "app.py" ]; then
