@@ -15,7 +15,9 @@ from utils.common import (
 )
 from utils.memcached import safe_memcached_operation
 
-# ----------- Общие функции для авторизации и обработки ошибок -----------
+#========================================================================#
+# ----------- Общие функции для авторизации и обработки ошибок ----------#
+#========================================================================#
 
 def validate_auth(request, request_id=None):
     """
@@ -63,7 +65,9 @@ def handle_api_error(response, api_key=None, request_id=None):
     logger.error(f"[{request_id}] API error: {response.status_code} - {error_text}")
     return jsonify({"error": error_text}), response.status_code
 
-# ----------- Функции форматирования ответов -----------
+#=======================================================#
+# ----------- Функции форматирования ответов -----------#
+#=======================================================#
 
 def format_openai_response(content, model, request_id=None, prompt_tokens=0):
     """
@@ -250,7 +254,9 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     if session:
         session.close() 
 
-# ----------- Функции для работы с файлами -----------
+#=======================================================#
+# ----------- Функции для работы с файлами -------------#
+#=======================================================#
 
 def get_user_files(api_key, request_id=None):
     """
@@ -597,7 +603,10 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
         logger.error(f"[{request_id}] Error creating conversation: {str(e)}")
         return None
 
-# ----------- Функции для работы с изображениями -----------
+#===========================================================#
+# ----------- Функции для работы с изображениями -----------#
+#===========================================================#
+
 def get_full_url(url, asset_host="https://asset.1min.ai"):
     """Return full URL based on asset host."""
     if not url.startswith("http"):
@@ -1426,7 +1435,9 @@ def retry_image_upload(image_url, api_key, request_id=None):
             except Exception as e:
                 logger.warning(f"[{request_id}] Failed to remove temp file {temp_file_path}: {str(e)}")
 
-# ----------- Функции для работы с текстовыми моделями -----------
+#=================================================================#
+# ----------- Функции для работы с текстовыми моделями -----------#
+#=================================================================#
 
 def prepare_chat_payload(model, messages, request_data, request_id=None):
     """
@@ -1810,7 +1821,9 @@ def emulate_stream_response(full_content, request_data, model, prompt_tokens):
     yield f"data: {json.dumps(final_chunk)}\n\n"
     yield "data: [DONE]\n\n"
 
-# ----------- Функции для работы с аудио -----------
+#=======================================================#
+# ----------- Функции для работы с аудио ---------------
+#=======================================================#
 
 def upload_audio_file(audio_file, api_key, request_id):
     """
@@ -2005,3 +2018,4 @@ def extract_audio_url(response_data, request_id):
         logger.error(f"[{request_id}] Could not extract audio URL from API response")
         
     return audio_url
+
