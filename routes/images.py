@@ -499,7 +499,7 @@ def image_variations():
                     }
                 }
                 logger.info(f"[{request_id}] DALL-E 2 variation payload: {json.dumps(payload, indent=2)}")
-                variation_response = api_request("POST", ONE_MIN_API_URL, headers=headers, json=payload, timeout=300)
+                variation_response = api_request("POST", ONE_MIN_API_URL, headers=headers, json=payload, timeout=MIDJOURNEY_TIMEOUT)
                 if variation_response.status_code != 200:
                     logger.error(f"[{request_id}] DALL-E 2 variation failed: {variation_response.status_code}, {variation_response.text}")
                     continue
@@ -531,7 +531,7 @@ def image_variations():
                     }
                 }
                 logger.info(f"[{request_id}] Clipdrop variation payload: {json.dumps(payload, indent=2)}")
-                variation_response = api_request("POST", ONE_MIN_API_URL, headers=headers, json=payload, timeout=300)
+                variation_response = api_request("POST", ONE_MIN_API_URL, headers=headers, json=payload, timeout=MIDJOURNEY_TIMEOUT)
                 if variation_response.status_code != 200:
                     logger.error(f"[{request_id}] Clipdrop variation failed: {variation_response.status_code}, {variation_response.text}")
                     continue
@@ -558,6 +558,12 @@ def image_variations():
                                              timeout=(MIDJOURNEY_TIMEOUT if model.startswith("midjourney") else DEFAULT_TIMEOUT))
             if variation_response.status_code != 200:
                 logger.error(f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
+                # When the Gateway Timeout (504) error, we return the error immediately, and do not continue to process
+                if variation_response.status_code == 504:
+                    logger.error(f"[{request_id}] Midjourney API timeout (504). Returning error to client instead of fallback.")
+                    return jsonify({
+                        "error": "Gateway Timeout (504) occurred while processing image variation request. Try again later."
+                    }), 504
                 continue
             variation_data = variation_response.json()
             if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
@@ -829,7 +835,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
     logger.info(f"[{request_id}] Trying image variations with models: {variation_models}")
     session = create_session()
     try:
-        image_response = session.get(image_url, stream=True, timeout=60)
+        image_response = session.get(image_url, stream=True, timeout=MIDJOURNEY_TIMEOUT)
         if image_response.status_code != 200:
             logger.error(f"[{request_id}] Failed to download image: {image_response.status_code}")
             return jsonify({"error": "Failed to download image"}), 500
@@ -900,7 +906,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         }
                     }
                     logger.info(f"[{request_id}] DALL-E 2 variation payload: {json.dumps(payload, indent=2)}")
-                    variation_response = api_request("POST", ONE_MIN_API_URL, headers=headers, json=payload, timeout=300)
+                    variation_response = api_request("POST", ONE_MIN_API_URL, headers=headers, json=payload, timeout=MIDJOURNEY_TIMEOUT)
                     if variation_response.status_code != 200:
                         logger.error(f"[{request_id}] DALL-E 2 variation failed: {variation_response.status_code}, {variation_response.text}")
                         continue
@@ -932,7 +938,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                         }
                     }
                     logger.info(f"[{request_id}] Clipdrop variation payload: {json.dumps(payload, indent=2)}")
-                    variation_response = api_request("POST", ONE_MIN_API_URL, headers=headers, json=payload, timeout=300)
+                    variation_response = api_request("POST", ONE_MIN_API_URL, headers=headers, json=payload, timeout=MIDJOURNEY_TIMEOUT)
                     if variation_response.status_code != 200:
                         logger.error(f"[{request_id}] Clipdrop variation failed: {variation_response.status_code}, {variation_response.text}")
                         continue
@@ -958,6 +964,12 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                                                  timeout=(MIDJOURNEY_TIMEOUT if model.startswith("midjourney") else DEFAULT_TIMEOUT))
                 if variation_response.status_code != 200:
                     logger.error(f"[{request_id}] Variation request with model {model} failed: {variation_response.status_code} - {variation_response.text}")
+                    # When the Gateway Timeout (504) error, we return the error immediately, and do not continue to process
+                    if variation_response.status_code == 504:
+                        logger.error(f"[{request_id}] Midjourney API timeout (504). Returning error to client instead of fallback.")
+                        return jsonify({
+                            "error": "Gateway Timeout (504) occurred while processing image variation request. Try again later."
+                        }), 504
                     continue
                 variation_data = variation_response.json()
                 if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
