@@ -104,27 +104,38 @@ def extract_text_from_response(response_data, request_id):
     """
     result_text = ""
     
-    if "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
-        result_text = response_data["aiRecord"]["aiRecordDetail"].get("resultObject", [""])[0]
-    elif "resultObject" in response_data:
-        result_text = (
-            response_data["resultObject"][0]
-            if isinstance(response_data["resultObject"], list)
-            else response_data["resultObject"]
-        )
-    
-    # Проверяем если result_text это json
     try:
+        # Проверяем структуру aiRecord (основная структура ответа)
+        if "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
+            result_object = response_data["aiRecord"]["aiRecordDetail"].get("resultObject", "")
+            if isinstance(result_object, list) and result_object:
+                result_text = result_object[0]
+            else:
+                result_text = result_object
+                
+        # Проверяем прямую структуру resultObject
+        elif "resultObject" in response_data:
+            result_object = response_data["resultObject"]
+            if isinstance(result_object, list) and result_object:
+                result_text = result_object[0]
+            else:
+                result_text = result_object
+        
+        # Проверяем если result_text это json
         if result_text and isinstance(result_text, str) and result_text.strip().startswith("{"):
-            parsed_json = json.loads(result_text)
-            if "text" in parsed_json:
-                result_text = parsed_json["text"]
-                logger.debug(f"[{request_id}] Extracted inner text from JSON")
-    except (json.JSONDecodeError, TypeError, ValueError):
-        pass
-    
-    if not result_text:
-        logger.error(f"[{request_id}] Could not extract text from API response")
+            try:
+                parsed_json = json.loads(result_text)
+                if "text" in parsed_json:
+                    result_text = parsed_json["text"]
+                    logger.debug(f"[{request_id}] Extracted inner text from JSON")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+        
+        if not result_text:
+            logger.error(f"[{request_id}] Could not extract text from API response")
+            
+    except Exception as e:
+        logger.error(f"[{request_id}] Error extracting text from response: {str(e)}")
         
     return result_text
 
@@ -150,32 +161,6 @@ def prepare_models_list(requested_model, available_models):
         
     return models_to_try
 
-def get_audio_from_url(audio_url, request_id):
-    """
-    Получает аудио данные по URL
-    
-    Args:
-        audio_url: URL аудио файла
-        request_id: ID запроса для логирования
-        
-    Returns:
-        tuple: (audio_data, content_type, error_response)
-        audio_data будет None если произошла ошибка
-    """
-    try:
-        full_url = f"https://asset.1min.ai/{audio_url}"
-        audio_response = api_request("GET", full_url)
-        
-        if audio_response.status_code != 200:
-            logger.error(f"[{request_id}] Failed to download audio: {audio_response.status_code}")
-            return None, None, (jsonify({"error": "Failed to download audio"}), 500)
-        
-        logger.info(f"[{request_id}] Successfully downloaded audio data")
-        return audio_response.content, None
-    except Exception as e:
-        logger.error(f"[{request_id}] Error downloading audio: {str(e)}")
-        return None, (jsonify({"error": f"Failed to download audio: {str(e)}"}), 500)
-
 def extract_audio_url(response_data, request_id):
     """
     Извлекает URL аудио из ответа API
@@ -189,20 +174,28 @@ def extract_audio_url(response_data, request_id):
     """
     audio_url = ""
     
-    if "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
-        result_object = response_data["aiRecord"]["aiRecordDetail"].get("resultObject", "")
-        if isinstance(result_object, list) and result_object:
-            audio_url = result_object[0]
-        else:
-            audio_url = result_object
-    elif "resultObject" in response_data:
-        result_object = response_data["resultObject"]
-        if isinstance(result_object, list) and result_object:
-            audio_url = result_object[0]
-        else:
-            audio_url = result_object
-    
-    if not audio_url:
-        logger.error(f"[{request_id}] Could not extract audio URL from API response")
+    try:
+        # Проверяем структуру aiRecord (основная структура ответа)
+        if "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
+            result_object = response_data["aiRecord"]["aiRecordDetail"].get("resultObject", "")
+            if isinstance(result_object, list) and result_object:
+                audio_url = result_object[0]
+            else:
+                audio_url = result_object
+                
+        # Проверяем прямую структуру resultObject
+        elif "resultObject" in response_data:
+            result_object = response_data["resultObject"]
+            if isinstance(result_object, list) and result_object:
+                audio_url = result_object[0]
+            else:
+                audio_url = result_object
+        
+        if not audio_url:
+            logger.error(f"[{request_id}] Could not extract audio URL from API response")
+            
+    except Exception as e:
+        logger.error(f"[{request_id}] Error extracting audio URL from response: {str(e)}")
         
     return audio_url
+
