@@ -31,7 +31,7 @@ try:
     logger.info("Глобальные объекты успешно переданы в модуль маршрутов")
     
     # Импортируем все модули маршрутов
-    from . import files, text, images, audio
+    from . import functions, files, text, images, audio
     logger.info("Все модули маршрутов импортированы")
     
     # Обеспечиваем доступ к маршрутам из корневого модуля
