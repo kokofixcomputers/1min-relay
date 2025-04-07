@@ -4,6 +4,7 @@
 # Стандартные библиотеки Python
 import base64
 import datetime
+import functools
 import hashlib
 import json
 import os
