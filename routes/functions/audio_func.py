@@ -133,28 +133,30 @@ def prepare_whisper_payload(model, file_path, language=None, prompt=None, temper
     Returns:
         dict: Данные для запроса
     """
+    # Формируем базовый запрос согласно документации
     payload = {
-        "model": "whisper_v2",
-        "file": (os.path.basename(file_path), open(file_path, "rb"), "audio/mpeg")
+        "type": "SPEECH_TO_TEXT",
+        "model": model,
+        "promptObject": {
+            "audioUrl": file_path,
+            "response_format": response_format or "text"
+        }
     }
     
     # Добавляем дополнительные параметры, если они указаны
     if language:
-        payload["language"] = language
+        payload["promptObject"]["language"] = language
         
     if prompt:
-        payload["prompt"] = prompt
+        payload["promptObject"]["prompt"] = prompt
         
     if temperature is not None:
         try:
             temp = float(temperature)
             if 0 <= temp <= 1:
-                payload["temperature"] = temp
+                payload["promptObject"]["temperature"] = temp
         except (ValueError, TypeError):
             pass
-            
-    if response_format and response_format in ["json", "text", "srt", "vtt"]:
-        payload["response_format"] = response_format
         
     return payload
 
