@@ -5,11 +5,15 @@ from utils.logger import logger
 from utils.constants import *
 from utils.common import (
     ERROR_HANDLER, 
-    safe_temp_file,
+    handle_options_request, 
+    set_response_headers, 
     create_session, 
-    api_request
+    api_request, 
+    safe_temp_file, 
+    calculate_token
 )
 from utils.memcached import safe_memcached_operation
+from routes.functions.shared_func import extract_image_urls, get_full_url
 from flask import jsonify, request
 import math
 import base64
@@ -21,12 +25,6 @@ from .shared_func import format_image_response
 #===========================================================#
 # ----------- Функции для работы с изображениями -----------#
 #===========================================================#
-
-def get_full_url(url, asset_host="https://asset.1min.ai"):
-    """Return full URL based on asset host."""
-    if not url.startswith("http"):
-        return f"{asset_host}{url}" if url.startswith("/") else f"{asset_host}/{url}"
-    return url
 
 def build_generation_payload(model, prompt, request_data, negative_prompt, aspect_ratio, size, mode, request_id):
     """Build payload for image generation based on model."""
@@ -138,52 +136,6 @@ def build_generation_payload(model, prompt, request_data, negative_prompt, aspec
         logger.error(f"[{request_id}] Invalid model: {model}")
         return None, ERROR_HANDLER(1002, model)
     return payload, None
-
-def extract_image_urls(response_data, request_id=None):
-    """
-    Извлекает URL изображений из ответа API
-    
-    Args:
-        response_data: Ответ от API
-        request_id: ID запроса для логирования
-        
-    Returns:
-        list: Список URL изображений
-    """
-    image_urls = []
-    
-    try:
-        # Проверяем структуру aiRecord
-        if "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
-            result = response_data["aiRecord"]["aiRecordDetail"].get("resultObject", [])
-            if isinstance(result, list):
-                image_urls.extend(result)
-            elif isinstance(result, str):
-                image_urls.append(result)
-                
-        # Проверяем прямую структуру resultObject
-        elif "resultObject" in response_data:
-            result = response_data["resultObject"]
-            if isinstance(result, list):
-                image_urls.extend(result)
-            elif isinstance(result, str):
-                image_urls.append(result)
-                
-        # Проверяем структуру data.url (для Dall-E)
-        elif "data" in response_data and isinstance(response_data["data"], list):
-            for item in response_data["data"]:
-                if "url" in item:
-                    image_urls.append(item["url"])
-                    
-        logger.debug(f"[{request_id}] Extracted {len(image_urls)} image URLs")
-        
-        if not image_urls:
-            logger.error(f"[{request_id}] Could not extract image URLs from API response: {json.dumps(response_data)[:500]}")
-            
-    except Exception as e:
-        logger.error(f"[{request_id}] Error extracting image URLs: {str(e)}")
-        
-    return image_urls
 
 def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     """
