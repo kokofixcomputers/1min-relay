@@ -82,8 +82,8 @@ python app.py
 ### Скрипты для автоматизации локальной установки (venv), локального запуска (venv), обновления (Docker-контейнер)
 
 ```bash
-# python-venv
 chmod +x *.sh
+# python-venv
 sudo ./INSTALL.sh
 ./RUN.sh
 # docker (reinstall)
