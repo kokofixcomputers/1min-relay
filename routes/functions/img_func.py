@@ -139,24 +139,6 @@ def build_generation_payload(model, prompt, request_data, negative_prompt, aspec
         return None, ERROR_HANDLER(1002, model)
     return payload, None
 
-def extract_image_urls_from_response(response_json, request_id):
-    """Extract image URLs from API response."""
-    image_urls = []
-    result_object = response_json.get("aiRecord", {}).get("aiRecordDetail", {}).get("resultObject", [])
-    if isinstance(result_object, list) and result_object:
-        image_urls = result_object
-    elif result_object and isinstance(result_object, str):
-        image_urls = [result_object]
-    if not image_urls and "resultObject" in response_json:
-        result = response_json["resultObject"]
-        if isinstance(result, list):
-            image_urls = result
-        elif isinstance(result, str):
-            image_urls = [result]
-    if not image_urls:
-        logger.error(f"[{request_id}] Could not extract image URLs from API response: {json.dumps(response_json)[:500]}")
-    return image_urls
-
 def extract_image_urls(response_data, request_id=None):
     """
     Извлекает URL изображений из ответа API
@@ -195,121 +177,13 @@ def extract_image_urls(response_data, request_id=None):
                     
         logger.debug(f"[{request_id}] Extracted {len(image_urls)} image URLs")
         
+        if not image_urls:
+            logger.error(f"[{request_id}] Could not extract image URLs from API response: {json.dumps(response_data)[:500]}")
+            
     except Exception as e:
         logger.error(f"[{request_id}] Error extracting image URLs: {str(e)}")
         
     return image_urls
-
-def prepare_image_payload(model, prompt, request_data, image_paths=None, request_id=None):
-    """
-    Подготавливает payload для запроса генерации изображения
-    
-    Args:
-        model: Название модели
-        prompt: Текст запроса
-        request_data: Данные запроса
-        image_paths: Пути к изображениям
-        request_id: ID запроса для логирования
-        
-    Returns:
-        dict: Подготовленный payload
-    """
-    # Извлекаем параметры из prompt
-    aspect_ratio = None
-    size = request_data.get("size", "1024x1024")
-    mode = None
-    negative_prompt = None
-    
-    # Ищем параметры режима в тексте
-    mode_match = re.search(r'(--|\u2014)(fast|relax)\s*', prompt)
-    if mode_match:
-        mode = mode_match.group(2)
-        prompt = re.sub(r'(--|\u2014)(fast|relax)\s*', '', prompt).strip()
-        logger.debug(f"[{request_id}] Extracted mode from prompt: {mode}")
-        
-    # Ищем соотношение сторон
-    ar_match = re.search(r'(--|\u2014)ar\s+(\d+):(\d+)', prompt)
-    if ar_match:
-        width = int(ar_match.group(2))
-        height = int(ar_match.group(3))
-        aspect_ratio = f"{width}:{height}"
-        prompt = re.sub(r'(--|\u2014)ar\s+\d+:\d+\s*', '', prompt).strip()
-        logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_ratio}")
-        
-    # Ищем негативный промпт
-    no_match = re.search(r'(--|\u2014)no\s+(.*?)(?=(--|\u2014)|$)', prompt)
-    if no_match:
-        negative_prompt = no_match.group(2).strip()
-        prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
-        logger.debug(f"[{request_id}] Extracted negative prompt: {negative_prompt}")
-        
-    # Формируем базовый payload
-    if image_paths:
-        payload = {
-            "type": "CHAT_WITH_IMAGE",
-            "model": model,
-            "promptObject": {
-                "prompt": prompt,
-                "isMixed": False,
-                "imageList": image_paths,
-            }
-        }
-    else:
-        if model == "dall-e-3":
-            payload = {
-                "type": "IMAGE_GENERATOR",
-                "model": model,
-                "promptObject": {
-                    "prompt": prompt,
-                    "n": request_data.get("n", 1),
-                    "size": size,
-                    "quality": request_data.get("quality", "standard"),
-                    "style": request_data.get("style", "vivid"),
-                }
-            }
-        elif model == "dall-e-2":
-            payload = {
-                "type": "IMAGE_GENERATOR",
-                "model": model,
-                "promptObject": {
-                    "prompt": prompt,
-                    "n": request_data.get("n", 1),
-                    "size": size,
-                }
-            }
-        elif model.startswith("midjourney"):
-            payload = {
-                "type": "IMAGE_GENERATOR",
-                "model": model,
-                "promptObject": {
-                    "prompt": prompt,
-                    "mode": mode or request_data.get("mode", "fast"),
-                    "n": 4,
-                    "aspect_width": int(aspect_ratio.split(":")[0]) if aspect_ratio else 1,
-                    "aspect_height": int(aspect_ratio.split(":")[1]) if aspect_ratio else 1,
-                    "isNiji6": request_data.get("isNiji6", False),
-                    "maintainModeration": request_data.get("maintainModeration", True),
-                }
-            }
-            if negative_prompt:
-                payload["promptObject"]["negativePrompt"] = negative_prompt
-        else:
-            payload = {
-                "type": "IMAGE_GENERATOR",
-                "model": model,
-                "promptObject": {
-                    "prompt": prompt,
-                    "n": request_data.get("n", 1),
-                }
-            }
-            
-            if aspect_ratio:
-                payload["promptObject"]["aspect_ratio"] = aspect_ratio
-            if negative_prompt:
-                payload["promptObject"]["negativePrompt"] = negative_prompt
-                
-    logger.debug(f"[{request_id}] Prepared payload for model {model}")
-    return payload
 
 def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     """
@@ -438,77 +312,6 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
     except Exception as e:
         logger.error(f"[{request_id}] Error parsing aspect ratio: {str(e)}")
         return original_prompt, None, size, f"Error parsing parameters: {str(e)}", mode
-
-def retry_image_upload(image_url, api_key, request_id=None):
-    """
-    Attempts to re-upload an existing image to the asset server.
-    
-    Args:
-        image_url: URL of the existing image
-        api_key: API key for authorization
-        request_id: Request ID for logging
-        
-    Returns:
-        tuple: (new_image_url, error_response)
-    """
-    try:
-        # Download the image from the URL
-        session = create_session()
-        try:
-            if not image_url.startswith("http"):
-                if image_url.startswith("/"):
-                    image_url = f"https://asset.1min.ai{image_url}"
-                else:
-                    image_url = f"https://asset.1min.ai/{image_url}"
-                    
-            logger.debug(f"[{request_id}] Downloading image from {image_url}")
-            response = session.get(image_url, timeout=DOWNLOAD_TIMEOUT)
-            
-            if response.status_code != 200:
-                logger.error(f"[{request_id}] Failed to download image: {response.status_code}")
-                return None, (jsonify({"error": "Failed to download image for re-upload"}), response.status_code)
-                
-            image_data = response.content
-            logger.debug(f"[{request_id}] Successfully downloaded image ({len(image_data)} bytes)")
-            
-            # Determine file extension from the URL or content type
-            file_extension = os.path.splitext(image_url)[1]
-            if not file_extension:
-                content_type = response.headers.get("Content-Type", "")
-                if "jpeg" in content_type or "jpg" in content_type:
-                    file_extension = ".jpg"
-                elif "png" in content_type:
-                    file_extension = ".png"
-                elif "webp" in content_type:
-                    file_extension = ".webp"
-                else:
-                    file_extension = ".jpg"  # Default to jpg
-                    
-            # Upload image back to 1min.ai
-            filename = f"reupload{file_extension}"
-            mime_type = get_mime_type(filename)[0]
-            
-            asset_id, asset_path, asset_error = upload_asset(
-                image_data, filename, mime_type, api_key, request_id
-            )
-            
-            if asset_error:
-                return None, asset_error
-                
-            if not asset_path:
-                logger.error(f"[{request_id}] Failed to get asset path after re-upload")
-                return None, (jsonify({"error": "Failed to re-upload image"}), 500)
-                
-            # Format the new URL
-            new_url = f"https://asset.1min.ai{asset_path}" if asset_path.startswith("/") else f"https://asset.1min.ai/{asset_path}"
-            logger.debug(f"[{request_id}] Successfully re-uploaded image: {new_url}")
-            
-            return new_url, None
-        finally:
-            session.close()
-    except Exception as e:
-        logger.error(f"[{request_id}] Error during image re-upload: {str(e)}")
-        return None, (jsonify({"error": f"Failed to re-upload image: {str(e)}"}), 500)
 
 def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_height=None, mode=None, request_id=None):
     """
