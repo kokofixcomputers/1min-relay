@@ -10,12 +10,10 @@ from . import app, limiter, MEMORY_STORAGE
 from .functions import (
     validate_auth, 
     handle_api_error, 
-    format_openai_response,
     upload_audio_file,
     try_models_in_sequence,
     extract_text_from_response,
     prepare_models_list,
-    get_audio_from_url,
     extract_audio_url
 )
 
