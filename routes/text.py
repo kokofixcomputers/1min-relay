@@ -14,7 +14,9 @@ from .functions import (
     prepare_chat_payload,
     emulate_stream_response,
     transform_response,
-    create_conversation_with_files
+    create_conversation_with_files,
+    format_conversation_history,
+    prepare_payload
 )  # Импортируем функции из functions.py
 
 @app.route("/", methods=["GET", "POST"])
