@@ -15,7 +15,7 @@ from utils.common import (
 )
 from utils.memcached import safe_memcached_operation
 from routes.functions.shared_func import validate_auth, handle_api_error, format_image_response, get_full_url, extract_image_urls
-from routes.functions.img_func import build_generation_payload, parse_aspect_ratio, create_image_variations, process_image_tool_calls
+from routes.functions.img_func import build_generation_payload, parse_aspect_ratio, create_image_variations
 from . import app, limiter, MEMORY_STORAGE  # Импортируем app, limiter и MEMORY_STORAGE из модуля routes
 
 # ----------------------- Endpoints -----------------------
