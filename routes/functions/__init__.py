@@ -29,7 +29,6 @@ from .img_func import (
     build_generation_payload,
     parse_aspect_ratio,
     create_image_variations,
-    build_img2img_payload,
     process_image_tool_calls
 )
 
