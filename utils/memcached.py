@@ -1,3 +1,4 @@
+# version 1.0.1 #increment every time you make changes
 # utils/memcached.py
 # Функции для работы с Memcached
 from .imports import *
@@ -26,7 +27,7 @@ def check_memcached_connection():
     def try_memcached_connection(host, port):
         try:
             from pymemcache.client.base import Client
-            client = Client((host, port), connect_timeout=2, timeout=2)  # Добавляем таймауты
+            client = Client((host, port), connect_timeout=2, timeout=2)
             client.set("test_key", "test_value")
             if client.get("test_key") == b"test_value":
                 client.delete("test_key")  # Очистка
@@ -114,24 +115,15 @@ def safe_memcached_operation(operation, key, value=None, expiry=3600):
                 value = json.dumps(value)
             
             # Пробуем разные варианты параметров для времени истечения
-            # в зависимости от используемой библиотеки Memcached
-            for exp_param_name in ['exp', 'exptime', 'expire', 'time']:
+            exp_params = ['exp', 'exptime', 'expire', 'time']
+            for exp_param in exp_params:
                 try:
-                    # Создаем словарь с параметром
-                    params = {exp_param_name: expiry}
-                    # Вызываем set с текущим вариантом параметра
-                    return MEMCACHED_CLIENT_REF.set(key, value, **params)
+                    return MEMCACHED_CLIENT_REF.set(key, value, **{exp_param: expiry})
                 except TypeError as te:
-                    # Если получили ошибку о неизвестном параметре, пробуем следующий
-                    error_text = str(te)
-                    if f"unexpected keyword argument '{exp_param_name}'" in error_text:
-                        logger.debug(f"Параметр времени истечения '{exp_param_name}' не поддерживается, пробуем другой")
+                    if f"unexpected keyword argument '{exp_param}'" in str(te):
                         continue
-                    else:
-                        # Если ошибка не связана с параметром, пробрасываем её дальше
-                        raise
-                except Exception as e:
-                    # Пробрасываем остальные исключения
+                    raise
+                except Exception:
                     raise
             
             # Если все варианты не подошли, пробуем без параметра времени истечения
