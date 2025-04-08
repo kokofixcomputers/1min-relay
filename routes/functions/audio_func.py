@@ -1,3 +1,4 @@
+# version 1.0.1 #increment every time you make changes
 # routes/functions/audio_func.py
 
 from utils.imports import *
@@ -174,10 +175,14 @@ def prepare_tts_payload(model, input_text, voice, speed=None, format=None):
     Returns:
         dict: Данные для запроса
     """
+    # Определяем правильный тип запроса и структуру данных
     payload = {
-        "model": "tts_1",
-        "input": input_text,
-        "voice": voice
+        "type": "TEXT_TO_SPEECH",
+        "model": model,
+        "promptObject": {
+            "text": input_text,
+            "voice": voice
+        }
     }
     
     # Добавляем дополнительные параметры, если они указаны
@@ -185,12 +190,14 @@ def prepare_tts_payload(model, input_text, voice, speed=None, format=None):
         try:
             spd = float(speed)
             if 0.25 <= spd <= 4.0:
-                payload["speed"] = spd
+                payload["promptObject"]["speed"] = spd
         except (ValueError, TypeError):
             pass
             
     if format and format in ["mp3", "opus", "aac", "flac"]:
-        payload["response_format"] = format
-        
+        payload["promptObject"]["response_format"] = format
+    
+    logger.debug(f"Подготовлен TTS payload: {json.dumps(payload, ensure_ascii=False)}")
+    
     return payload
 
