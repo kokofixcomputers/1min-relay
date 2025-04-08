@@ -1,4 +1,4 @@
-# version 1.0.1 #increment every time you make changes
+# version 1.0.3 #increment every time you make changes
 # utils/constants.py
 # Файл констант для приложения
 
@@ -18,6 +18,42 @@ IMAGE_VARIATOR = "IMAGE_VARIATOR"
 
 # Максимальный размер кэша для изображений
 MAX_CACHE_SIZE = 100
+
+# Настройки для удаления файлов
+FILE_CLEANUP_INTERVAL = 3600  # Интервал очистки файлов в секундах (1 час)
+FILE_CLEANUP_MAX_AGE = 3600   # Максимальный возраст временных файлов в секундах (1 час)
+FILE_CLEANUP_ENABLED = True   # Включена ли автоматическая очистка файлов
+
+# Настройки для Memcached
+MEMCACHED_CONNECT_TIMEOUT = 2  # Таймаут подключения к Memcached в секундах
+MEMCACHED_OPERATION_TIMEOUT = 2  # Таймаут операций с Memcached в секундах
+MEMCACHED_DEFAULT_EXPIRY = 3600  # Время жизни данных в Memcached по умолчанию в секундах (1 час)
+
+# Настройки для логирования
+LOG_LEVEL = "INFO"  # Уровень логирования (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+LOG_FILE_ENABLED = True  # Включено ли логирование в файл
+LOG_FILE_MAX_SIZE = 10 * 1024 * 1024  # Максимальный размер лог-файла в байтах (10 МБ)
+LOG_FILE_BACKUP_COUNT = 5  # Количество резервных копий лог-файлов
+
+# Настройки для API запросов
+API_RETRY_COUNT = 3  # Количество попыток повторного запроса при ошибке
+API_RETRY_BACKOFF_FACTOR = 1  # Коэффициент увеличения задержки между попытками
+API_RETRY_STATUS_FORCELIST = [429, 500, 502, 503, 504]  # Коды ошибок, при которых нужно повторять запрос
+
+# Настройки сервера
+DEFAULT_PORT = 5001  # Порт по умолчанию
+DEFAULT_HOST = "0.0.0.0"  # Хост по умолчанию
+DEFAULT_THREADS = 6  # Количество потоков по умолчанию
+
+# Настройки для Memcached
+MEMCACHED_DEFAULT_HOST = "127.0.0.1"  # Хост Memcached по умолчанию
+MEMCACHED_DEFAULT_PORT = 11211  # Порт Memcached по умолчанию
+MEMCACHED_DOCKER_HOST = "memcached"  # Хост Memcached в Docker
+MEMCACHED_URI_PREFIX = "memcached://"  # Префикс URI для Memcached
+
+# Настройки для моделей
+SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
+PERMIT_MODELS_FROM_SUBSET_ONLY = False
 
 # Инструкции для описания изображений и документов
 IMAGE_DESCRIPTION_INSTRUCTION = """Describe the scene, actions, text, or meme elements in the image. 
@@ -268,7 +304,3 @@ SPEECH_TO_TEXT_MODELS = [
     #"medical_dictation",
     #"medical_conversation"
 ]
-
-# Default values
-SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
-PERMIT_MODELS_FROM_SUBSET_ONLY = False
