@@ -28,6 +28,9 @@ FILE_CLEANUP_ENABLED = True   # Включена ли автоматическа
 MEMCACHED_CONNECT_TIMEOUT = 2  # Таймаут подключения к Memcached в секундах
 MEMCACHED_OPERATION_TIMEOUT = 2  # Таймаут операций с Memcached в секундах
 MEMCACHED_DEFAULT_EXPIRY = 3600  # Время жизни данных в Memcached по умолчанию в секундах (1 час)
+MEMCACHED_HOST = "127.0.0.1"  # Хост Memcached по умолчанию
+MEMCACHED_DOCKER = "memcached"  # Хост Memcached в Docker
+MEMCACHED_PORT = 11211  # Порт Memcached по умолчанию
 
 # Настройки для логирования
 LOG_LEVEL = "INFO"  # Уровень логирования (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -44,12 +47,6 @@ API_RETRY_STATUS_FORCELIST = [429, 500, 502, 503, 504]  # Коды ошибок,
 DEFAULT_PORT = 5001  # Порт по умолчанию
 DEFAULT_HOST = "0.0.0.0"  # Хост по умолчанию
 DEFAULT_THREADS = 6  # Количество потоков по умолчанию
-
-# Настройки для Memcached
-MEMCACHED_DEFAULT_HOST = "127.0.0.1"  # Хост Memcached по умолчанию
-MEMCACHED_DEFAULT_PORT = 11211  # Порт Memcached по умолчанию
-MEMCACHED_DOCKER_HOST = "memcached"  # Хост Memcached в Docker
-MEMCACHED_URI_PREFIX = "memcached://"  # Префикс URI для Memcached
 
 # Настройки для моделей
 SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
