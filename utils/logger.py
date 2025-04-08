@@ -1,3 +1,4 @@
+# version 1.0.1 #increment every time you make changes
 # utils/logger.py
 # Модуль для логгирования
 import logging
