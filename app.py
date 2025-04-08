@@ -5,8 +5,6 @@
 from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
-from utils.memcached import set_global_refs, safe_memcached_operation, check_memcached_connection
-
 
 # Инициализация приложения
 app = Flask(__name__)
