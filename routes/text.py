@@ -1,3 +1,4 @@
+# version 1.0.1 #increment every time you make changes
 # Маршруты для текстовых моделей
 # Импортируем только необходимые модули
 from utils.imports import *
@@ -588,17 +589,14 @@ def conversation():
             response_format = request_data.get("response_format", "mp3")
             speed = request_data.get("speed", 1.0)
             
-            # We form Payload for a request to the API 1min.ai according to the documentation
-            payload = {
-                "type": "TEXT_TO_SPEECH",
-                "model": model,
-                "promptObject": {
-                    "text": prompt_text,
-                    "voice": voice,
-                    "response_format": response_format,
-                    "speed": speed
-                }
-            }
+            # Импортируем функцию prepare_tts_payload для формирования правильного payload
+            from routes.functions.audio_func import prepare_tts_payload
+            
+            # Используем функцию для создания payload с поддержкой русского языка
+            payload = prepare_tts_payload(model, prompt_text, voice, speed, response_format)
+            
+            # Логируем полный payload для отладки
+            logger.debug(f"[{request_id}] TTS payload: {json.dumps(payload, ensure_ascii=False)}")
             
             headers = {"API-KEY": api_key, "Content-Type": "application/json"}
             
@@ -611,7 +609,18 @@ def conversation():
                 if response.status_code != 200:
                     if response.status_code == 401:
                         return ERROR_HANDLER(1020, key=api_key)
-                    logger.error(f"[{request_id}] Error in TTS response: {response.text[:200]}")
+                    
+                    # Логируем полный ответ для отладки
+                    error_text = "Unknown error"
+                    try:
+                        error_data = response.json()
+                        error_text = json.dumps(error_data, ensure_ascii=False)
+                        logger.error(f"[{request_id}] Detailed error response: {error_text}")
+                    except:
+                        if hasattr(response, 'text'):
+                            error_text = response.text
+                    
+                    logger.error(f"[{request_id}] Error in TTS response: {error_text[:200]}")
                     return (
                         jsonify({"error": response.json().get("error", "Unknown error")}),
                         response.status_code,
