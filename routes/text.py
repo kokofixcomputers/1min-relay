@@ -817,7 +817,7 @@ def conversation():
                     logger.debug(f"[{request_id}] Added text content from item {i + 1}")
 
                 if "image_url" in item:
-                    if model not in vision_supported_models:
+                    if model not in VISION_SUPPORTED_MODELS:
                         logger.error(
                             f"[{request_id}] Model {model} does not support images"
                         )
