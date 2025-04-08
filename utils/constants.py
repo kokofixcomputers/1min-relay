@@ -128,14 +128,14 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
 ]
 
 # Define the models that support vision inputs
-vision_supported_models = [
+VISION_SUPPORTED_MODELS = [
     "gpt-4o",
     "gpt-4o-mini",
     "gpt-4-turbo"
 ]
 
 # Define the models that support code interpreter
-code_interpreter_supported_models = [
+CODE_INTERPRETER_SUPPORTED_MODELS = [
     "gpt-4o",
     "claude-3-5-sonnet-20240620",
     "claude-3-5-haiku-20241022",
@@ -144,7 +144,7 @@ code_interpreter_supported_models = [
 ]
 
 # Define the models that support web search (retrieval)
-retrieval_supported_models = [
+RETRIEVAL_SUPPORTED_MODELS = [
     "gemini-1.0-pro",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
@@ -177,7 +177,7 @@ retrieval_supported_models = [
 ]
 
 # Define the models that support function calling
-function_calling_supported_models = [
+FUNCTION_CALLING_SUPPORTED_MODELS = [
     "gpt-4",
     "gpt-3.5-turbo"
 ]
