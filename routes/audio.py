@@ -1,3 +1,4 @@
+# version 1.0.1 #increment every time you make changes
 # routes/audio.py
 
 # Импортируем только необходимые модули
@@ -274,17 +275,11 @@ def text_to_speech():
         return jsonify({"error": "No input text provided"}), 400
 
     try:
-        # Формируем Payload для TTS
-        payload = {
-            "type": "TEXT_TO_SPEECH",
-            "model": model,
-            "promptObject": {
-                "text": input_text,
-                "voice": voice,
-                "response_format": response_format,
-                "speed": speed
-            }
-        }
+        # Используем функцию prepare_tts_payload для формирования запроса
+        payload = prepare_tts_payload(model, input_text, voice, speed, response_format)
+        
+        # Логируем полный payload для отладки
+        logger.debug(f"[{request_id}] TTS payload: {json.dumps(payload, ensure_ascii=False)}")
 
         headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
@@ -294,6 +289,16 @@ def text_to_speech():
         logger.debug(f"[{request_id}] TTS response status code: {response.status_code}")
 
         if response.status_code != 200:
+            # Логируем полный ответ для отладки
+            error_text = "Unknown error"
+            try:
+                error_data = response.json()
+                error_text = json.dumps(error_data, ensure_ascii=False)
+                logger.error(f"[{request_id}] Detailed error response: {error_text}")
+            except:
+                if hasattr(response, 'text'):
+                    error_text = response.text
+            
             return handle_api_error(response, api_key, request_id)
 
         # Обрабатываем ответ
