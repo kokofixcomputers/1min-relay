@@ -17,7 +17,7 @@ The project has a modular structure to facilitate development and maintenance:
 
 ```
 1min-relay/
-├── app.py                # Main application file
+├── app.py                # Main application file - server initialization and settings
 ├── utils/                # Common utilities and modules
 │   ├── __init__.py       # Package initialization
 │   ├── common.py         # Common helper functions
@@ -27,19 +27,17 @@ The project has a modular structure to facilitate development and maintenance:
 │   └── memcached.py      # Functions for working with Memcached
 ├── routes/               # API routes
 │   ├── __init__.py       # Routes module initialization
-│   ├── functions/        # Functions for different types of requests
-│   │   ├── __init__.py   # Functions package initialization with clear exports
-│   │   ├── shared_func.py# Common functions for all request types
-│   │   │                 # (authentication, error handling, response formatting,
-│   │   │                 # extraction of data from API responses)
-│   │   ├── txt_func.py   # Functions for text models
-│   │   ├── img_func.py   # Functions for working with images
-│   │   ├── audio_func.py # Functions for working with audio
-│   │   └── file_func.py  # Functions for working with files
 │   ├── text.py           # Routes for text requests
 │   ├── images.py         # Routes for working with images
 │   ├── audio.py          # Routes for audio requests
-│   └── files.py          # Routes for working with files
+│   ├── files.py          # Routes for working with files
+│   └── functions/        # Helper functions for different types of requests
+│       ├── __init__.py   # Functions package initialization
+│       ├── shared_func.py# Common helper functions for all request types
+│       ├── txt_func.py   # Helper functions for text models
+│       ├── img_func.py   # Helper functions for working with images
+│       ├── audio_func.py # Helper functions for working with audio
+│       └── file_func.py  # Helper functions for working with files
 ├── requirements.txt      # Project dependencies
 ├── INSTALL.sh            # Local installation script (venv)
 ├── RUN.sh                # Local launch script (venv)
@@ -51,19 +49,27 @@ The project has a modular structure to facilitate development and maintenance:
 
 ### Key Components:
 
-- **shared_func.py**: Contains common functions used in all types of routes:
-  - Authorization and error handling
-  - Response formatting to match the OpenAI API
-  - Universal functions for extracting data from API responses
-  - Common code for working with URLs and multimedia content
+- **app.py**: The main application file that initializes the server, configures settings, and sets up the Flask application.
 
-- **Specialized function modules**: Contain only unique logic for specific types of requests:
-  - txt_func.py: Processing text requests
-  - img_func.py: Image generation and processing
-  - audio_func.py: Audio transcription and speech synthesis
-  - file_func.py: File management
+- **utils/**: Contains essential utility modules that provide core functionality:
+  - common.py: Common helper functions used throughout the application
+  - constants.py: Defines all constants, configuration variables, and model lists
+  - imports.py: Centralizes imports to avoid circular dependencies
+  - logger.py: Configures logging for the application
+  - memcached.py: Provides rate limiting functionality
 
-- **API Routes**: Implement endpoints compatible with the OpenAI API using the corresponding processing functions.
+- **routes/**: Contains the main API endpoints that implement the OpenAI API compatibility:
+  - text.py: Implements chat/completions endpoints
+  - images.py: Implements image generation and processing endpoints
+  - audio.py: Implements speech-to-text and text-to-speech endpoints
+  - files.py: Implements file management endpoints
+
+- **routes/functions/**: Contains helper functions that support the main route handlers:
+  - shared_func.py: Common helper functions for all request types
+  - txt_func.py: Helper functions for text models
+  - img_func.py: Helper functions for working with images
+  - audio_func.py: Helper functions for working with audio
+  - file_func.py: Helper functions for working with files
 
 ## Requirements
 - Python 3.7+
