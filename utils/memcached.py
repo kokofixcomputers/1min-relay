@@ -1,4 +1,4 @@
-# version 1.0.2 #increment every time you make changes
+# version 1.0.3 #increment every time you make changes
 # utils/memcached.py
 # Функции для работы с Memcached
 from .imports import *
@@ -37,15 +37,15 @@ def check_memcached_connection():
             return False
         return False
     
-    # Сначала проверяем локальный Memcached
-    if try_memcached_connection("127.0.0.1", 11211):
-        logger.info("Используется локальный Memcached на 127.0.0.1:11211")
-        return True, "memcached://127.0.0.1:11211"
+    # Сначала проверяем локальный Memcached, используя константы
+    if try_memcached_connection(MEMCACHED_DEFAULT_HOST, MEMCACHED_DEFAULT_PORT):
+        logger.info(f"Используется локальный Memcached на {MEMCACHED_DEFAULT_HOST}:{MEMCACHED_DEFAULT_PORT}")
+        return True, f"{MEMCACHED_URI_PREFIX}{MEMCACHED_DEFAULT_HOST}:{MEMCACHED_DEFAULT_PORT}"
     
-    # Если локальный недоступен, проверяем Docker Memcached
-    if try_memcached_connection("memcached", 11211):
-        logger.info("Используется Memcached в Docker-контейнере")
-        return True, "memcached://memcached:11211"
+    # Если локальный недоступен, проверяем Docker Memcached, используя константы
+    if try_memcached_connection(MEMCACHED_DOCKER_HOST, MEMCACHED_DEFAULT_PORT):
+        logger.info(f"Используется Memcached в Docker-контейнере на {MEMCACHED_DOCKER_HOST}:{MEMCACHED_DEFAULT_PORT}")
+        return True, f"{MEMCACHED_URI_PREFIX}{MEMCACHED_DOCKER_HOST}:{MEMCACHED_DEFAULT_PORT}"
 
     # Если ни Docker, ни локальный Memcached недоступны
     logger.warning(
