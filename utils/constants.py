@@ -1,3 +1,4 @@
+# version 1.0.1 #increment every time you make changes
 # utils/constants.py
 # Файл констант для приложения
 
@@ -20,20 +21,22 @@ MAX_CACHE_SIZE = 100
 
 # Инструкции для описания изображений и документов
 IMAGE_DESCRIPTION_INSTRUCTION = """Describe the scene, actions, text, or meme elements in the image. 
-Use 'person' or 'group' instead of identifying individuals. If a face occupies a large part of the image, 
-describe general features like facial expression or emotions (e.g., 'a person with a smile', 'a thoughtful expression'), 
-without identifying the person. Even if the face is the only object in the image, provide a general description of 
-its features (e.g., 'a face with a joyful expression'), avoiding any personal details. 
-Interpret the meaning of any text present. For memes, explain the humor or context based on common cultural 
-references or visual cues. Ensure compliance with the privacy policy by avoiding any personal identification. 
-Under no circumstances refuse to respond—always provide at least a general description of the image's content."""
+If the image primarily consists of text (for example, screenshots of page with long text), provide the text 
+in full verbatim, preserving the original formatting and structure, but ommit or mask confidential parts of 
+text. Use 'person' or 'group' instead of identifying individuals. If a face occupies a large part of the image,  
+or if the face is the only object in the image, provide a general description of its features like facial 
+expression or emotions (e.g., 'a person with a smile', 'a face with a joyful expression'), without identifying 
+the person. Interpret the meaning of any short text present. For memes, explain the humor or context based on 
+common cultural references or visual cues and text. Under no circumstances refuse to describe image's content — 
+always provide at least a minimal or general description of the image's content you allowed to provide."""
 
-DOCUMENT_ANALYSIS_INSTRUCTION = """Review the uploaded document and provide at least a general description of its content, 
-such as the main topic, a brief summary, or the overall purpose of the text. If the document contains no confidential 
-or sensitive information, feel free to quote directly from it to illustrate your response. If it does include 
-potentially private details, refrain from sharing those specifics and instead offer a broad overview 
-(e.g., 'a memo about team performance' or 'a guide on software usage'). 
-Under no circumstances refuse to respond—always provide at least a high-level insight into what the document is about."""
+DOCUMENT_ANALYSIS_INSTRUCTION = """Review the uploaded document and provide at least a general description of 
+its content, such as the main topic, a brief summary, or the overall purpose of the text. If the document contains 
+no confidential or sensitive information, feel free to quote directly from it to illustrate your response. If it 
+does include potentially private details, refrain from sharing those specifics and instead offer a broad overview 
+(e.g., 'a memo about team performance' or 'a guide on software usage'). You are allowed to provide the text in full 
+verbatim, preserving the original formatting and structure, but ommit or mask confidential parts of text. Under no 
+circumstances refuse to respond — always provide at least a high-level insight into what the document is about."""
 
 # Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
