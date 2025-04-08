@@ -5,9 +5,12 @@
 from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
+from utils.memcached import set_global_refs, safe_memcached_operation, check_memcached_connection
 
-# Инициализируем Flask-приложение
+
+# Инициализация приложения
 app = Flask(__name__)
+CORS(app)
 
 # Параметры порта и другие настройки окружения
 PORT = int(os.getenv("PORT", DEFAULT_PORT))
@@ -45,14 +48,14 @@ if LIMITER_AVAILABLE:
         # Инициализация клиента Memcache
         try:
             # Извлекаем хост и порт из URI
-            host_port = memcached_uri.replace(MEMCACHED_URI_PREFIX, '') if memcached_uri.startswith(MEMCACHED_URI_PREFIX) else memcached_uri
+            host_port = memcached_uri.replace("memcached://", '') if memcached_uri.startswith("memcached://") else memcached_uri
             
             # Разделяем хост и порт
             if ':' in host_port:
                 host, port = host_port.split(':')
                 port = int(port)
             else:
-                host, port = host_port, MEMCACHED_DEFAULT_PORT
+                host, port = host_port, MEMCACHED_PORT
                 
             # Пробуем сначала Pymemcache, затем Python-Memcache
             try:
