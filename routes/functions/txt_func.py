@@ -75,10 +75,10 @@ def get_model_capabilities(model):
     }
 
     # We check the support of each opportunity through the corresponding arrays
-    capabilities["vision"] = model in vision_supported_models
-    capabilities["code_interpreter"] = model in code_interpreter_supported_models
-    capabilities["retrieval"] = model in retrieval_supported_models
-    capabilities["function_calling"] = model in function_calling_supported_models
+    capabilities["vision"] = model in VISION_SUPPORTED_MODELS
+    capabilities["code_interpreter"] = model in CODE_INTERPRETER_SUPPORTED_MODELS
+    capabilities["retrieval"] = model in RETRIEVAL_SUPPORTED_MODELS
+    capabilities["function_calling"] = model in FUNCTION_CALLING_SUPPORTED_MODELS
 
     return capabilities
 
