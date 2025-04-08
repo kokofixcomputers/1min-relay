@@ -1,3 +1,4 @@
+# version 1.0.1 #increment every time you make changes
 # routes/functions/img_func.py 
 
 from utils.imports import *
@@ -30,25 +31,37 @@ def build_generation_payload(model, prompt, request_data, negative_prompt, aspec
     """Build payload for image generation based on model."""
     payload = {}
     if model == "dall-e-3":
+        # Проверяем, входит ли размер в список разрешенных для DALL-E 3
+        gen_size = size or request_data.get("size", "1024x1024")
+        if gen_size not in DALLE3_SIZES:
+            logger.warning(f"[{request_id}] Размер {gen_size} не входит в список разрешенных для DALL-E 3. Используем {DALLE3_SIZES[0]}")
+            gen_size = DALLE3_SIZES[0]
+            
         payload = {
             "type": "IMAGE_GENERATOR",
             "model": "dall-e-3",
             "promptObject": {
                 "prompt": prompt,
                 "n": request_data.get("n", 1),
-                "size": size or request_data.get("size", "1024x1024"),
+                "size": gen_size,
                 "quality": request_data.get("quality", "standard"),
                 "style": request_data.get("style", "vivid"),
             },
         }
     elif model == "dall-e-2":
+        # Проверяем, входит ли размер в список разрешенных для DALL-E 2
+        gen_size = size or request_data.get("size", "1024x1024")
+        if gen_size not in DALLE2_SIZES:
+            logger.warning(f"[{request_id}] Размер {gen_size} не входит в список разрешенных для DALL-E 2. Используем {DALLE2_SIZES[0]}")
+            gen_size = DALLE2_SIZES[0]
+            
         payload = {
             "type": "IMAGE_GENERATOR",
             "model": "dall-e-2",
             "promptObject": {
                 "prompt": prompt,
                 "n": request_data.get("n", 1),
-                "size": size or request_data.get("size", "1024x1024"),
+                "size": gen_size,
             },
         }
     elif model == "stable-diffusion-xl-1024-v1-0":
@@ -201,6 +214,19 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
             aspect_ratio = f"{width}:{height}"
             prompt = re.sub(r'(--|\u2014)ar\s+\d+:\d+\s*', '', prompt).strip()
             logger.debug(f"[{request_id}] Extracted aspect ratio: {aspect_ratio}")
+            
+            # Проверяем, входит ли соотношение сторон в разрешенные для модели
+            if model in ["midjourney", "midjourney_6_1"] and aspect_ratio not in MIDJOURNEY_ALLOWED_ASPECT_RATIOS:
+                ar_error = f"Аспектное соотношение {aspect_ratio} не поддерживается для модели {model}. Разрешенные значения: {', '.join(MIDJOURNEY_ALLOWED_ASPECT_RATIOS)}"
+                logger.error(f"[{request_id}] {ar_error}")
+                return prompt, None, size, ar_error, mode
+                
+            # Проверяем для моделей Flux
+            if (model.startswith("flux") or model.startswith("black-forest-labs/flux")) and aspect_ratio not in FLUX_ALLOWED_ASPECT_RATIOS:
+                ar_error = f"Аспектное соотношение {aspect_ratio} не поддерживается для модели {model}. Разрешенные значения: {', '.join(FLUX_ALLOWED_ASPECT_RATIOS)}"
+                logger.error(f"[{request_id}] {ar_error}")
+                return prompt, None, size, ar_error, mode
+                
         # Check for aspect ratio in request data
         elif "aspect_ratio" in request_data:
             aspect_ratio = request_data.get("aspect_ratio")
@@ -218,6 +244,18 @@ def parse_aspect_ratio(prompt, model, request_data, request_id=None):
                 logger.error(f"[{request_id}] Invalid aspect ratio values: {width}:{height} - {ar_error}")
                 return prompt, None, size, ar_error, mode
             logger.debug(f"[{request_id}] Using aspect ratio from request: {aspect_ratio}")
+            
+            # Проверяем, входит ли соотношение сторон в разрешенные для модели
+            if model in ["midjourney", "midjourney_6_1"] and aspect_ratio not in MIDJOURNEY_ALLOWED_ASPECT_RATIOS:
+                ar_error = f"Аспектное соотношение {aspect_ratio} не поддерживается для модели {model}. Разрешенные значения: {', '.join(MIDJOURNEY_ALLOWED_ASPECT_RATIOS)}"
+                logger.error(f"[{request_id}] {ar_error}")
+                return prompt, None, size, ar_error, mode
+                
+            # Проверяем для моделей Flux
+            if (model.startswith("flux") or model.startswith("black-forest-labs/flux")) and aspect_ratio not in FLUX_ALLOWED_ASPECT_RATIOS:
+                ar_error = f"Аспектное соотношение {aspect_ratio} не поддерживается для модели {model}. Разрешенные значения: {', '.join(FLUX_ALLOWED_ASPECT_RATIOS)}"
+                logger.error(f"[{request_id}] {ar_error}")
+                return prompt, None, size, ar_error, mode
             
         # Remove negative prompt parameters
         prompt = re.sub(r'(--|\u2014)no\s+.*?(?=(--|\u2014)|$)', '', prompt).strip()
