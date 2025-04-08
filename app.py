@@ -1,4 +1,4 @@
-# version 1.0.7 #increment every time you make changes
+# version 1.0.9 #increment every time you make changes
 # 2025-04-08 12:00 #change to actual date and time every time you make changes
 
 # Импортируем только необходимые модули
@@ -6,11 +6,12 @@ from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
 
-# Инициализируем Flask-приложение
+# Инициализация приложения
 app = Flask(__name__)
+CORS(app)
 
 # Параметры порта и другие настройки окружения
-PORT = int(os.getenv("PORT", 5001))
+PORT = int(os.getenv("PORT", DEFAULT_PORT))
 
 # Глобальные переменные
 MEMORY_STORAGE = {}
@@ -28,7 +29,7 @@ except ImportError as ie:
     # Создаем заглушки функций
     def delete_all_files_task():
         logger.warning("Задача удаления файлов отключена (memcached недоступен)")
-    def safe_memcached_operation(operation, key, value=None, expiry=3600):
+    def safe_memcached_operation(operation, key, value=None, expiry=MEMCACHED_DEFAULT_EXPIRY):
         logger.warning(f"Memcached операция {operation} недоступна: модуль не импортирован")
         return None
     def set_global_refs(memcached_client=None, memory_storage=None):
@@ -44,29 +45,27 @@ if LIMITER_AVAILABLE:
         )
         # Инициализация клиента Memcache
         try:
-            # Сначала пробуем Pymemcache
-            from pymemcache.client.base import Client
-            
             # Извлекаем хост и порт из URI
-            host_port = memcached_uri.replace('memcached://', '') if memcached_uri.startswith('memcached://') else memcached_uri
+            host_port = memcached_uri.replace("memcached://", '') if memcached_uri.startswith("memcached://") else memcached_uri
             
-            # Разделяем хост и порт для Pymemcache
+            # Разделяем хост и порт
             if ':' in host_port:
                 host, port = host_port.split(':')
-                MEMCACHED_CLIENT = Client((host, int(port)), connect_timeout=1)
+                port = int(port)
             else:
-                MEMCACHED_CLIENT = Client(host_port, connect_timeout=1)
-            logger.info(f"Клиент Memcached инициализирован через pymemcache: {memcached_uri}")
-        except Exception as e:
-            logger.error(f"Ошибка инициализации pymemcache клиента: {str(e)}")
+                host, port = host_port, MEMCACHED_PORT
+                
+            # Пробуем сначала Pymemcache, затем Python-Memcache
             try:
-                # Если не получилось, пробуем Python-Memcache
-                host_port = memcached_uri.replace('memcached://', '') if memcached_uri.startswith('memcached://') else memcached_uri
-                MEMCACHED_CLIENT = memcache.Client([host_port], debug=0)
+                from pymemcache.client.base import Client
+                MEMCACHED_CLIENT = Client((host, port), connect_timeout=MEMCACHED_CONNECT_TIMEOUT)
+                logger.info(f"Клиент Memcached инициализирован через pymemcache: {memcached_uri}")
+            except Exception:
+                MEMCACHED_CLIENT = memcache.Client([f"{host}:{port}"], debug=0)
                 logger.info(f"Клиент Memcached инициализирован через python-memcached: {memcached_uri}")
-            except Exception as e:
-                logger.error(f"Ошибка инициализации memcache клиента: {str(e)}")
-                logger.warning(f"Не удалось инициализировать клиент memcached. Хранение сессий отключено.")
+        except Exception as e:
+            logger.error(f"Ошибка инициализации клиента memcached: {str(e)}")
+            logger.warning("Не удалось инициализировать клиент memcached. Хранение сессий отключено.")
     else:
         # Используется для ограничения запросов без memcached
         limiter = Limiter(get_remote_address, app=app)
@@ -133,4 +132,4 @@ if __name__ == "__main__":
     )
     
     # Запуск сервера
-    serve(app, host="0.0.0.0", port=PORT, threads=6)
+    serve(app, host=DEFAULT_HOST, port=PORT, threads=DEFAULT_THREADS)

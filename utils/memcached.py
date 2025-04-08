@@ -1,3 +1,4 @@
+# version 1.0.3 #increment every time you make changes
 # utils/memcached.py
 # Функции для работы с Memcached
 from .imports import *
@@ -26,7 +27,7 @@ def check_memcached_connection():
     def try_memcached_connection(host, port):
         try:
             from pymemcache.client.base import Client
-            client = Client((host, port), connect_timeout=2, timeout=2)  # Добавляем таймауты
+            client = Client((host, port), connect_timeout=MEMCACHED_CONNECT_TIMEOUT, timeout=MEMCACHED_OPERATION_TIMEOUT)
             client.set("test_key", "test_value")
             if client.get("test_key") == b"test_value":
                 client.delete("test_key")  # Очистка
@@ -36,15 +37,15 @@ def check_memcached_connection():
             return False
         return False
     
-    # Сначала проверяем локальный Memcached
-    if try_memcached_connection("127.0.0.1", 11211):
-        logger.info("Используется локальный Memcached на 127.0.0.1:11211")
-        return True, "memcached://127.0.0.1:11211"
+    # Сначала проверяем локальный Memcached, используя константы
+    if try_memcached_connection(MEMCACHED_HOST, MEMCACHED_PORT):
+        logger.info(f"Используется локальный Memcached на {MEMCACHED_HOST}:{MEMCACHED_PORT}")
+        return True, f"memcached://{MEMCACHED_HOST}:{MEMCACHED_PORT}"
     
     # Если локальный недоступен, проверяем Docker Memcached
-    if try_memcached_connection("memcached", 11211):
-        logger.info("Используется Memcached в Docker-контейнере")
-        return True, "memcached://memcached:11211"
+    if try_memcached_connection(MEMCACHED_DOCKER, MEMCACHED_PORT):
+        logger.info(f"Используется Memcached в Docker-контейнере на {MEMCACHED_DOCKER}:{MEMCACHED_PORT}")
+        return True, f"memcached://{MEMCACHED_DOCKER}:{MEMCACHED_PORT}"
 
     # Если ни Docker, ни локальный Memcached недоступны
     logger.warning(
@@ -68,7 +69,7 @@ def set_global_refs(memcached_client=None, memory_storage=None):
 
 
 # Функция для безопасного доступа к Memcached
-def safe_memcached_operation(operation, key, value=None, expiry=3600):
+def safe_memcached_operation(operation, key, value=None, expiry=MEMCACHED_DEFAULT_EXPIRY):
     """
     Безопасно выполняет операции с Memcached, обрабатывая любые исключения.
     
@@ -114,24 +115,15 @@ def safe_memcached_operation(operation, key, value=None, expiry=3600):
                 value = json.dumps(value)
             
             # Пробуем разные варианты параметров для времени истечения
-            # в зависимости от используемой библиотеки Memcached
-            for exp_param_name in ['exp', 'exptime', 'expire', 'time']:
+            exp_params = ['exp', 'exptime', 'expire', 'time']
+            for exp_param in exp_params:
                 try:
-                    # Создаем словарь с параметром
-                    params = {exp_param_name: expiry}
-                    # Вызываем set с текущим вариантом параметра
-                    return MEMCACHED_CLIENT_REF.set(key, value, **params)
+                    return MEMCACHED_CLIENT_REF.set(key, value, **{exp_param: expiry})
                 except TypeError as te:
-                    # Если получили ошибку о неизвестном параметре, пробуем следующий
-                    error_text = str(te)
-                    if f"unexpected keyword argument '{exp_param_name}'" in error_text:
-                        logger.debug(f"Параметр времени истечения '{exp_param_name}' не поддерживается, пробуем другой")
+                    if f"unexpected keyword argument '{exp_param}'" in str(te):
                         continue
-                    else:
-                        # Если ошибка не связана с параметром, пробрасываем её дальше
-                        raise
-                except Exception as e:
-                    # Пробрасываем остальные исключения
+                    raise
+                except Exception:
                     raise
             
             # Если все варианты не подошли, пробуем без параметра времени истечения
@@ -149,6 +141,11 @@ def delete_all_files_task():
     """
     Функция для периодического удаления всех файлов пользователей
     """
+    # Проверяем, включена ли автоматическая очистка
+    if not FILE_CLEANUP_ENABLED:
+        logger.info("Автоматическая очистка файлов отключена")
+        return
+        
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Запуск запланированной задачи очистки файлов")
 
@@ -233,8 +230,8 @@ def delete_all_files_task():
     except Exception as e:
         logger.error(f"[{request_id}] Ошибка в запланированной задаче очистки: {str(e)}")
 
-    # Планируем следующее выполнение через час
-    cleanup_timer = threading.Timer(3600, delete_all_files_task)
+    # Планируем следующее выполнение через заданный интервал
+    cleanup_timer = threading.Timer(FILE_CLEANUP_INTERVAL, delete_all_files_task)
     cleanup_timer.daemon = True
     cleanup_timer.start()
-    logger.info(f"[{request_id}] Запланирована следующая очистка через 1 час")
+    logger.info(f"[{request_id}] Запланирована следующая очистка через {FILE_CLEANUP_INTERVAL} секунд")

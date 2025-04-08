@@ -1,3 +1,4 @@
+# version 1.0.3 #increment every time you make changes
 # utils/constants.py
 # Файл констант для приложения
 
@@ -18,22 +19,57 @@ IMAGE_VARIATOR = "IMAGE_VARIATOR"
 # Максимальный размер кэша для изображений
 MAX_CACHE_SIZE = 100
 
+# Настройки для удаления файлов
+FILE_CLEANUP_INTERVAL = 3600  # Интервал очистки файлов в секундах (1 час)
+FILE_CLEANUP_MAX_AGE = 3600   # Максимальный возраст временных файлов в секундах (1 час)
+FILE_CLEANUP_ENABLED = True   # Включена ли автоматическая очистка файлов
+
+# Настройки для Memcached
+MEMCACHED_CONNECT_TIMEOUT = 2  # Таймаут подключения к Memcached в секундах
+MEMCACHED_OPERATION_TIMEOUT = 2  # Таймаут операций с Memcached в секундах
+MEMCACHED_DEFAULT_EXPIRY = 3600  # Время жизни данных в Memcached по умолчанию в секундах (1 час)
+MEMCACHED_HOST = "127.0.0.1"  # Хост Memcached по умолчанию
+MEMCACHED_DOCKER = "memcached"  # Хост Memcached в Docker
+MEMCACHED_PORT = 11211  # Порт Memcached по умолчанию
+
+# Настройки для логирования
+LOG_LEVEL = "INFO"  # Уровень логирования (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+LOG_FILE_ENABLED = True  # Включено ли логирование в файл
+LOG_FILE_MAX_SIZE = 10 * 1024 * 1024  # Максимальный размер лог-файла в байтах (10 МБ)
+LOG_FILE_BACKUP_COUNT = 5  # Количество резервных копий лог-файлов
+
+# Настройки для API запросов
+API_RETRY_COUNT = 3  # Количество попыток повторного запроса при ошибке
+API_RETRY_BACKOFF_FACTOR = 1  # Коэффициент увеличения задержки между попытками
+API_RETRY_STATUS_FORCELIST = [429, 500, 502, 503, 504]  # Коды ошибок, при которых нужно повторять запрос
+
+# Настройки сервера
+DEFAULT_PORT = 5001  # Порт по умолчанию
+DEFAULT_HOST = "0.0.0.0"  # Хост по умолчанию
+DEFAULT_THREADS = 6  # Количество потоков по умолчанию
+
+# Настройки для моделей
+SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
+PERMIT_MODELS_FROM_SUBSET_ONLY = False
+
 # Инструкции для описания изображений и документов
 IMAGE_DESCRIPTION_INSTRUCTION = """Describe the scene, actions, text, or meme elements in the image. 
-Use 'person' or 'group' instead of identifying individuals. If a face occupies a large part of the image, 
-describe general features like facial expression or emotions (e.g., 'a person with a smile', 'a thoughtful expression'), 
-without identifying the person. Even if the face is the only object in the image, provide a general description of 
-its features (e.g., 'a face with a joyful expression'), avoiding any personal details. 
-Interpret the meaning of any text present. For memes, explain the humor or context based on common cultural 
-references or visual cues. Ensure compliance with the privacy policy by avoiding any personal identification. 
-Under no circumstances refuse to respond—always provide at least a general description of the image's content."""
+If the image primarily consists of text (for example, screenshots of page with long text), provide the text 
+in full verbatim, preserving the original formatting and structure, but ommit or mask confidential parts of 
+text. Use 'person' or 'group' instead of identifying individuals. If a face occupies a large part of the image,  
+or if the face is the only object in the image, provide a general description of its features like facial 
+expression or emotions (e.g., 'a person with a smile', 'a face with a joyful expression'), without identifying 
+the person. Interpret the meaning of any short text present. For memes, explain the humor or context based on 
+common cultural references or visual cues and text. Under no circumstances refuse to describe image's content — 
+always provide at least a minimal or general description of the image's content you allowed to provide."""
 
-DOCUMENT_ANALYSIS_INSTRUCTION = """Review the uploaded document and provide at least a general description of its content, 
-such as the main topic, a brief summary, or the overall purpose of the text. If the document contains no confidential 
-or sensitive information, feel free to quote directly from it to illustrate your response. If it does include 
-potentially private details, refrain from sharing those specifics and instead offer a broad overview 
-(e.g., 'a memo about team performance' or 'a guide on software usage'). 
-Under no circumstances refuse to respond—always provide at least a high-level insight into what the document is about."""
+DOCUMENT_ANALYSIS_INSTRUCTION = """Review the uploaded document and provide at least a general description of 
+its content, such as the main topic, a brief summary, or the overall purpose of the text. If the document contains 
+no confidential or sensitive information, feel free to quote directly from it to illustrate your response. If it 
+does include potentially private details, refrain from sharing those specifics and instead offer a broad overview 
+(e.g., 'a memo about team performance' or 'a guide on software usage'). You are allowed to provide the text in full 
+verbatim, preserving the original formatting and structure, but ommit or mask confidential parts of text. Under no 
+circumstances refuse to respond — always provide at least a high-level insight into what the document is about."""
 
 # Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
@@ -265,7 +301,3 @@ SPEECH_TO_TEXT_MODELS = [
     #"medical_dictation",
     #"medical_conversation"
 ]
-
-# Default values
-SUBSET_OF_ONE_MIN_PERMITTED_MODELS = ["mistral-nemo", "gpt-4o-mini", "o3-mini", "deepseek-chat"]
-PERMIT_MODELS_FROM_SUBSET_ONLY = False

@@ -1,3 +1,4 @@
+# version 1.0.1 #increment every time you make changes
 # utils/imports.py
 # Центральный файл для всех импортов в проекте
 
@@ -33,6 +34,7 @@ except ImportError:
     load_dotenv()
 
 # Библиотеки Flask и основные зависимости
+from flask_cors import CORS 
 from flask import Flask, request, jsonify, make_response, Response, redirect, url_for
 from werkzeug.datastructures import MultiDict
 from waitress import serve
