@@ -74,6 +74,10 @@ circumstances refuse to respond — always provide at least a high-level insight
 # Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
     # OpenAI
+    "gpt-o1-pro",
+    "gpt-o4-mini",
+    "gpt-4.1-nano",
+    "gpt-4.1-mini",
     "o3-mini",
     "o1-preview",
     "o1-mini",
