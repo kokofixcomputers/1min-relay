@@ -187,6 +187,9 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
 
 # Define the models that support vision inputs
 VISION_SUPPORTED_MODELS = [
+    "gpt-5", 
+    "gpt-5-mini", 
+    "gpt-5-chat-latest",
     "gpt-4o",
     "gpt-4o-mini",
     "gpt-4-turbo"
