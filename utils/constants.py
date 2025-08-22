@@ -74,6 +74,10 @@ circumstances refuse to respond — always provide at least a high-level insight
 # Define the models that are available for use
 ALL_ONE_MIN_AVAILABLE_MODELS = [
     # OpenAI
+    "gpt-5", 
+    "gpt-5-nano", 
+    "gpt-5-mini", 
+    "gpt-5-chat-latest",
     "gpt-o1-pro",
     "gpt-o4-mini",
     "gpt-4.1-nano",
@@ -101,7 +105,14 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "claude-3-sonnet-20240229",
     "claude-3-haiku-20240307",
     "claude-3-5-haiku-20241022",
+    "claude-3-7-sonnet-20250219",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
     # GoogleAI
+    "gemini-2.0-flash-lite"
+    "gemini-2.0-flash",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",    
     "gemini-1.0-pro",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
@@ -122,10 +133,17 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "open-mixtral-8x22b",
     "open-mixtral-8x7b",
     "open-mistral-7b",
+    # Perplexity
+    "sonar",
+    "sonar-pro",
+    "sonar-reasoning",
+    "sonar-reasoning-pro",
     # Replicate
     "meta/llama-2-70b-chat",
     "meta/meta-llama-3-70b-instruct",
     "meta/meta-llama-3.1-405b-instruct",
+    "meta/llama-4-maverick-instruct",
+    "meta/llama-4-scout-instruct",
     # DeepSeek
     "deepseek-chat",
     "deepseek-reasoner",
