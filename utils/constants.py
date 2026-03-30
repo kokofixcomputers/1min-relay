@@ -92,6 +92,10 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gpt-5-nano", 
     "gpt-5-mini", 
     "gpt-5-chat-latest",
+    "gpt-5.2",
+    "gpt-5.2-pro",
+    "gpt-5.4",
+    "gpt-5.4-pro",
     "gpt-o1-pro",
     "gpt-o4-mini",
     "gpt-4.1-nano",
@@ -128,6 +132,8 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "claude-3-7-sonnet-20250219",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
     "claude-haiku-4-5-20251001",
     "claude-opus-4-1-20250805",
     "claude-opus-4-5-20251101",
@@ -140,7 +146,10 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gemini-1.0-pro",
     "gemini-1.5-pro",
     "gemini-1.5-flash",
-    "gemini-3-pro-preview",    
+    "gemini-3-pro-preview",
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3-flash-preview",
     # "google-tts",            # Speech synthesis
     # "latest_long",           # speech recognition
     # "latest_short",          # speech recognition
@@ -188,6 +197,11 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "grok-4-0709",
     "grok-4-fast-non-reasoning",
     "grok-4-fast-reasoning",
+    # Alibaba / Qwen (1min.ai)
+    "qwen3-max",
+    "qwen-plus",
+    "qwen-max",
+    "qwen-flash",
     # Other models (made for future use)
     # "stable-image",                  # stabilityi - images generation
     # "stable-diffusion-xl-1024-v1-0", # stabilityi - images generation
@@ -212,6 +226,31 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "flux-dev",      # Replicate - Flux Dev "black-forest-labs/flux-dev"
     "flux-pro",      # Replicate - Flux Pro "black-forest-labs/flux-pro"
     "flux-1.1-pro",  # Replicate - Flux Pro 1.1 "black-forest-labs/flux-1.1-pro"
+    # 1min.ai image generators / extras (kept here for allow-listing)
+    "gpt-image-1",
+    "gpt-image-1-mini",
+    "magic-art",
+    "magic-art_6_1",
+    "magic-art_7_0",
+    "stable-image",
+    "stable-image-ultra",
+    "black-forest-labs/flux-pro",
+    "black-forest-labs/flux-krea-dev",
+    "black-forest-labs/flux-dev",
+    "black-forest-labs/flux-schnell",
+    "black-forest-labs/flux-schnell-lora",
+    "black-forest-labs/flux-dev-lora",
+    "black-forest-labs/flux-1.1-pro",
+    "black-forest-labs/flux-1.1-pro-ultra",
+    "gemini-2.5-flash-image",
+    "gemini-3-pro-image-preview",
+    "gemini-3.1-flash-image-preview",
+    "grok-2-image-1212",
+    "qwen-image-plus",
+    "qwen-image-max",
+    "dzine",
+    "recraft",
+    "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
     # "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb",  # Replicate - Music Generation
     # "luma",                  # TTAPI - Luma
     # "Qubico/image-toolkit",  # TTAPI - Image Toolkit
@@ -225,6 +264,7 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
 # Define the models that support vision inputs
 VISION_SUPPORTED_MODELS = [
     "gpt-5.1",
+    "gpt-5-nano",
     "gpt-5", 
     "gpt-5-mini", 
     "gpt-5-chat-latest",
@@ -237,11 +277,16 @@ VISION_SUPPORTED_MODELS = [
     "gemini-2.0-flash",
     "gemini-2.5-pro",
     "gemini-2.5-flash",    
-    "gemini-3-pro-preview", 
+    "gemini-3-pro-preview",
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3-flash-preview",
     "claude-3-haiku-20240307",
     "claude-3-5-haiku-20241022",
     "claude-sonnet-4-20250514",
     "claude-opus-4-20250514",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
     "claude-haiku-4-5-20251001",
     "claude-opus-4-1-20250805",
     "claude-opus-4-5-20251101",
@@ -301,6 +346,8 @@ IMAGE_GENERATION_MODELS = [
     "dall-e-3",
     "dall-e-2",
     "stable-diffusion-xl-1024-v1-0",
+    "stable-image",
+    "stable-image-ultra",
     "stable-diffusion-v1-6",
     "midjourney",
     "midjourney_6_1",
@@ -314,7 +361,29 @@ IMAGE_GENERATION_MODELS = [
     "flux-schnell",
     "flux-dev",
     "flux-pro",
-    "flux-1.1-pro"
+    "flux-1.1-pro",
+    "gpt-image-1",
+    "gpt-image-1-mini",
+    "magic-art",
+    "magic-art_6_1",
+    "magic-art_7_0",
+    "black-forest-labs/flux-pro",
+    "black-forest-labs/flux-krea-dev",
+    "black-forest-labs/flux-dev",
+    "black-forest-labs/flux-schnell",
+    "black-forest-labs/flux-schnell-lora",
+    "black-forest-labs/flux-dev-lora",
+    "black-forest-labs/flux-1.1-pro",
+    "black-forest-labs/flux-1.1-pro-ultra",
+    "gemini-2.5-flash-image",
+    "gemini-3-pro-image-preview",
+    "gemini-3.1-flash-image-preview",
+    "grok-2-image-1212",
+    "qwen-image-plus",
+    "qwen-image-max",
+    "dzine",
+    "recraft",
+    "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
 ]
 
 # Models that support images
