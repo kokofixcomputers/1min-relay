@@ -1137,7 +1137,16 @@ def conversation():
             request_data, model, all_messages, image_paths, request_id
         )
 
-        headers = {"API-KEY": api_key, "Content-Type": "application/json"}
+        headers = {
+            "API-KEY": api_key,
+            "Content-Type": "application/json",
+            # 1min.ai иногда возвращает 406 без браузерных заголовков (особенно в stream-режиме)
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Origin": "https://app.1min.ai",
+            "Referer": "https://app.1min.ai/",
+        }
 
         # Request depending on Stream
         if request_data.get("stream", False):
@@ -1145,7 +1154,10 @@ def conversation():
             logger.debug(f"[{request_id}] Sending streaming request")
 
             # URL for streaming mode
+            # Для 1min.ai потоковый режим включается query-параметром.
+            # Ранее пробовали /api/features/stream, но он даёт 404.
             streaming_url = f"{ONE_MIN_API_URL}?isStreaming=true"
+            headers["Accept"] = "text/event-stream"
 
             logger.debug(f"[{request_id}] Streaming URL: {streaming_url}")
             logger.debug(f"[{request_id}] Payload: {json.dumps(payload)[:200]}...")

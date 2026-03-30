@@ -5,6 +5,20 @@ from .imports import *
 from .logger import logger
 from .constants import *
 
+def _merge_one_min_headers(req_url: str, headers: dict | None, *, force_sse: bool) -> dict:
+    """
+    1min.ai иногда отвечает ошибкой вида "Unknown error (code: 406)", если запросы приходят без
+    браузероподобных заголовков (Origin/Referer/User-Agent/Accept). Здесь подмешиваем дефолты
+    только для домена api.1min.ai и только для отсутствующих ключей.
+    """
+    merged = dict(headers or {})
+    if isinstance(req_url, str) and req_url.startswith("https://api.1min.ai/"):
+        for k, v in ONE_MIN_DEFAULT_HEADERS.items():
+            merged.setdefault(k, v)
+        if force_sse:
+            merged.setdefault("Accept", "text/event-stream")
+    return merged
+
 def calculate_token(sentence, model="DEFAULT"):
     """
     Рассчитывает количество токенов в строке, используя соответствующую модели токенизацию.
@@ -59,6 +73,12 @@ def api_request(req_method, url, headers=None, requester_ip=None, data=None,
     """
     req_url = url.strip()
     logger.debug(f"API request URL: {req_url}")
+
+    # Признак того, что мы хотим SSE (для некоторых API это важно для 406)
+    force_sse = bool(stream) or ("isStreaming=true" in req_url) or req_url.endswith("/stream")
+
+    # Подмешиваем дефолтные заголовки для 1min.ai, не затирая явные значения вызывающего кода
+    headers = _merge_one_min_headers(req_url, headers, force_sse=force_sse)
 
     # Формируем параметры запроса
     req_params = {k: v for k, v in {
@@ -118,6 +138,14 @@ def create_session():
         Session: Настроенная сессия requests
     """
     session = requests.Session()
+
+    # 1min.ai иногда возвращает "Unknown error (code: 406)", если запросы приходят без заголовков Origin/Referer/UA.
+    # Добавляем их на уровне сессии, чтобы это покрывало все session.* вызовы (в т.ч. stream и upload).
+    try:
+        session.headers.update(ONE_MIN_DEFAULT_HEADERS)
+    except Exception:
+        # Не ломаемся, если по какой-то причине headers недоступны
+        pass
 
     # Настраиваем стратегию повторных попыток для всех запросов
     retry_strategy = requests.packages.urllib3.util.retry.Retry(

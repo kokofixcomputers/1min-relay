@@ -8,6 +8,17 @@ ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
 
+# Базовые заголовки для запросов к 1min.ai.
+# Некоторые маршруты 1min.ai возвращают "Unknown error (code: 406)" при отсутствии браузероподобных заголовков.
+# Эти заголовки подмешиваются только если запрос идёт на https://api.1min.ai/ и конкретный заголовок ещё не задан.
+ONE_MIN_DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://app.1min.ai",
+    "Referer": "https://app.1min.ai/",
+}
+
 # Add Constant Tamout used in the API_Request API
 DEFAULT_TIMEOUT = 60 # 60 seconds for regular requests
 MIDJOURNEY_TIMEOUT = 600  # 10 minutes for requests for Midjourney
