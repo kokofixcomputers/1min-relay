@@ -151,7 +151,8 @@ def _build_tool_calling_instructions(tools: list) -> str:
 
     return (
         "TOOL CALLING MODE (OpenAI-compatible emulation)\n"
-        "You MAY call tools. If you need to call a tool, respond with ONLY a JSON object and nothing else.\n"
+        "You MAY call tools. If the user asks to read/write files or update memory, you SHOULD use the appropriate tool.\n"
+        "If you decide to call a tool, respond with ONLY a JSON object and nothing else.\n"
         "Schema:\n"
         "{\n"
         '  "tool_calls": [\n'
@@ -443,12 +444,75 @@ def transform_response(one_min_response, request_data, prompt_token):
         # Output of the response structure for debugging
         logger.debug(f"Response structure: {json.dumps(one_min_response)[:200]}...")
 
-        # We get an answer from the appropriate place to json
-        result_text = (
-            one_min_response.get("aiRecord", {})
-            .get("aiRecordDetail", {})
-            .get("resultObject", [""])[0]
-        )
+        def _coerce_to_text(obj):
+            """
+            Best-effort extraction of assistant text from 1min.ai response shapes.
+            1min.ai responses are not fully stable across endpoints/models.
+            """
+            if obj is None:
+                return ""
+            if isinstance(obj, str):
+                return obj
+            if isinstance(obj, (int, float, bool)):
+                return str(obj)
+            if isinstance(obj, list):
+                for it in obj:
+                    t = _coerce_to_text(it)
+                    if t:
+                        return t
+                return ""
+            if isinstance(obj, dict):
+                # Common direct keys
+                for k in (
+                    "text",
+                    "content",
+                    "result",
+                    "message",
+                    "output",
+                    "answer",
+                    "response",
+                ):
+                    if k in obj:
+                        t = _coerce_to_text(obj.get(k))
+                        if t:
+                            return t
+
+                # OpenAI-like shapes (best-effort)
+                choices = obj.get("choices")
+                if isinstance(choices, list) and choices:
+                    c0 = choices[0] if isinstance(choices[0], dict) else {}
+                    msg = c0.get("message") if isinstance(c0, dict) else None
+                    if isinstance(msg, dict):
+                        t = _coerce_to_text(msg.get("content"))
+                        if t:
+                            return t
+                    t = _coerce_to_text(c0.get("text") if isinstance(c0, dict) else "")
+                    if t:
+                        return t
+
+                # Some providers embed payloads under data/responseObject/resultObject
+                for k in ("responseObject", "resultObject", "data"):
+                    if k in obj:
+                        t = _coerce_to_text(obj.get(k))
+                        if t:
+                            return t
+
+                return ""
+
+            return ""
+
+        detail = (one_min_response.get("aiRecord") or {}).get("aiRecordDetail") or {}
+        # Primary: aiRecord.aiRecordDetail.resultObject (documented in older 1min.ai payloads)
+        result_text = _coerce_to_text(detail.get("resultObject"))
+        # Fallbacks seen in newer payloads / some providers
+        if not result_text:
+            result_text = _coerce_to_text(detail.get("responseObject"))
+        if not result_text:
+            result_text = _coerce_to_text(one_min_response.get("resultObject"))
+        if not result_text:
+            result_text = _coerce_to_text(one_min_response.get("result"))
+        if not result_text:
+            result_text = _coerce_to_text(one_min_response.get("responseObject"))
 
         if not result_text:
             # Alternative ways to extract an answer
