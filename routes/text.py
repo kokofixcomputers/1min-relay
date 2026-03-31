@@ -1250,6 +1250,15 @@ def conversation():
                         except Exception as e2:
                             logger.error(f"[{request_id}] OpenClaw probe-empty fallback stream exception: {str(e2)}")
 
+                    if _is_effectively_empty(full_content or "") and not msg.get("tool_calls"):
+                        logger.error(
+                            f"[{request_id}] OpenClaw upstream returned empty content (non-stream + stream fallback); returning non-empty error message to avoid silent replies"
+                        )
+                        full_content = (
+                            "Ошибка: upstream (1min.ai) вернул пустой ответ (0 токенов) и в обычном запросе, и в стриминге. "
+                            "Это не tool-calling, а сбой/ограничение upstream. Попробуйте повторить запрос позже или сменить модель/тип API."
+                        )
+
                     return Response(
                         emulate_stream_response(full_content, request_data, model, prompt_token),
                         content_type="text/event-stream",
