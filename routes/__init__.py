@@ -45,7 +45,7 @@ try:
     )
     
     # Импортируем модули маршрутов (blueprints регистрируются при импорте)
-    from . import text, images, audio, files
+    from . import text, images, audio, files, responses
     
     logger.info("Все модули маршрутов импортированы")
     

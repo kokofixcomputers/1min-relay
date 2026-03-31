@@ -231,7 +231,7 @@ def _maybe_extract_tool_calls_from_text(text: str):
 
     return "", normalized
 
-def get_model_capabilities(model):
+def get_model_capabilities(model, api_key=None, request_id=None):
     """
     Defines supported opportunities for a specific model
 
@@ -248,8 +248,27 @@ def get_model_capabilities(model):
         "function_calling": False,
     }
 
-    # We check the support of each opportunity through the corresponding arrays
-    # OpenAI-like chat uses UNIFY_CHAT_WITH_AI + attachments.images
+    # Try dynamic registry (best-effort). If no api_key is provided, fall back to static lists.
+    try:
+        if api_key:
+            from utils.model_registry import get_model_registry_data
+
+            reg = get_model_registry_data(
+                api_key=api_key,
+                request_id=request_id or "models",
+                fallback_model_ids=ALL_ONE_MIN_AVAILABLE_MODELS,
+            )
+            capabilities["vision"] = model in set(reg.vision_model_ids)
+            capabilities["code_interpreter"] = model in set(reg.code_interpreter_model_ids)
+            # Upstream doesn't expose retrieval flag per model reliably; keep static allow-list
+            capabilities["retrieval"] = model in RETRIEVAL_SUPPORTED_MODELS
+            capabilities["function_calling"] = model in FUNCTION_CALLING_SUPPORTED_MODELS
+            return capabilities
+    except Exception:
+        # Never fail hard on capabilities; we'll use static allow-lists below.
+        pass
+
+    # Static allow-lists fallback
     capabilities["vision"] = model in VISION_SUPPORTED_MODELS_UNIFY_CHAT_WITH_AI
     capabilities["code_interpreter"] = model in CODE_INTERPRETER_SUPPORTED_MODELS
     capabilities["retrieval"] = model in RETRIEVAL_SUPPORTED_MODELS
@@ -273,7 +292,7 @@ def prepare_payload(
     Returns:
         DICT: Prepared Payload
     """
-    capabilities = get_model_capabilities(model)
+    capabilities = get_model_capabilities(model, api_key=request_data.get("_api_key"), request_id=request_id)
 
     # Check the availability of Openai tools
     tools = request_data.get("tools", [])

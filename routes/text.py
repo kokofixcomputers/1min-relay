@@ -4,7 +4,16 @@
 from utils.imports import *
 from utils.logger import logger
 from utils.constants import *
-from utils.common import ERROR_HANDLER, handle_options_request, set_response_headers, create_session, api_request, safe_temp_file, calculate_token
+from utils.common import (
+    ERROR_HANDLER,
+    handle_options_request,
+    set_response_headers,
+    create_session,
+    api_request,
+    api_request_with_websearch_degradation,
+    safe_temp_file,
+    calculate_token,
+)
 from utils.memcached import safe_memcached_operation
 from . import app, limiter, IMAGE_CACHE, MAX_CACHE_SIZE, MEMORY_STORAGE  # Импортируем app, limiter и IMAGE_CACHE из модуля routes
 from .images import retry_image_upload  # Импортируем функцию retry_image_upload из модуля images
@@ -36,8 +45,23 @@ def index():
 @app.route("/v1/models")
 @limiter.limit("60 per minute")
 def models():
-    # Dynamically create the list of models with additional fields
+    # Create the list of models with additional fields.
+    # Best-effort dynamic list: if the caller provides an API key, fetch live model list from upstream.
     models_data = []
+    api_key, _auth_err = validate_auth(request, request_id="models")
+    dynamic_model_ids = None
+    if api_key:
+        try:
+            from utils.model_registry import get_model_registry_data
+
+            reg = get_model_registry_data(
+                api_key=api_key,
+                request_id="models",
+                fallback_model_ids=ALL_ONE_MIN_AVAILABLE_MODELS,
+            )
+            dynamic_model_ids = reg.model_ids
+        except Exception:
+            dynamic_model_ids = None
     if not PERMIT_MODELS_FROM_SUBSET_ONLY:
         one_min_models_data = [
             {
@@ -46,7 +70,7 @@ def models():
                 "owned_by": "1minai",
                 "created": 1727389042,
             }
-            for model_name in ALL_ONE_MIN_AVAILABLE_MODELS
+            for model_name in (dynamic_model_ids or ALL_ONE_MIN_AVAILABLE_MODELS)
         ]
     else:
         one_min_models_data = [
@@ -78,13 +102,15 @@ def conversation():
     try:
         # Build Payload for request
         request_data = request.json.copy()
+        # Pass API key down to helper functions without changing external contract
+        request_data["_api_key"] = api_key
 
         # We get and normalize the model
         model = request_data.get("model", "").strip()
         logger.info(f"[{request_id}] Using model: {model}")
 
         # We check the support of the web post for the model
-        capabilities = get_model_capabilities(model)
+        capabilities = get_model_capabilities(model, api_key=api_key, request_id=request_id)
 
         # Tools / web-search requested through OpenAI-like tools
         web_search_requested = False
@@ -1118,7 +1144,9 @@ def conversation():
             try:
                 requested_type = (payload.get("type") or "").strip()
                 api_url = ONE_MIN_CHAT_WITH_AI_URL if (not requested_type or requested_type == "UNIFY_CHAT_WITH_AI") else ONE_MIN_API_URL
-                response = api_request("POST", api_url, json=payload, headers=headers)
+                response, degraded = api_request_with_websearch_degradation(
+                    "POST", api_url, json=payload, headers=headers
+                )
                 logger.debug(
                     f"[{request_id}] Response status code: {response.status_code}"
                 )
@@ -1142,6 +1170,8 @@ def conversation():
 
                 response = make_response(jsonify(transformed_response))
                 set_response_headers(response)
+                if degraded:
+                    response.headers["X-WebSearch-Degraded"] = "true"
                 return response, 200
             except Exception as e:
                 logger.error(f"[{request_id}] Exception during request: {str(e)}")

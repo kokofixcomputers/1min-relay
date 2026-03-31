@@ -111,6 +111,75 @@ def api_request(req_method, url, headers=None, requester_ip=None, data=None,
         logger.error(f"Ошибка API запроса: {str(e)}")
         raise
 
+
+def api_request_with_websearch_degradation(
+    req_method,
+    url,
+    *,
+    headers=None,
+    requester_ip=None,
+    data=None,
+    files=None,
+    stream=False,
+    timeout=None,
+    json=None,
+    **kwargs,
+):
+    """
+    Best-effort: if upstream returns 400 while webSearch is enabled in promptObject,
+    retry once with webSearch disabled (and remove related params).
+
+    Returns:
+        (response, degraded: bool)
+    """
+    response = api_request(
+        req_method,
+        url,
+        headers=headers,
+        requester_ip=requester_ip,
+        data=data,
+        files=files,
+        stream=stream,
+        timeout=timeout,
+        json=json,
+        **kwargs,
+    )
+
+    try:
+        prompt_obj = (json or {}).get("promptObject") if isinstance(json, dict) else None
+        web_search_on = bool(prompt_obj and prompt_obj.get("webSearch"))
+    except Exception:
+        web_search_on = False
+
+    if response is None or response.status_code != 400 or not web_search_on:
+        return response, False
+
+    try:
+        fallback_payload = dict(json or {})
+        po = dict((fallback_payload.get("promptObject") or {}))
+        po["webSearch"] = False
+        po.pop("numOfSite", None)
+        po.pop("maxWord", None)
+        fallback_payload["promptObject"] = po
+        fallback = api_request(
+            req_method,
+            url,
+            headers=headers,
+            requester_ip=requester_ip,
+            data=data,
+            files=files,
+            stream=stream,
+            timeout=timeout,
+            json=fallback_payload,
+            **kwargs,
+        )
+        if fallback is not None and fallback.status_code == 200:
+            return fallback, True
+    except Exception:
+        pass
+
+    return response, False
+
 def set_response_headers(response):
     """
     Устанавливает стандартные заголовки для всех ответов API.
