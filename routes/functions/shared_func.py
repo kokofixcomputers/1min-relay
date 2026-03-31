@@ -356,6 +356,11 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                     buffer = ""
                     break
 
+                # Важно: event=result содержит финальный aiRecord (метаданные/токены/модель),
+                # его нельзя прокидывать пользователю как часть текста ответа.
+                if event_name == "result":
+                    continue
+
                 # Пытаемся распарсить JSON с content.
                 content = None
                 if data.startswith("{") and data.endswith("}"):
@@ -363,6 +368,10 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                         obj = json.loads(data)
                         if isinstance(obj, dict):
                             content = obj.get("content")
+                            # Иногда upstream может прислать aiRecord/result как JSON без event:result
+                            # или если event-строки не попали в block. Такое тоже не должно эмититься.
+                            if content is None and ("aiRecord" in obj or "ai_record" in obj or "resultObject" in obj):
+                                continue
                     except Exception:
                         content = None
 
@@ -398,7 +407,13 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                     if tail and tail != "[DONE]":
                         try:
                             obj = json.loads(tail)
-                            tail_content = obj.get("content") if isinstance(obj, dict) else None
+                            if isinstance(obj, dict):
+                                # Не эмитим финальный aiRecord/result JSON
+                                if ("aiRecord" in obj) or ("ai_record" in obj) or ("resultObject" in obj):
+                                    continue
+                                tail_content = obj.get("content")
+                            else:
+                                tail_content = None
                         except Exception:
                             tail_content = tail
                         if isinstance(tail_content, str):
