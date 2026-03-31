@@ -223,6 +223,30 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
         # "ðŸŒ" — это тот же 🌐, если где-то пошла неверная декодировка.
         return t.startswith("🌐 Crawling site") or t.startswith("ðŸŒ Crawling site")
 
+    def _is_tool_prefix_noise(s: str, expect_tool_args: bool) -> bool:
+        """
+        1min.ai иногда возвращает в content "tool ...", "read ...", "Content loaded."
+        и даже JSON-аргументы тулов как текст. Мы гасим это только в самом начале ответа.
+        """
+        if s is None:
+            return False
+        t = str(s).strip()
+        if t == "":
+            return True
+        if t == "tool":
+            return True
+        if t in ("memory_search", "read"):
+            return True
+        if t.lower().startswith("read /"):
+            return True
+        if t.lower().startswith("(calling "):
+            return True
+        if t.lower() in ("content loaded.", "content loaded"):
+            return True
+        if expect_tool_args and t.startswith("{") and t.endswith("}"):
+            return True
+        return False
+
     def _emit_delta(text: str):
         nonlocal all_chunks
         if not text:
@@ -248,7 +272,8 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
         # Поэтому сначала пытаемся распарсить как SSE и извлечь поле content.
         buffer = ""
         seen_sse = False
-        skipping_crawl_prefix = True
+        skipping_prefix = True
+        expect_tool_args = False
 
         for raw in response.iter_content(chunk_size=1024):
             if not raw:
@@ -262,6 +287,17 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
 
             if not seen_sse:
                 # Фоллбек: API шлёт просто текст.
+                if skipping_prefix:
+                    if _is_crawl_line(part):
+                        continue
+                    if _is_tool_prefix_noise(part, expect_tool_args):
+                        if part.strip() in ("memory_search", "read"):
+                            expect_tool_args = True
+                        elif expect_tool_args and part.strip().startswith("{") and part.strip().endswith("}"):
+                            expect_tool_args = False
+                        continue
+                    skipping_prefix = False
+                    expect_tool_args = False
                 yield from _emit_delta(part)
                 continue
 
@@ -299,13 +335,19 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                 if not isinstance(content, str):
                     continue
 
-                # Гасим "🌐 Crawling site ..." только в начале ответа.
-                if skipping_crawl_prefix and _is_crawl_line(content):
-                    continue
-                if skipping_crawl_prefix and content.strip() == "":
-                    # 1min.ai часто шлёт пустой content после crawl-линий.
-                    continue
-                skipping_crawl_prefix = False
+                # Гасим служебный префикс только в начале ответа.
+                if skipping_prefix:
+                    if _is_crawl_line(content):
+                        continue
+                    if _is_tool_prefix_noise(content, expect_tool_args):
+                        t = content.strip()
+                        if t in ("memory_search", "read"):
+                            expect_tool_args = True
+                        elif expect_tool_args and t.startswith("{") and t.endswith("}"):
+                            expect_tool_args = False
+                        continue
+                    skipping_prefix = False
+                    expect_tool_args = False
 
                 yield from _emit_delta(content)
 
@@ -322,8 +364,19 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                         except Exception:
                             tail_content = tail
                         if isinstance(tail_content, str):
-                            if not (skipping_crawl_prefix and _is_crawl_line(tail_content)):
-                                yield from _emit_delta(tail_content)
+                            if skipping_prefix:
+                                if _is_crawl_line(tail_content):
+                                    continue
+                                if _is_tool_prefix_noise(tail_content, expect_tool_args):
+                                    t = tail_content.strip()
+                                    if t in ("memory_search", "read"):
+                                        expect_tool_args = True
+                                    elif expect_tool_args and t.startswith("{") and t.endswith("}"):
+                                        expect_tool_args = False
+                                    continue
+                                skipping_prefix = False
+                                expect_tool_args = False
+                            yield from _emit_delta(tail_content)
             buffer = ""
         
         # Считаем токены

@@ -19,19 +19,68 @@ from .shared_func import (
 # ------------------------------------------------------------------#
 # 1min.ai иногда стримит "🌐 Crawling site ..." как часть контента.
 # Это служебный трейс: в UI он уходит в Related links, но в OpenAI-like
-# прокси его нужно убрать из текста ответа.
+# прокси его нужно убрать из текста ответа. 
 # ------------------------------------------------------------------#
 
-_CRAWL_LINE_RE = re.compile(
-    r"^(?:\s*(?:🌐|ðŸŒ)\s*Crawling site[^\n]*\r?\n)+",
-    re.UNICODE,
-)
-
 def strip_crawl_prefix(text: str) -> str:
+    """
+    Убирает служебный префикс провайдера в начале ответа.
+
+    1min.ai / совместимые провайдеры иногда добавляют в контент "🌐 Crawling site ..."
+    и/или "tool ... read ... Content loaded." в стиле UI/агента. Это не должно
+    попадать в OpenAI-like `assistant.content`.
+    """
     if not isinstance(text, str) or not text:
         return text or ""
-    # Убираем только ведущий блок crawl-строк, остальной текст не трогаем.
-    return _CRAWL_LINE_RE.sub("", text)
+
+    lines = text.splitlines(keepends=True)
+    out = []
+    skipping = True
+    expect_tool_args = False
+
+    def _is_crawl_line(line: str) -> bool:
+        t = (line or "").lstrip()
+        return "crawling site" in t.lower()
+
+    def _is_tool_noise(line: str) -> bool:
+        t = (line or "").strip()
+        if t == "":
+            return True
+        if t == "tool":
+            return True
+        if t in ("memory_search", "read"):
+            return True
+        if t.lower().startswith("read /"):
+            return True
+        if t.lower().startswith("(calling "):
+            return True
+        if t.lower() in ("content loaded.", "content loaded"):
+            return True
+        # Часто tool-аргументы приходят отдельной JSON-строкой после имени tool.
+        if expect_tool_args and t.startswith("{") and t.endswith("}"):
+            return True
+        return False
+
+    for line in lines:
+        if skipping:
+            if _is_crawl_line(line):
+                continue
+            t = (line or "").strip()
+            if t in ("memory_search", "read"):
+                expect_tool_args = True
+                continue
+            if expect_tool_args and t.startswith("{") and t.endswith("}"):
+                expect_tool_args = False
+                continue
+            if _is_tool_noise(line):
+                continue
+
+            skipping = False
+            expect_tool_args = False
+
+        out.append(line)
+
+    return "".join(out).lstrip("\n\r")
 
 #=================================================================#
 # ----------- Функции для работы с текстовыми моделями -----------#
