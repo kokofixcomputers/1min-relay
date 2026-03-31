@@ -8,6 +8,7 @@ ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
 ONE_MIN_CHAT_WITH_AI_URL = "https://api.1min.ai/api/chat-with-ai"
+ONE_MIN_DZINE_STYLES_URL = "https://api.1min.ai/api/dzine/styles"
 
 # Базовые заголовки для запросов к 1min.ai.
 # Некоторые маршруты 1min.ai возвращают "Unknown error (code: 406)" при отсутствии браузероподобных заголовков.
@@ -403,6 +404,10 @@ IMAGE_GENERATION_MODELS = [
     "stable-diffusion-v1-6",
     "midjourney",
     "midjourney_6_1",
+    # 1min.ai UI shows Midjourney as "switch to Magic Art"
+    # We keep these aliases for compatibility with clients that still send them.
+    "midjourney_5_2",
+    "midjourney_7_0",
     "phoenix",
     "lightning-xl",
     "anime-xl",
@@ -438,6 +443,16 @@ IMAGE_GENERATION_MODELS = [
     "recraft",
     "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
 ]
+
+# Model aliases for image generation/variation compatibility.
+# 1min.ai switched Midjourney models to Magic Art models in Image Generator UI.
+IMAGE_MODEL_ALIASES = {
+    # Midjourney -> Magic Art (per 1min.ai UI wording: "switch to Magic Art")
+    "midjourney": "magic-art",
+    "midjourney_5_2": "magic-art",
+    "midjourney_6_1": "magic-art_6_1",
+    "midjourney_7_0": "magic-art_7_0",
+}
 
 # Models that support images
 VARIATION_SUPPORTED_MODELS = [

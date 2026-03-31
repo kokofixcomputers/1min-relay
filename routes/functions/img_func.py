@@ -30,6 +30,11 @@ from .shared_func import format_image_response
 def build_generation_payload(model, prompt, request_data, negative_prompt, aspect_ratio, size, mode, request_id):
     """Build payload for image generation based on model."""
     payload = {}
+    # Normalize model aliases (e.g., Midjourney -> Magic Art).
+    alias_target = IMAGE_MODEL_ALIASES.get(model)
+    if alias_target:
+        logger.info(f"[{request_id}] Image model alias: {model} -> {alias_target}")
+        model = alias_target
     if model == "dall-e-3":
         # Проверяем, входит ли размер в список разрешенных для DALL-E 3
         gen_size = size or request_data.get("size", "1024x1024")
@@ -79,20 +84,35 @@ def build_generation_payload(model, prompt, request_data, negative_prompt, aspec
             },
         }
     elif model in ["stable-image", "stable-image-ultra"]:
-        # Stability "Stable Image" models (core/ultra)
-        # Keep payload minimal; upstream will validate options.
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": model,
-            "promptObject": {
-                "prompt": prompt,
-                "n": request_data.get("n", 1),
-                # Some backends accept aspect_ratio; ignore if missing/unsupported.
-                "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
-            },
-        }
+        # Stable Image Core / Ultra (1min.ai docs use stable_image_core_* keys for Core)
+        # See: https://docs.1min.ai/docs/api/ai-for-image/image-generator/stable-diffusion-core-image-generation
+        prompt_obj = {"prompt": prompt}
         if negative_prompt or request_data.get("negativePrompt"):
-            payload["promptObject"]["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
+            prompt_obj["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
+
+        ar_val = aspect_ratio or request_data.get("aspect_ratio") or "1:1"
+        out_fmt = request_data.get("output_format") or request_data.get("stable_image_output_format") or "png"
+        seed_val = request_data.get("seed")
+        style_preset = request_data.get("style_preset") or request_data.get("stable_image_style_preset")
+
+        if model == "stable-image":
+            prompt_obj["stable_image_core_aspect_ratio"] = ar_val
+            prompt_obj["stable_image_core_output_format"] = out_fmt
+            if seed_val is not None:
+                prompt_obj["stable_image_core_seed"] = seed_val
+            if style_preset:
+                prompt_obj["stable_image_core_style_preset"] = style_preset
+        else:
+            # Ultra docs naming may differ; keep a conservative payload and pass only common fields + aspect ratio
+            # (unknown keys can be rejected upstream).
+            prompt_obj["aspect_ratio"] = ar_val
+            prompt_obj["output_format"] = request_data.get("output_format", "png")
+            if seed_val is not None:
+                prompt_obj["seed"] = seed_val
+            if style_preset:
+                prompt_obj["style_preset"] = style_preset
+
+        payload = {"type": "IMAGE_GENERATOR", "model": model, "promptObject": prompt_obj}
     elif model in ["gpt-image-1", "gpt-image-1-mini"]:
         # OpenAI image models via 1min.ai Image Generator
         payload = {
@@ -106,18 +126,130 @@ def build_generation_payload(model, prompt, request_data, negative_prompt, aspec
             },
         }
     elif model in ["magic-art", "magic-art_6_1", "magic-art_7_0"]:
+        # Magic Art models use aspect_width/aspect_height and n fixed at 4.
+        # Docs example: https://docs.1min.ai/docs/api/ai-for-image/image-generator/magic-art-5.2-image-generation
+        try:
+            ar_parts = tuple(map(int, (aspect_ratio or "1:1").split(":")))
+        except Exception:
+            ar_parts = (1, 1)
+        prompt_obj = {
+            "prompt": prompt,
+            "mode": mode or request_data.get("mode", "fast"),
+            "n": 4,
+            "isNiji6": request_data.get("isNiji6", False),
+            "maintainModeration": request_data.get("maintainModeration", True),
+            "aspect_width": ar_parts[0],
+            "aspect_height": ar_parts[1],
+        }
+        # Optional Magic Art params (pass-through if provided)
+        if negative_prompt or request_data.get("negativePrompt"):
+            prompt_obj["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
+        for k in [
+            "no",
+            "image_weight",
+            "seed",
+            "tile",
+            "stylize",
+            "chaos",
+            "weird",
+            "character_reference",
+            "style_reference",
+            # Magic Art 7.0 omni-reference fields
+            "omni_reference",
+            "omni_reference_weight",
+        ]:
+            if k in request_data and request_data.get(k) is not None and request_data.get(k) != "":
+                prompt_obj[k] = request_data.get(k)
+        payload = {"type": "IMAGE_GENERATOR", "model": model, "promptObject": prompt_obj}
+    elif model == "dzine":
+        # Dzine requires style_code/style_base_model/quality/output_format (docs).
+        # https://docs.1min.ai/docs/api/ai-for-image/image-generator/dzine-image-generation
+        style_code = request_data.get("style_code")
+        style_base_model = request_data.get("style_base_model")
+        quality = request_data.get("quality")
+        output_format = request_data.get("output_format")
+        n_val = request_data.get("n", 1)
+        try:
+            n_val = int(n_val)
+        except Exception:
+            n_val = 1
+        n_val = max(1, min(4, n_val))
+
+        # If required fields are missing, try to pick "No Style" automatically using Dzine styles API.
+        if not style_code or not style_base_model:
+            try:
+                # api_key is expected to be provided via request headers (OpenAI-like Authorization)
+                auth_header = request.headers.get("Authorization", "")
+                api_key = auth_header.replace("Bearer ", "") if auth_header.startswith("Bearer ") else ""
+                if api_key:
+                    cache_key = "dzine:default_style"
+                    cached = safe_memcached_operation('get', cache_key)
+                    default_style = None
+                    if cached:
+                        try:
+                            if isinstance(cached, (bytes, bytearray)):
+                                cached = cached.decode("utf-8")
+                            default_style = json.loads(cached) if isinstance(cached, str) else cached
+                        except Exception:
+                            default_style = None
+                    if not default_style:
+                        sess = create_session()
+                        try:
+                            resp = api_request("GET", ONE_MIN_DZINE_STYLES_URL, headers={"API-KEY": api_key}, timeout=DEFAULT_TIMEOUT)
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                styles = data.get("styleList", []) if isinstance(data, dict) else []
+                                pick = None
+                                for s in styles:
+                                    if isinstance(s, dict) and "name" in s and "no style" in str(s["name"]).lower():
+                                        pick = s
+                                        break
+                                if not pick and styles:
+                                    pick = styles[0] if isinstance(styles[0], dict) else None
+                                if pick:
+                                    default_style = {
+                                        "style_code": pick.get("style_code"),
+                                        "style_base_model": pick.get("base_model"),
+                                    }
+                                    safe_memcached_operation('set', cache_key, json.dumps(default_style), expiry=3600 * 24)
+                        finally:
+                            try:
+                                sess.close()
+                            except Exception:
+                                pass
+                    if default_style:
+                        style_code = style_code or default_style.get("style_code")
+                        style_base_model = style_base_model or default_style.get("style_base_model")
+            except Exception:
+                pass
+
+        if not style_code or not style_base_model:
+            return None, (jsonify({
+                "error": "Dzine requires 'style_code' and 'style_base_model'. Provide them (or ensure API key can access /api/dzine/styles)."
+            }), 400)
+
         payload = {
             "type": "IMAGE_GENERATOR",
-            "model": model,
+            "model": "dzine",
             "promptObject": {
                 "prompt": prompt,
-                "n": request_data.get("n", 1),
-                "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
+                "style_code": style_code,
+                "style_base_model": style_base_model,
+                "quality": quality or "STANDARD",
+                "n": n_val,
+                "output_format": output_format or "webp",
+                "size": size or request_data.get("size", "1024x1024"),
             },
         }
-        if negative_prompt or request_data.get("negativePrompt"):
-            payload["promptObject"]["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
-    elif model in ["dzine", "recraft"]:
+        if request_data.get("style_intensity") is not None:
+            payload["promptObject"]["style_intensity"] = request_data.get("style_intensity")
+        if request_data.get("seed") is not None:
+            payload["promptObject"]["seed"] = request_data.get("seed")
+        if request_data.get("face_match") is not None:
+            payload["promptObject"]["face_match"] = request_data.get("face_match")
+        if request_data.get("face_match_image"):
+            payload["promptObject"]["face_match_image"] = request_data.get("face_match_image")
+    elif model == "recraft":
         payload = {
             "type": "IMAGE_GENERATOR",
             "model": model,
@@ -157,32 +289,7 @@ def build_generation_payload(model, prompt, request_data, negative_prompt, aspec
                 "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
             },
         }
-    elif model in ["midjourney", "midjourney_6_1"]:
-        # Parse aspect ratio parts (default 1:1)
-        try:
-            ar_parts = tuple(map(int, aspect_ratio.split(":"))) if aspect_ratio else (1, 1)
-        except Exception:
-            ar_parts = (1, 1)
-        model_name = "midjourney" if model == "midjourney" else "midjourney_6_1"
-        payload = {
-            "type": "IMAGE_GENERATOR",
-            "model": model_name,
-            "promptObject": {
-                "prompt": prompt,
-                "mode": mode or request_data.get("mode", "fast"),
-                "n": 4,
-                "aspect_width": ar_parts[0],
-                "aspect_height": ar_parts[1],
-                "isNiji6": request_data.get("isNiji6", False),
-                "maintainModeration": request_data.get("maintainModeration", True),
-                "image_weight": request_data.get("image_weight", 1),
-                "weird": request_data.get("weird", 0),
-            },
-        }
-        if negative_prompt or request_data.get("negativePrompt"):
-            payload["promptObject"]["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
-        if request_data.get("no", ""):
-            payload["promptObject"]["no"] = request_data.get("no", "")
+    # NOTE: Midjourney models are handled via IMAGE_MODEL_ALIASES -> Magic Art above.
     elif model in ["black-forest-labs/flux-schnell", "flux-schnell",
                    "black-forest-labs/flux-dev", "flux-dev",
                    "black-forest-labs/flux-pro", "flux-pro",
@@ -442,6 +549,12 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
             mode = generation_params.get("mode")
             logger.debug(f"[{request_id}] Using saved mode: {mode}")
     
+    # Normalize model aliases (e.g., Midjourney -> Magic Art) BEFORE variation checks.
+    alias_target = IMAGE_MODEL_ALIASES.get(user_model)
+    if alias_target:
+        logger.info(f"[{request_id}] Image variation model alias: {user_model} -> {alias_target}")
+        user_model = alias_target
+
     # Variations are allowed only for models that are BOTH generator+variator.
     if user_model not in IMAGE_VARIATION_MODELS:
         logger.warning(f"[{request_id}] Model {user_model} does not support variations (not in IMAGE_VARIATION_MODELS)")

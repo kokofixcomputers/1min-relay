@@ -40,6 +40,11 @@ def generate_image():
     request_data = request.get_json()
 
     model = request_data.get("model", "dall-e-3").strip()
+    # Normalize image model aliases (Midjourney -> Magic Art).
+    alias_target = IMAGE_MODEL_ALIASES.get(model)
+    if alias_target:
+        logger.info(f"[{request_id}] Image model alias: {model} -> {alias_target}")
+        model = alias_target
     prompt = request_data.get("prompt", "").strip()
 
     # Если запрос пришёл с chat/completions – используем только последний запрос пользователя
@@ -80,7 +85,8 @@ def generate_image():
 
     try:
         api_url = f"{ONE_MIN_API_URL}"
-        timeout = MIDJOURNEY_TIMEOUT if model in ["midjourney", "midjourney_6_1"] else DEFAULT_TIMEOUT
+        # Magic Art can be slow; keep the longer timeout for former Midjourney-like models
+        timeout = MIDJOURNEY_TIMEOUT if model in ["magic-art", "magic-art_6_1", "magic-art_7_0"] else DEFAULT_TIMEOUT
 
         payload, payload_error = build_generation_payload(model, prompt, request_data, negative_prompt, aspect_ratio, size, mode, request_id)
         if payload_error:
@@ -111,8 +117,8 @@ def generate_image():
             return jsonify({"error": "Could not extract image URLs from API response"}), 500
 
         logger.debug(f"[{request_id}] Successfully generated {len(image_urls)} images")
-        # Сохраняем параметры генерации для Midjourney
-        if model in ["midjourney", "midjourney_6_1"]:
+        # Сохраняем параметры генерации для Magic Art (бывший midjourney flow)
+        if model in ["magic-art", "magic-art_6_1", "magic-art_7_0"]:
             for url in image_urls:
                 if url:
                     image_id_match = re.search(r'images/(\d+_\d+_\d+_\d+_\d+_\d+|\w+\d+)\.png', url)
@@ -246,6 +252,11 @@ def image_variations():
 
     image_file = request.files["image"]
     original_model = request.form.get("model", "dall-e-2").strip()
+    # Normalize image model aliases (Midjourney -> Magic Art).
+    alias_target = IMAGE_MODEL_ALIASES.get(original_model)
+    if alias_target:
+        logger.info(f"[{request_id}] Image variation model alias: {original_model} -> {alias_target}")
+        original_model = alias_target
     n = int(request.form.get("n", 1))
     size = request.form.get("size", "1024x1024")
     prompt_text = request.form.get("prompt", "")
