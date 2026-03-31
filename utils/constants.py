@@ -276,10 +276,20 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     # "elevenlabs-tts"         # ElevenLabs - TTS
 ]
 
-# Define the models that support vision inputs
-VISION_SUPPORTED_MODELS = [
+# ------------------------------------------------------------------
+# Vision / images-in-chat compatibility
+#
+# Important: 1min.ai lists different model sets for:
+# - Chat with Image (CHAT_WITH_IMAGE feature)
+# - Chat with AI (UNIFY_CHAT_WITH_AI with attachments.images)
+# This proxy uses UNIFY_CHAT_WITH_AI for OpenAI-like chat, so we keep a
+# separate allow-list for that path.
+# ------------------------------------------------------------------
+
+# Models supported by the dedicated AI Feature "Chat with Image" endpoint/type.
+VISION_SUPPORTED_MODELS_CHAT_WITH_IMAGE = [
     # Per official "Chat with Image" available models (docs.1min.ai)
-    # Keep this list tight to avoid advertising unsupported vision models.
+    # https://docs.1min.ai/docs/api/ai-for-image/chat-with-image/
     # Alibaba (Qwen VL)
     "qwen3-vl-plus",
     "qwen3-vl-flash",
@@ -307,8 +317,33 @@ VISION_SUPPORTED_MODELS = [
     "gpt-4-turbo",
     # xAI
     "grok-4-fast-reasoning",
-    "grok-4-fast-non-reasoning"
+    "grok-4-fast-non-reasoning",
 ]
+
+# Models expected to work with UNIFY_CHAT_WITH_AI + attachments.images.
+# This is the list used by the OpenAI-like chat endpoint (/v1/chat/completions).
+#
+# We keep this as a conservative superset of Chat-with-Image models plus models
+# explicitly listed in Chat-with-AI available models that are known to have
+# image modality in practice (OpenAI gpt-4.1 family, Claude 4.6, Gemini 3.1).
+VISION_SUPPORTED_MODELS_UNIFY_CHAT_WITH_AI = sorted(
+    set(
+        VISION_SUPPORTED_MODELS_CHAT_WITH_IMAGE
+        + [
+            # OpenAI (Chat with AI API list includes gpt-4.1; commonly vision-capable)
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-5-nano",
+            # Anthropic (Chat with AI API list)
+            "claude-sonnet-4-6",
+            "claude-opus-4-6",
+            # GoogleAI (Chat with AI API list)
+            "gemini-3.1-pro-preview",
+            "gemini-3.1-flash-lite-preview",
+        ]
+    )
+)
 
 # Define the models that support code interpreter
 CODE_INTERPRETER_SUPPORTED_MODELS = [

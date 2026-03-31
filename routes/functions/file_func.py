@@ -87,7 +87,7 @@ def upload_asset(file_data, filename, mime_type, api_key, request_id=None, file_
         file_type: Тип файла (DOC/DOCX) для специальной обработки
         
     Returns:
-        tuple: (asset_id, asset_path, error_response)
+        tuple: (asset_id, asset_path, asset_location, error_response)
     """
     try:
         session = create_session()
@@ -107,10 +107,14 @@ def upload_asset(file_data, filename, mime_type, api_key, request_id=None, file_
             
         response_data = response.json()
         
-        # Извлекаем ID и путь файла
+        # Извлекаем ID / путь / location файла
         asset_id = None
         asset_path = None
+        asset_location = None
         
+        if isinstance(response_data.get("asset"), dict):
+            asset_location = response_data["asset"].get("location") or None
+
         if "id" in response_data:
             asset_id = response_data["id"]
         elif "fileContent" in response_data:
@@ -123,14 +127,14 @@ def upload_asset(file_data, filename, mime_type, api_key, request_id=None, file_
                 asset_path = response_data["fileContent"]["path"]
                 
         if not asset_id and not asset_path:
-            return None, None, (jsonify({"error": "Could not extract asset information"}), 500)
+            return None, None, None, (jsonify({"error": "Could not extract asset information"}), 500)
             
         logger.debug(f"[{request_id}] Successfully uploaded asset: id={asset_id}, path={asset_path}")
-        return asset_id, asset_path, None
+        return asset_id, asset_path, asset_location, None
         
     except Exception as e:
         logger.error(f"[{request_id}] Error uploading asset: {str(e)}")
-        return None, None, (jsonify({"error": str(e)}), 500)
+        return None, None, None, (jsonify({"error": str(e)}), 500)
     finally:
         session.close()
 

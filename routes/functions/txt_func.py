@@ -144,7 +144,8 @@ def get_model_capabilities(model):
     }
 
     # We check the support of each opportunity through the corresponding arrays
-    capabilities["vision"] = model in VISION_SUPPORTED_MODELS
+    # OpenAI-like chat uses UNIFY_CHAT_WITH_AI + attachments.images
+    capabilities["vision"] = model in VISION_SUPPORTED_MODELS_UNIFY_CHAT_WITH_AI
     capabilities["code_interpreter"] = model in CODE_INTERPRETER_SUPPORTED_MODELS
     capabilities["retrieval"] = model in RETRIEVAL_SUPPORTED_MODELS
     capabilities["function_calling"] = model in FUNCTION_CALLING_SUPPORTED_MODELS
@@ -196,6 +197,10 @@ def prepare_payload(
                     logger.debug(
                         f"[{request_id}] Model {model} does not support code interpreter, ignoring tool"
                     )
+            elif tool_type == "function":
+                # Minimal compatibility: accept OpenAI function tools without failing.
+                # 1min.ai UNIFY_CHAT_WITH_AI tool-calling is not wired here; we ignore.
+                continue
             else:
                 logger.debug(f"[{request_id}] Ignoring unsupported tool: {tool_type}")
 
@@ -266,6 +271,13 @@ def prepare_payload(
             "numOfSite": num_of_site,
             "maxWord": max_word,
         }
+
+    # code_interpreter: OpenAI-like clients may request this via tools.
+    # 1min.ai doesn't document a stable toggle for UNIFY_CHAT_WITH_AI, but some backends
+    # accept it. We only include it when model is allow-listed; if ignored, it's a no-op.
+    if code_interpreter and capabilities["code_interpreter"]:
+        settings_obj["codeInterpreterSettings"] = {"codeInterpreter": True}
+
     settings_obj["historySettings"] = {
         "isMixed": bool(request_data.get("is_mixed", False) or request_data.get("isMixed", False)),
         "historyMessageLimit": int(request_data.get("history_message_limit", 10) or request_data.get("historyMessageLimit", 10) or 10),

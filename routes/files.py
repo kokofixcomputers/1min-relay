@@ -81,7 +81,7 @@ def handle_files():
             file_size = len(file_content)
             
             # Загружаем файл
-            file_id, file_path, error = upload_asset(
+            file_id, file_path, file_location, error = upload_asset(
                 file_content,
                 file.filename,
                 mime_type,
@@ -101,7 +101,10 @@ def handle_files():
                 "id": file_id,
                 "filename": file.filename,
                 "bytes": file_size,
-                "created_at": int(time.time())
+                "created_at": int(time.time()),
+                # Needed to support /v1/files/<id>/content downloads.
+                "path": file_path,
+                "location": file_location,
             }
             user_files.append(file_info)
             
@@ -218,9 +221,41 @@ def handle_file_content(file_id):
             logger.error(f"[{request_id}] File {file_id} not found")
             return jsonify({"error": f"File {file_id} not found"}), 404
             
-        # В 1min.ai нет API для получения содержимого файла по ID
-        logger.error(f"[{request_id}] File content retrieval not supported")
-        return jsonify({"error": "File content retrieval not supported"}), 501
+        # Пробуем отдать содержимое по сохранённым метаданным Asset API.
+        # Мы сохраняем:
+        # - file_info['location'] (asset.location, если пришёл)
+        # - file_info['path'] (fileContent.path) → https://asset.1min.ai/<path>
+        download_url = (file_info.get("location") or "").strip() or None
+        asset_path = (file_info.get("path") or "").strip() or None
+        if not download_url and asset_path:
+            # asset_path обычно вида "documents/....pdf" / "images/....png"
+            download_url = f"https://asset.1min.ai/{asset_path.lstrip('/')}"
+
+        if not download_url:
+            logger.error(f"[{request_id}] No asset location/path stored for file {file_id}")
+            return jsonify({"error": "File content not available (missing asset metadata)"}), 409
+
+        mime_type, _ = get_mime_type(file_info.get("filename") or "")
+
+        try:
+            r = requests.get(download_url, stream=True, timeout=60)
+            if r.status_code != 200:
+                logger.error(f"[{request_id}] Failed to download file content: {r.status_code}")
+                return jsonify({"error": "Failed to download file content"}), 502
+
+            def generate():
+                for chunk in r.iter_content(chunk_size=1024 * 64):
+                    if chunk:
+                        yield chunk
+
+            resp = Response(generate(), mimetype=mime_type)
+            filename = (file_info.get("filename") or f"file_{file_id}").replace('"', "")
+            resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+            set_response_headers(resp)
+            return resp
+        except Exception as e:
+            logger.error(f"[{request_id}] Exception downloading file content: {str(e)}")
+            return jsonify({"error": str(e)}), 500
 
     except Exception as e:
         logger.error(f"[{request_id}] Exception during file content request: {str(e)}")
