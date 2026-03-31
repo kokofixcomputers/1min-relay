@@ -13,6 +13,7 @@
 - `set_response_headers`: Устанавливает заголовки ответов для CORS
 - `create_session`: Создает сессию для API-запросов
 - `api_request`: Выполняет запросы к внешним API с обработкой ошибок
+- `api_request_with_websearch_degradation`: Повторяет запрос без webSearch при ошибке upstream `400` (best-effort) и сообщает об этом через заголовок `X-WebSearch-Degraded`
 - `safe_temp_file`: Создает временный файл с правильным управлением ресурсами
 - `calculate_token`: Рассчитывает количество токенов в тексте с помощью tiktoken
 
@@ -33,6 +34,9 @@
 - `MEMORY_STORAGE`: Словарь для временного хранения
 - `safe_memcached_operation`: Безопасно выполняет операции с memcached
 - `delete_all_files_task`: Периодически удаляет устаревшие файлы пользователей
+
+### Динамический реестр моделей: `1min-relay/utils/model_registry.py`
+- `get_model_registry_data`: Best-effort получает живой список моделей из upstream 1min.ai по feature-фильтрам и кэширует (in-memory + memcached). При сбоях возвращает fallback (статический список).
 
 ## Функции
 
@@ -91,6 +95,9 @@
 - `/v1/models`: Возвращает список доступных моделей
 - `/v1/chat/completions`: Обрабатывает запросы на завершение чата
 - Различные другие конечные точки текстовых моделей
+
+### Responses маршрут: `1min-relay/routes/responses.py`
+- `/v1/responses`: OpenAI Responses API (best-effort, non-stream). Поддерживает `input` или `messages`, `response_format` (`json_object`/`json_schema`) и `reasoning_effort` как подсказку модели.
 
 Примечание: `/v1/chat/completions` проксируется в upstream **Chat with AI API** (`/api/chat-with-ai`) с типом `UNIFY_CHAT_WITH_AI`.
 

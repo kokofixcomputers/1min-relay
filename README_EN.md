@@ -5,11 +5,14 @@
 
 ## Features
 - Fully compatible with the OpenAI API, including chat/completions, images, audio, and files
+- Added an OpenAI-compatible **`POST /v1/responses`** endpoint (best-effort) for clients/SDKs that use the Responses API
 - Supports a large number of models from various providers: OpenAI, Claude, Mistral, Google, and others
 - Works with different types of requests: text, images, audio, and files
 - Implements data streaming
 - Has a rate limiting function using Memcached
 - Allows you to set a subset of allowed models through environment variables
+- **Best-effort dynamic `/v1/models`**: when an API key is provided, the server can fetch a live model list from upstream with caching (otherwise falls back to the static list)
+- **Graceful web_search degradation**: if upstream returns `400` when webSearch is enabled, the proxy retries once with webSearch disabled and sets `X-WebSearch-Degraded: true`
 - Optimized modular structure with minimal code duplication
 
 ## 1min.ai API Notes (Upstream)
@@ -151,6 +154,20 @@ Authorization: Bearer your-1min-api-key
 ### Streaming
 For `stream: true` on `/v1/chat/completions`, the server will stream responses as **OpenAI-style SSE** (`data: {...}\n\n` + `data: [DONE]`),
 while consuming the upstream 1min.ai SSE events (`event: content/result/done/error`).
+
+### Responses API (best-effort)
+The server also supports `POST /v1/responses` (non-streaming). Example:
+
+```bash
+curl http://localhost:5001/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-1min-api-key" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "input": "Return a JSON object with ok=true",
+    "response_format": { "type": "json_object" }
+  }'
+```
 
 ## Launching Using Docker
 You can also run the server in a Docker container:

@@ -13,6 +13,7 @@
 - `set_response_headers`: Sets response headers for CORS
 - `create_session`: Creates a session for API requests
 - `api_request`: Makes requests to external APIs with error handling
+- `api_request_with_websearch_degradation`: Retries once with webSearch disabled on upstream `400` (best-effort) and indicates this via `X-WebSearch-Degraded`
 - `safe_temp_file`: Creates a temporary file with proper resource management
 - `calculate_token`: Calculates the number of tokens in a text using tiktoken
 
@@ -33,6 +34,9 @@
 - `MEMORY_STORAGE`: Dictionary for temporary storage
 - `safe_memcached_operation`: Safely performs operations on memcached
 - `delete_all_files_task`: Periodically cleans up outdated user files
+
+### Dynamic model registry: `1min-relay/utils/model_registry.py`
+- `get_model_registry_data`: Best-effort fetches a live model list from upstream 1min.ai using feature filters and caches it (in-memory + memcached). Falls back to the static list on failure.
 
 ## Functions
 
@@ -91,6 +95,9 @@
 - `/v1/models`: Returns a list of available models
 - `/v1/chat/completions`: Handles chat completion requests
 - Various other text model endpoints
+
+### Responses route: `1min-relay/routes/responses.py`
+- `/v1/responses`: OpenAI Responses API (best-effort, non-stream). Supports `input` or `messages`, `response_format` (`json_object`/`json_schema`), and `reasoning_effort` as a hint.
 
 Note: `/v1/chat/completions` is proxied to the upstream **Chat with AI API** endpoint (`/api/chat-with-ai`) using the `UNIFY_CHAT_WITH_AI` type.
 

@@ -5,11 +5,14 @@
 
 ## Особенности
 - Полностью совместим с OpenAI API, включая chat/completions, images, audio и files
+- Добавлен OpenAI-совместимый endpoint **`POST /v1/responses`** (best-effort) для клиентов/SDK, которые используют Responses API
 - Поддерживает большое количество моделей от различных провайдеров: OpenAI, Claude, Mistral, Google и других
 - Работает с различными типами запросов: текстовыми, изображениями, аудио и файлами
 - Реализует потоковую передачу данных (streaming)
 - Имеет функцию ограничения запросов (rate limiting) с использованием Memcached
 - Позволяет задать подмножество разрешенных моделей через переменные окружения
+- **Динамический `/v1/models` (best-effort)**: при наличии API-ключа может подтягивать живой список моделей из upstream и кэшировать (иначе использует статический список)
+- **Graceful degradation web_search**: если upstream возвращает `400` при включенном webSearch, прокси повторяет запрос без webSearch и ставит заголовок `X-WebSearch-Degraded: true`
 - Оптимизированная модульная структура с минимальным дублированием кода
 
 ## Примечания по upstream 1min.ai API
@@ -151,6 +154,20 @@ Authorization: Bearer your-1min-api-key
 ### Потоковый режим (streaming)
 Если вы передаёте `stream: true` в `/v1/chat/completions`, сервер вернёт **OpenAI-style SSE** (`data: {...}\n\n` + `data: [DONE]`),
 а upstream 1min.ai будет потребляться как SSE-события `event: content/result/done/error`.
+
+### Responses API (best-effort)
+Также поддерживается `POST /v1/responses` (нестриминговый). Пример запроса:
+
+```bash
+curl http://localhost:5001/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-1min-api-key" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "input": "Return a JSON object with ok=true",
+    "response_format": { "type": "json_object" }
+  }'
+```
 
 ## Запуск с использованием Docker
 Вы также можете запустить сервер в Docker-контейнере:
