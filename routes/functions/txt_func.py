@@ -328,13 +328,6 @@ def prepare_payload(
             else:
                 logger.debug(f"[{request_id}] Ignoring unsupported tool: {tool_type}")
 
-    # Tools: function-calling emulation for OpenAI-like clients (OpenClaw, etc.)
-    tools = request_data.get("tools", []) or []
-    if tools and capabilities.get("function_calling"):
-        instr = _build_tool_calling_instructions(tools)
-        if instr:
-            prompt_text = f"{instr}\n\n{prompt_text}"
-
     # We check the direct parameters 1min.ai
     if not web_search and request_data.get("web_search", False):
         if capabilities["retrieval"]:
@@ -395,13 +388,20 @@ def prepare_payload(
         if not prompt_text.strip().startswith(DOCUMENT_ANALYSIS_INSTRUCTION):
             prompt_text = f"{DOCUMENT_ANALYSIS_INSTRUCTION}\n\n{prompt_text}"
 
+    # Tools: function-calling emulation for OpenAI-like clients (OpenClaw, etc.)
+    tools = request_data.get("tools", []) or []
+    if tools and capabilities.get("function_calling"):
+        instr = _build_tool_calling_instructions(tools)
+        if instr:
+            prompt_text = f"{instr}\n\n{prompt_text}"
+
     settings_obj = {}
-    if web_search:
-        settings_obj["webSearchSettings"] = {
-            "webSearch": True,
-            "numOfSite": num_of_site,
-            "maxWord": max_word,
-        }
+    # Align with the shape used by OpenClaw 1min.ai plugin: always include webSearchSettings (webSearch defaults to false)
+    settings_obj["webSearchSettings"] = {
+        "webSearch": bool(web_search),
+        "numOfSite": num_of_site,
+        "maxWord": max_word,
+    }
 
     # code_interpreter: OpenAI-like clients may request this via tools.
     # 1min.ai doesn't document a stable toggle for UNIFY_CHAT_WITH_AI, but some backends
@@ -413,8 +413,8 @@ def prepare_payload(
         "isMixed": bool(request_data.get("is_mixed", False) or request_data.get("isMixed", False)),
         "historyMessageLimit": int(request_data.get("history_message_limit", 10) or request_data.get("historyMessageLimit", 10) or 10),
     }
-    if "with_memories" in request_data or "withMemories" in request_data:
-        settings_obj["withMemories"] = bool(request_data.get("with_memories", False) or request_data.get("withMemories", False))
+    # Align with plugin: always include withMemories (defaults to false)
+    settings_obj["withMemories"] = bool(request_data.get("with_memories", False) or request_data.get("withMemories", False))
 
     attachments = {}
     if image_paths:
