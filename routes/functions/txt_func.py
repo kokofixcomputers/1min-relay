@@ -390,7 +390,7 @@ def prepare_payload(
 
     # Tools: function-calling emulation for OpenAI-like clients (OpenClaw, etc.)
     tools = request_data.get("tools", []) or []
-    if tools and capabilities.get("function_calling"):
+    if tools and bool(request_data.get("_openclaw")) and capabilities.get("function_calling"):
         instr = _build_tool_calling_instructions(tools)
         if instr:
             prompt_text = f"{instr}\n\n{prompt_text}"
