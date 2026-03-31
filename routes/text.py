@@ -1090,6 +1090,18 @@ def conversation():
             "Referer": "https://app.1min.ai/",
         }
 
+        def _is_effectively_empty(s) -> bool:
+            """
+            Treat whitespace and common zero-width characters as empty.
+            Some upstreams return only zero-width chars which `.strip()` won't remove.
+            """
+            if not isinstance(s, str):
+                return True
+            t = s
+            # remove common zero-width / BOM
+            t = t.replace("\u200b", "").replace("\ufeff", "").replace("\u2060", "")
+            return not t.strip()
+
         # Request depending on Stream
         if request_data.get("stream", False):
             # OpenClaw: tool calling probe (single upstream non-stream call)
@@ -1125,7 +1137,7 @@ def conversation():
 
                     # Some upstreams return empty content for non-stream calls, while streaming has content/tool traces.
                     # If probe returned empty, fall back to upstream streaming, collect full content, then decide again.
-                    if not (full_content or "").strip():
+                    if _is_effectively_empty(full_content or ""):
                         try:
                             streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
                             stream_headers = dict(headers)
@@ -1342,7 +1354,7 @@ def conversation():
                     try:
                         choice0 = (transformed_response.get("choices") or [{}])[0] or {}
                         msg0 = (choice0.get("message") or {}) if isinstance(choice0.get("message"), dict) else {}
-                        if not (msg0.get("content") or "").strip() and not msg0.get("tool_calls"):
+                        if _is_effectively_empty(msg0.get("content") or "") and not msg0.get("tool_calls"):
                             streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
                             stream_headers = dict(headers)
                             stream_headers["Accept"] = "text/event-stream"
