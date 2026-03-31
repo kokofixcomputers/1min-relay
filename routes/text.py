@@ -136,13 +136,12 @@ def conversation():
             else:
                 logger.warning(f"[{request_id}] Model {model} does not support web search, ignoring request")
 
-        # If tools include function calling, we currently emulate tool-calling via JSON-in-text.
-        # Streaming + tool calls is ambiguous for many OpenAI-like clients; force non-stream to keep compatibility.
+        # If tools include function calling, we currently do NOT implement true tool-calling.
+        # We keep streaming enabled because many clients always include function tools; disabling streaming breaks UX.
+        # Tool-calling is best-effort and may be ignored downstream.
         has_function_tools = any(isinstance(t, dict) and t.get("type") == "function" for t in (tools or []))
-        if has_function_tools and capabilities.get("function_calling"):
-            if request_data.get("stream"):
-                logger.info(f"[{request_id}] Disabling streaming due to function tools (tool-calling emulation)")
-            request_data["stream"] = False
+        if has_function_tools and request_data.get("stream"):
+            logger.info(f"[{request_id}] Function tools present; keeping streaming enabled (tool-calling not enforced)")
 
         # We extract the contents of the last message for possible generation of images
         messages = request_data.get("messages", [])
