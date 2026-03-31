@@ -1143,8 +1143,14 @@ def conversation():
                     except Exception:
                         upstream_output_tokens = 0
 
+                    usage0 = transformed_response.get("usage") if isinstance(transformed_response, dict) else None
+                    try:
+                        completion_tokens0 = int((usage0 or {}).get("completion_tokens") or 0)
+                    except Exception:
+                        completion_tokens0 = 0
+
                     should_force_stream_fallback = (
-                        upstream_output_tokens == 0
+                        (upstream_output_tokens == 0 or completion_tokens0 == 0)
                         and not msg.get("tool_calls")
                     )
 
