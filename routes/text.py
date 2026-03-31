@@ -1122,6 +1122,93 @@ def conversation():
                     # Otherwise: keep streaming UX by emulating SSE from the final content.
                     msg = (choice0.get("message") or {}) if isinstance(choice0.get("message"), dict) else {}
                     full_content = msg.get("content") or ""
+
+                    # Some upstreams return empty content for non-stream calls, while streaming has content/tool traces.
+                    # If probe returned empty, fall back to upstream streaming, collect full content, then decide again.
+                    if not full_content:
+                        try:
+                            streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
+                            stream_headers = dict(headers)
+                            stream_headers["Accept"] = "text/event-stream"
+                            session = create_session()
+                            rs = session.post(streaming_url, json=payload, headers=stream_headers, stream=True)
+                            logger.debug(f"[{request_id}] OpenClaw probe-empty fallback stream status: {rs.status_code}")
+                            if rs.status_code == 200:
+                                buffer = ""
+                                collected = ""
+                                seen_sse = False
+                                for raw in rs.iter_content(chunk_size=1024):
+                                    if not raw:
+                                        continue
+                                    part = raw.decode("utf-8", errors="replace")
+                                    buffer += part
+                                    if not seen_sse and ("event:" in buffer or "data:" in buffer):
+                                        seen_sse = True
+
+                                    if not seen_sse:
+                                        collected += part
+                                        continue
+
+                                    while "\n\n" in buffer:
+                                        block, buffer = buffer.split("\n\n", 1)
+                                        if not block.strip():
+                                            continue
+                                        event_name = None
+                                        data_lines = []
+                                        for line in block.splitlines():
+                                            if line.startswith("event:"):
+                                                event_name = line[6:].strip() or None
+                                            if line.startswith("data:"):
+                                                data_lines.append(line[5:].lstrip())
+                                        if not data_lines:
+                                            continue
+                                        data = "\n".join(data_lines).strip()
+                                        if not data or data == "[DONE]":
+                                            continue
+                                        if event_name == "done":
+                                            buffer = ""
+                                            break
+                                        if event_name == "result":
+                                            # metadata only; do not append
+                                            continue
+                                        content = None
+                                        if data.startswith("{") and data.endswith("}"):
+                                            try:
+                                                obj = json.loads(data)
+                                                if isinstance(obj, dict):
+                                                    content = obj.get("content")
+                                                    # ignore aiRecord-like blobs
+                                                    if content is None and ("aiRecord" in obj or "resultObject" in obj):
+                                                        content = None
+                                            except Exception:
+                                                content = None
+                                        if content is None:
+                                            content = data
+                                        if isinstance(content, str):
+                                            collected += content
+                                try:
+                                    rs.close()
+                                finally:
+                                    session.close()
+
+                                if collected.strip():
+                                    # Re-run transform logic on collected stream text to catch tool traces/tool_calls.
+                                    synthesized = {
+                                        "aiRecord": {"aiRecordDetail": {"resultObject": [collected]}}
+                                    }
+                                    transformed2 = transform_response(synthesized, request_data, prompt_token)
+                                    choice2 = (transformed2.get("choices") or [{}])[0] or {}
+                                    if choice2.get("finish_reason") == "tool_calls":
+                                        resp = make_response(jsonify(transformed2))
+                                        set_response_headers(resp)
+                                        if degraded:
+                                            resp.headers["X-WebSearch-Degraded"] = "true"
+                                        return resp, 200
+                                    msg2 = (choice2.get("message") or {}) if isinstance(choice2.get("message"), dict) else {}
+                                    full_content = msg2.get("content") or collected
+                        except Exception as e2:
+                            logger.error(f"[{request_id}] OpenClaw probe-empty fallback stream exception: {str(e2)}")
+
                     return Response(
                         emulate_stream_response(full_content, request_data, model, prompt_token),
                         content_type="text/event-stream",
