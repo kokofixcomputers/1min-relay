@@ -529,11 +529,18 @@ def transform_response(one_min_response, request_data, prompt_token):
                 logger.error(f"Cannot extract response text from API result")
                 result_text = "Error: Could not extract response from API"
 
-        # Убираем служебный префикс 1min.ai (crawl trace), если он попал в текст.
-        result_text = strip_crawl_prefix(result_text)
+        # In OpenClaw tool-calling mode, 1min.ai may return tool traces like:
+        #   tool\nwrite\n{...}\nContent loaded.
+        # Our `strip_crawl_prefix()` would remove these lines and make the content empty.
+        # So: first try to extract tool_calls from the raw text; only then strip crawl/tool noise.
+        raw_text = result_text
 
-        # Tool-calling emulation: convert JSON tool_calls in text -> OpenAI tool_calls field.
-        clean_text, tool_calls = _maybe_extract_tool_calls_from_text(result_text)
+        clean_text, tool_calls = _maybe_extract_tool_calls_from_text(raw_text) if request_data.get("_openclaw") else (raw_text, None)
+        if not tool_calls:
+            # Убираем служебный префикс 1min.ai (crawl trace / agent noise), если он попал в текст.
+            result_text = strip_crawl_prefix(raw_text)
+            # Tool-calling emulation: convert JSON tool_calls in text -> OpenAI tool_calls field.
+            clean_text, tool_calls = _maybe_extract_tool_calls_from_text(result_text)
 
         completion_token = calculate_token(clean_text)
         logger.debug(
