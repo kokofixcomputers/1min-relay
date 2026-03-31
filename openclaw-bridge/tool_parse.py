@@ -15,14 +15,33 @@ def build_tool_calling_instructions(tools: list) -> str:
             fn_tools.append(t)
     if not fn_tools:
         return ""
-    try:
-        tools_json = json.dumps(fn_tools, ensure_ascii=False)
-    except Exception:
-        tools_json = "[]"
+
+    # IMPORTANT:
+    # Don't dump full JSON schema for all tools into the prompt.
+    # Large tool lists can explode the prompt and cause upstreams to return empty outputs (0 completion tokens).
+    # We provide a compact summary: name + required keys (best-effort).
+    summaries = []
+    for t in fn_tools:
+        fn = t.get("function") if isinstance(t.get("function"), dict) else {}
+        name = fn.get("name") or ""
+        params = fn.get("parameters") if isinstance(fn.get("parameters"), dict) else {}
+        props = params.get("properties") if isinstance(params.get("properties"), dict) else {}
+        required = params.get("required") if isinstance(params.get("required"), list) else []
+        keys = list(props.keys())[:20]
+        summaries.append(
+            {
+                "name": name,
+                "required": required[:20],
+                "keys": keys,
+            }
+        )
+    tools_hint = json.dumps(summaries, ensure_ascii=False)
 
     return (
         "TOOL CALLING MODE (OpenAI-compatible emulation)\n"
-        "You MAY call tools. If the user asks to read/write files or update memory, you SHOULD use the appropriate tool.\n"
+        "You MAY call tools.\n"
+        "If you decide to call a tool, respond with ONLY a JSON object and nothing else.\n"
+        "Return ONLY one top-level JSON object.\n"
         "If you decide to call a tool, respond with ONLY a JSON object and nothing else.\n"
         "Schema:\n"
         "{\n"
@@ -38,8 +57,8 @@ def build_tool_calling_instructions(tools: list) -> str:
         "  ]\n"
         "}\n"
         "If you do NOT need a tool, respond normally with plain text.\n"
-        "Available tools (OpenAI tools JSON):\n"
-        f"{tools_json}\n"
+        "Available tools (compact summary):\n"
+        f"{tools_hint}\n"
     )
 
 

@@ -22,6 +22,50 @@ REQUEST_TIMEOUT = float(os.environ.get("BRIDGE_UPSTREAM_TIMEOUT", "120"))
 
 app = FastAPI(title="openclaw-bridge", version="1.0.0")
 
+def _is_effectively_empty(s: Any) -> bool:
+    if not isinstance(s, str):
+        return True
+    t = s.replace("\u200b", "").replace("\ufeff", "").replace("\u2060", "")
+    return not t.strip()
+
+
+async def _collect_openai_sse_text(resp: httpx.Response) -> str:
+    """
+    Collect assistant text from OpenAI-style SSE stream:
+      data: {"choices":[{"delta":{"content":"..."}}]}
+      data: [DONE]
+    Best-effort; ignores any other fields.
+    """
+    collected: list[str] = []
+    buffer = ""
+    async for chunk in resp.aiter_text():
+        if not chunk:
+            continue
+        buffer += chunk
+        while "\n\n" in buffer:
+            block, buffer = buffer.split("\n\n", 1)
+            line = block.strip()
+            if not line:
+                continue
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                obj = json.loads(data)
+            except Exception:
+                continue
+            choices = obj.get("choices")
+            if not isinstance(choices, list) or not choices:
+                continue
+            c0 = choices[0] if isinstance(choices[0], dict) else {}
+            delta = c0.get("delta") if isinstance(c0.get("delta"), dict) else {}
+            piece = delta.get("content")
+            if isinstance(piece, str) and piece:
+                collected.append(piece)
+    return "".join(collected)
+
 
 def _upstream_headers(request: Request) -> Dict[str, str]:
     headers = {"Content-Type": "application/json"}
@@ -158,6 +202,40 @@ async def chat_completions(request: Request):
             "usage": usage,
         }
         return JSONResponse(out)
+
+    # Fallback: some upstreams return empty content for non-stream tool prompts.
+    # Retry once using upstream streaming and collect full text.
+    if _is_effectively_empty(clean if clean else content):
+        try:
+            inner2 = dict(inner)
+            inner2["stream"] = True
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                async with client.stream("POST", url, json=inner2, headers=headers) as sresp:
+                    if sresp.status_code == 200:
+                        streamed_text = await _collect_openai_sse_text(sresp)
+                        if isinstance(streamed_text, str) and streamed_text:
+                            clean2, tool_calls2 = maybe_extract_tool_calls_from_text(streamed_text)
+                            if tool_calls2:
+                                out = {
+                                    "id": data.get("id") or f"chatcmpl-{uuid.uuid4()}",
+                                    "object": "chat.completion",
+                                    "created": data.get("created") or int(time.time()),
+                                    "model": model,
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "message": {"role": "assistant", "content": "", "tool_calls": tool_calls2},
+                                            "finish_reason": "tool_calls",
+                                        }
+                                    ],
+                                    "usage": usage,
+                                }
+                                return JSONResponse(out)
+                            # use streamed text as final assistant content
+                            clean = clean2 if isinstance(clean2, str) else ""
+                            content = streamed_text
+        except Exception:
+            pass
 
     final_text = clean if clean else content
     if not (final_text or "").strip():

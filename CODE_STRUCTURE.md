@@ -65,6 +65,16 @@
 - `emulate_stream_response`: Эмулирует потоковый ответ
 - `streaming_request`: Обрабатывает потоковые запросы к API
 
+## OpenClaw tool bridge (loopback)
+
+В репозитории также есть отдельный сервис **`openclaw-bridge/`** — OpenAI-совместимый фронт для OpenClaw, который принимает `/v1/chat/completions` с `tools` и ходит в ваш `1min-relay` как в обычный chat backend.
+
+- **Код**: `openclaw-bridge/app.py`, `openclaw-bridge/tool_parse.py`
+- **Деплой (systemd)**: `openclaw-bridge/deploy/openclaw-bridge.service`
+- **env-шаблон**: `openclaw-bridge/deploy/env.example`
+
+Рекомендуемая схема: OpenClaw → `http://127.0.0.1:8765/v1` (bridge) → `https://api.ratu.sh` (1min-relay) → 1min.ai.
+
 ### Функции для изображений: `1min-relay/routes/functions/img_func.py`
 - `build_generation_payload`: Создает нагрузку для генерации изображений
 - `parse_aspect_ratio`: Анализирует соотношение сторон из входных данных

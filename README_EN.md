@@ -170,6 +170,10 @@ Deploy on LXC: `openclaw-bridge/deploy/install-lxc.sh`, systemd unit `openclaw-b
 curl -sS http://127.0.0.1:8765/health
 ```
 
+If the upstream sometimes returns empty outputs (0 completion tokens) when `tools` are present, the bridge applies a best-effort fallback:
+- **compacts** tool instructions (does not embed the full tools JSON schema into the prompt)
+- on empty non-stream output, does **one retry** with upstream `stream:true` and collects the full text from OpenAI-style SSE.
+
 ### Responses API (best-effort)
 The server also supports `POST /v1/responses` (non-streaming). Example:
 

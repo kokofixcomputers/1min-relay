@@ -170,6 +170,10 @@ Authorization: Bearer your-1min-api-key
 curl -sS http://127.0.0.1:8765/health
 ```
 
+Если при `tools` upstream иногда возвращает пустой ответ (0 completion tokens), bridge делает best-effort fallback:
+- **сжимает** tool-инструкции (не вставляет полный JSON schema всех tools в промпт)
+- при пустом non-stream ответе делает **один повтор** через upstream `stream:true` и собирает полный текст из OpenAI-style SSE.
+
 ### Responses API (best-effort)
 Также поддерживается `POST /v1/responses` (нестриминговый). Пример запроса:
 
