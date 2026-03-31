@@ -20,3 +20,6 @@ id_ed25519
 
 # local VPS configs (may contain tokens)
 vps-systemd/
+
+# local comparisons / scratch
+_compare_kokofix_1min_relay/
