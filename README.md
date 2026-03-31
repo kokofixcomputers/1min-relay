@@ -13,6 +13,7 @@
 - Позволяет задать подмножество разрешенных моделей через переменные окружения
 - **Динамический `/v1/models` (best-effort)**: при наличии API-ключа может подтягивать живой список моделей из upstream и кэшировать (иначе использует статический список)
 - **Graceful degradation web_search**: если upstream возвращает `400` при включенном webSearch, прокси повторяет запрос без webSearch и ставит заголовок `X-WebSearch-Degraded: true`
+- **OpenClaw tool-calling (эмуляция, best-effort)**: tool calling включается **только** для запросов от OpenClaw (по заголовкам), для остальных клиентов `tools` игнорируются, и стриминг не ломается
 - Оптимизированная модульная структура с минимальным дублированием кода
 
 ## Примечания по upstream 1min.ai API
@@ -154,6 +155,18 @@ Authorization: Bearer your-1min-api-key
 ### Потоковый режим (streaming)
 Если вы передаёте `stream: true` в `/v1/chat/completions`, сервер вернёт **OpenAI-style SSE** (`data: {...}\n\n` + `data: [DONE]`),
 а upstream 1min.ai будет потребляться как SSE-события `event: content/result/done/error`.
+
+### OpenClaw: tool calling (эмуляция, best-effort)
+1min.ai в режиме `UNIFY_CHAT_WITH_AI` не гарантирует нативный OpenAI tool-calling формат, поэтому для OpenClaw реализована **эмуляция**:
+
+- **Распознавание OpenClaw-клиента**: по HTTP-заголовкам `X-OpenClaw: true` и/или `X-Client: openclaw` (также допускается `User-Agent` содержащий `openclaw`)
+- **Изоляция от остальных клиентов**: для не-OpenClaw запросов поля `tools`, `tool_choice`, `parallel_tool_calls` **игнорируются/удаляются**, чтобы не отключать стриминг и не ломать поведение обычных OpenAI-клиентов
+- **Стриминг по умолчанию сохраняется**: даже для OpenClaw
+- **Только для одного ответа стрим может быть “погашен”**: если OpenClaw прислал `tools` (function), сервер делает 1 “probe” нестриминговый запрос upstream
+  - если в ответе обнаружены `tool_calls` (в виде JSON в тексте) — возвращается **нестриминговый** OpenAI-like ответ с `finish_reason="tool_calls"` и полем `message.tool_calls`
+  - если `tool_calls` не обнаружены — возвращается **эмулированный стрим** (SSE) из полного текста ответа
+
+Примечание: был добавлен “robust” парсинг текста ответа upstream, т.к. 1min.ai может возвращать результат в разных полях. Это устраняет ситуацию, когда ответ приходил пустым (0 completion tokens), и OpenClaw не мог выполнить запись `MEMORY.md`/`memory/*.md`.
 
 ### Responses API (best-effort)
 Также поддерживается `POST /v1/responses` (нестриминговый). Пример запроса:

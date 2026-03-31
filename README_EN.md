@@ -13,6 +13,7 @@
 - Allows you to set a subset of allowed models through environment variables
 - **Best-effort dynamic `/v1/models`**: when an API key is provided, the server can fetch a live model list from upstream with caching (otherwise falls back to the static list)
 - **Graceful web_search degradation**: if upstream returns `400` when webSearch is enabled, the proxy retries once with webSearch disabled and sets `X-WebSearch-Degraded: true`
+- **OpenClaw tool-calling (emulation, best-effort)**: tool calling is enabled **only** for OpenClaw requests (by headers). For other clients, `tools` are ignored so streaming is not impacted.
 - Optimized modular structure with minimal code duplication
 
 ## 1min.ai API Notes (Upstream)
@@ -154,6 +155,18 @@ Authorization: Bearer your-1min-api-key
 ### Streaming
 For `stream: true` on `/v1/chat/completions`, the server will stream responses as **OpenAI-style SSE** (`data: {...}\n\n` + `data: [DONE]`),
 while consuming the upstream 1min.ai SSE events (`event: content/result/done/error`).
+
+### OpenClaw: tool calling (emulation, best-effort)
+1min.ai `UNIFY_CHAT_WITH_AI` does not reliably provide native OpenAI `tool_calls`, so for OpenClaw this proxy implements **tool-calling emulation**:
+
+- **Detect OpenClaw client**: via `X-OpenClaw: true` and/or `X-Client: openclaw` (optionally `User-Agent` containing `openclaw`)
+- **Do not affect other clients**: for non-OpenClaw requests, `tools`, `tool_choice`, `parallel_tool_calls` are **dropped/ignored** so streaming stays enabled and behavior remains OpenAI-client friendly
+- **Streaming stays on by default** (including OpenClaw)
+- **Per-response streaming downgrade**: when OpenClaw sends `tools` (function), the proxy performs a single non-stream “probe” upstream call
+  - if `tool_calls` are found (as JSON embedded in assistant text), the proxy returns a **non-streaming** OpenAI-like response with `finish_reason="tool_calls"` and `message.tool_calls`
+  - if no `tool_calls` are found, the proxy returns an **emulated SSE stream** from the full assistant content
+
+Note: robust upstream text extraction was added because 1min.ai can place the assistant text under different fields depending on the model/endpoint. This prevents “empty” completions (0 completion tokens) that would otherwise block OpenClaw file/memory writes (e.g. `MEMORY.md`, `memory/*.md`).
 
 ### Responses API (best-effort)
 The server also supports `POST /v1/responses` (non-streaming). Example:
