@@ -1125,7 +1125,7 @@ def conversation():
 
                     # Some upstreams return empty content for non-stream calls, while streaming has content/tool traces.
                     # If probe returned empty, fall back to upstream streaming, collect full content, then decide again.
-                    if not full_content:
+                    if not (full_content or "").strip():
                         try:
                             streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
                             stream_headers = dict(headers)
@@ -1136,6 +1136,7 @@ def conversation():
                             if rs.status_code == 200:
                                 buffer = ""
                                 collected = ""
+                                best_obj = None
                                 seen_sse = False
                                 for raw in rs.iter_content(chunk_size=1024):
                                     if not raw:
@@ -1169,7 +1170,12 @@ def conversation():
                                             buffer = ""
                                             break
                                         if event_name == "result":
-                                            # metadata only; do not append
+                                            # event:result contains final aiRecord; keep it for parsing, but don't append to text
+                                            if data.startswith("{") and data.endswith("}"):
+                                                try:
+                                                    best_obj = json.loads(data)
+                                                except Exception:
+                                                    best_obj = None
                                             continue
                                         content = None
                                         if data.startswith("{") and data.endswith("}"):
@@ -1192,11 +1198,14 @@ def conversation():
                                     session.close()
 
                                 if collected.strip():
-                                    # Re-run transform logic on collected stream text to catch tool traces/tool_calls.
-                                    synthesized = {
-                                        "aiRecord": {"aiRecordDetail": {"resultObject": [collected]}}
-                                    }
-                                    transformed2 = transform_response(synthesized, request_data, prompt_token)
+                                    # Prefer parsing final result object if present; otherwise re-run on collected text.
+                                    if isinstance(best_obj, dict) and best_obj:
+                                        transformed2 = transform_response(best_obj, request_data, prompt_token)
+                                    else:
+                                        synthesized = {
+                                            "aiRecord": {"aiRecordDetail": {"resultObject": [collected]}}
+                                        }
+                                        transformed2 = transform_response(synthesized, request_data, prompt_token)
                                     choice2 = (transformed2.get("choices") or [{}])[0] or {}
                                     if choice2.get("finish_reason") == "tool_calls":
                                         resp = make_response(jsonify(transformed2))
@@ -1333,7 +1342,7 @@ def conversation():
                     try:
                         choice0 = (transformed_response.get("choices") or [{}])[0] or {}
                         msg0 = (choice0.get("message") or {}) if isinstance(choice0.get("message"), dict) else {}
-                        if not (msg0.get("content") or "") and not msg0.get("tool_calls"):
+                        if not (msg0.get("content") or "").strip() and not msg0.get("tool_calls"):
                             streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
                             stream_headers = dict(headers)
                             stream_headers["Accept"] = "text/event-stream"
