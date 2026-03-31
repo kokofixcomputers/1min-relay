@@ -390,8 +390,46 @@ RETRIEVAL_SUPPORTED_MODELS = [
 
 # Define the models that support function calling
 FUNCTION_CALLING_SUPPORTED_MODELS = [
+    # OpenAI families (commonly reliable at structured outputs)
     "gpt-4",
-    "gpt-3.5-turbo"
+    "gpt-4-turbo",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5.1",
+    "gpt-5.1-codex-mini",
+    "gpt-5.2",
+    "gpt-5-chat-latest",
+    "gpt-3.5-turbo",
+    # OpenAI o-series (varies; best-effort)
+    "o1-preview",
+    "o1-mini",
+    "o3-mini",
+    "o4-mini",
+    "o4-mini-deep-research",
+    # Anthropic (best-effort via instruction emulation)
+    "claude-3-5-sonnet-20240620",
+    "claude-3-5-haiku-20241022",
+    "claude-3-7-sonnet-20250219",
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
+    # Google (best-effort via instruction emulation)
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    # Mistral / DeepSeek / xAI (best-effort)
+    "mistral-large-latest",
+    "deepseek-chat",
+    "deepseek-reasoner",
+    "grok-3",
+    "grok-3-mini",
 ]
 
 # Determination of models for generating images

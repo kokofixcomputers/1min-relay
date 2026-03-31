@@ -86,7 +86,7 @@ def conversation():
         # We check the support of the web post for the model
         capabilities = get_model_capabilities(model)
 
-        # We check if the web post is requested through Openai tools
+        # Tools / web-search requested through OpenAI-like tools
         web_search_requested = False
         tools = request_data.get("tools", [])
         for tool in tools:
@@ -109,6 +109,14 @@ def conversation():
                 logger.info(f"[{request_id}] Web search enabled for model {model}")
             else:
                 logger.warning(f"[{request_id}] Model {model} does not support web search, ignoring request")
+
+        # If tools include function calling, we currently emulate tool-calling via JSON-in-text.
+        # Streaming + tool calls is ambiguous for many OpenAI-like clients; force non-stream to keep compatibility.
+        has_function_tools = any(isinstance(t, dict) and t.get("type") == "function" for t in (tools or []))
+        if has_function_tools and capabilities.get("function_calling"):
+            if request_data.get("stream"):
+                logger.info(f"[{request_id}] Disabling streaming due to function tools (tool-calling emulation)")
+            request_data["stream"] = False
 
         # We extract the contents of the last message for possible generation of images
         messages = request_data.get("messages", [])

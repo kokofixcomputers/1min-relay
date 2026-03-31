@@ -118,6 +118,12 @@ def format_conversation_history(messages, new_input):
             formatted_history.append(f"User: {content}")
         elif role == "assistant":
             formatted_history.append(f"Assistant: {content}")
+        elif role == "tool":
+            tool_name = message.get("name") or message.get("tool_name") or "tool"
+            formatted_history.append(f"Tool[{tool_name}]: {content}")
+        elif role == "function":
+            func_name = message.get("name") or "function"
+            formatted_history.append(f"Function[{func_name}]: {content}")
 
     # Add new input if it is
     if new_input:
@@ -125,6 +131,105 @@ def format_conversation_history(messages, new_input):
 
     # We return only the history of dialogue without additional instructions
     return "\n".join(formatted_history)
+
+
+def _build_tool_calling_instructions(tools: list) -> str:
+    """
+    Инструкция для провайдера, который НЕ поддерживает нативные tool_calls,
+    но способен следовать формату (эмуляция tool calling через JSON в тексте).
+    """
+    fn_tools = []
+    for t in tools or []:
+        if isinstance(t, dict) and t.get("type") == "function" and isinstance(t.get("function"), dict):
+            fn_tools.append(t)
+    if not fn_tools:
+        return ""
+    try:
+        tools_json = json.dumps(fn_tools, ensure_ascii=False)
+    except Exception:
+        tools_json = "[]"
+
+    return (
+        "TOOL CALLING MODE (OpenAI-compatible emulation)\n"
+        "You MAY call tools. If you need to call a tool, respond with ONLY a JSON object and nothing else.\n"
+        "Schema:\n"
+        "{\n"
+        '  "tool_calls": [\n'
+        "    {\n"
+        '      "id": "call_1",\n'
+        '      "type": "function",\n'
+        '      "function": {\n'
+        '        "name": "<tool name>",\n'
+        '        "arguments": { <json object arguments> }\n'
+        "      }\n"
+        "    }\n"
+        "  ]\n"
+        "}\n"
+        "If you do NOT need a tool, respond normally with plain text.\n"
+        "Available tools (OpenAI tools JSON):\n"
+        f"{tools_json}\n"
+    )
+
+
+def _maybe_extract_tool_calls_from_text(text: str):
+    """
+    Если модель вернула JSON c tool_calls в тексте — выделяем tool_calls для OpenAI-like ответа.
+    Возвращает (clean_text, tool_calls_or_None).
+    """
+    if not isinstance(text, str):
+        return "", None
+    raw = text.strip()
+    if not raw:
+        return "", None
+
+    # allow ```json fenced blocks
+    if raw.startswith("```"):
+        raw2 = raw.strip("`").strip()
+        if raw2.lower().startswith("json"):
+            raw = raw2[4:].strip()
+        else:
+            raw = raw2
+
+    if not (raw.startswith("{") and raw.endswith("}")):
+        return text, None
+
+    try:
+        obj = json.loads(raw)
+    except Exception:
+        return text, None
+
+    tool_calls = obj.get("tool_calls")
+    if not isinstance(tool_calls, list) or not tool_calls:
+        return text, None
+
+    normalized = []
+    for i, call in enumerate(tool_calls, 1):
+        if not isinstance(call, dict):
+            continue
+        fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+        name = fn.get("name") or call.get("name")
+        args = fn.get("arguments")
+        if not name:
+            continue
+        # OpenAI expects arguments as a JSON string
+        if isinstance(args, (dict, list)):
+            args_str = json.dumps(args, ensure_ascii=False)
+        elif args is None:
+            args_str = "{}"
+        else:
+            args_str = str(args)
+        normalized.append(
+            {
+                "id": call.get("id") or f"call_{i}",
+                "type": "function",
+                "function": {"name": str(name), "arguments": args_str},
+            }
+        )
+
+    if not normalized:
+        return text, None
+
+    return "", normalized
 
 def get_model_capabilities(model):
     """
@@ -203,6 +308,13 @@ def prepare_payload(
                 continue
             else:
                 logger.debug(f"[{request_id}] Ignoring unsupported tool: {tool_type}")
+
+    # Tools: function-calling emulation for OpenAI-like clients (OpenClaw, etc.)
+    tools = request_data.get("tools", []) or []
+    if tools and capabilities.get("function_calling"):
+        instr = _build_tool_calling_instructions(tools)
+        if instr:
+            prompt_text = f"{instr}\n\n{prompt_text}"
 
     # We check the direct parameters 1min.ai
     if not web_search and request_data.get("web_search", False):
@@ -337,7 +449,10 @@ def transform_response(one_min_response, request_data, prompt_token):
         # Убираем служебный префикс 1min.ai (crawl trace), если он попал в текст.
         result_text = strip_crawl_prefix(result_text)
 
-        completion_token = calculate_token(result_text)
+        # Tool-calling emulation: convert JSON tool_calls in text -> OpenAI tool_calls field.
+        clean_text, tool_calls = _maybe_extract_tool_calls_from_text(result_text)
+
+        completion_token = calculate_token(clean_text)
         logger.debug(
             f"Finished processing Non-Streaming response. Completion tokens: {str(completion_token)}"
         )
@@ -349,6 +464,11 @@ def transform_response(one_min_response, request_data, prompt_token):
             "total_tokens": prompt_token + completion_token,
         }
 
+        finish_reason = "tool_calls" if tool_calls else "stop"
+        message_obj = {"role": "assistant", "content": clean_text}
+        if tool_calls:
+            message_obj["tool_calls"] = tool_calls
+
         return {
             "id": f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion",
@@ -357,11 +477,8 @@ def transform_response(one_min_response, request_data, prompt_token):
             "choices": [
                 {
                     "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": result_text,
-                    },
-                    "finish_reason": "stop",
+                    "message": message_obj,
+                    "finish_reason": finish_reason,
                 }
             ],
             "usage": usage,
