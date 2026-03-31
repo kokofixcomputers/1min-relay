@@ -17,9 +17,8 @@
 - `calculate_token`: Рассчитывает количество токенов в тексте с помощью tiktoken
 
 ### Константы: `1min-relay/utils/constants.py`
-- `ENDPOINTS`: Словарь конечных точек API
-- `ROLES_MAPPING`: Сопоставление ролей для разных моделей
-- `MODEL_CAPABILITIES`: Словарь возможностей моделей
+- Определяет upstream URL-адреса 1min.ai (features/assets/conversations/chat-with-ai)
+- Содержит списки моделей и списки возможностей (vision, retrieval и т.д.), используемые при маршрутизации
 - Различные другие константы, используемые в приложении
 
 ### Импорты: `1min-relay/utils/imports.py`
@@ -43,11 +42,11 @@
 - Обеспечивает удобный импорт функций в маршрутах
 
 ### Общие функции: `1min-relay/routes/functions/shared_func.py`
-- `validate_auth`: Проверяет заголовок авторизации
+- `validate_auth`: Проверяет авторизацию (поддерживает `Authorization: Bearer ...` и `API-KEY: ...`)
 - `handle_api_error`: Стандартизированная обработка ошибок для ответов API
 - `format_openai_response`: Форматирует ответы в соответствии с API OpenAI
 - `format_image_response`: Форматирует ответы с изображениями в соответствии с API OpenAI
-- `stream_response`: Передает ответы API в потоковом режиме
+- `stream_response`: Конвертирует upstream SSE 1min.ai (`event: content/result/done/error`) в OpenAI-style SSE
 - `get_full_url`: Создает полный URL из относительного пути
 - `extract_data_from_api_response`: Общая функция для извлечения данных из API-ответов
 - `extract_text_from_response`: Извлекает текст из API-ответов
@@ -57,7 +56,7 @@
 ### Текстовые функции: `1min-relay/routes/functions/txt_func.py`
 - `format_conversation_history`: Форматирует историю разговора для моделей
 - `get_model_capabilities`: Получает информацию о возможностях модели
-- `prepare_payload`: Подготавливает нагрузку для API-запросов
+- `prepare_payload`: Формирует payload для Chat with AI API (`UNIFY_CHAT_WITH_AI`, вложенные `settings` и `attachments`)
 - `transform_response`: Преобразует ответы API
 - `emulate_stream_response`: Эмулирует потоковый ответ
 - `streaming_request`: Обрабатывает потоковые запросы к API
@@ -84,7 +83,7 @@
 - `create_api_response`: Создает HTTP-ответ с правильными заголовками
 - `find_file_by_id`: Находит файл по ID в списке файлов пользователя
 - `find_conversation_id`: Находит ID разговора в ответе API
-- `create_conversation_with_files`: Создает новый разговор с файлами
+- `create_conversation_with_files`: Создает conversation через `POST /api/conversations` (использует `fileList`)
 
 ## Маршруты
 
@@ -92,6 +91,8 @@
 - `/v1/models`: Возвращает список доступных моделей
 - `/v1/chat/completions`: Обрабатывает запросы на завершение чата
 - Различные другие конечные точки текстовых моделей
+
+Примечание: `/v1/chat/completions` проксируется в upstream **Chat with AI API** (`/api/chat-with-ai`) с типом `UNIFY_CHAT_WITH_AI`.
 
 ### Маршруты изображений: `1min-relay/routes/images.py`
 - `/v1/images/generations`: Генерирует изображения из текста

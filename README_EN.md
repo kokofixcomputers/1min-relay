@@ -12,6 +12,19 @@
 - Allows you to set a subset of allowed models through environment variables
 - Optimized modular structure with minimal code duplication
 
+## 1min.ai API Notes (Upstream)
+This proxy converts OpenAI-like requests into the **current** 1min.ai API:
+
+- **Chat**: uses [Chat with AI API](https://docs.1min.ai/docs/api/chat-with-ai-api)
+  - `POST https://api.1min.ai/api/chat-with-ai`
+  - `POST https://api.1min.ai/api/chat-with-ai?isStreaming=true` (SSE)
+- **Non-chat features** (images/audio/etc.): use [AI Feature API](https://docs.1min.ai/docs/api/ai-feature-api)
+- **Assets/files upload**: use [Asset API](https://docs.1min.ai/docs/api/asset-api)
+
+Upstream authentication is performed with the `API-KEY` header. This server accepts both:
+- `Authorization: Bearer <YOUR_1MIN_API_KEY>` (recommended for OpenAI clients)
+- `API-KEY: <YOUR_1MIN_API_KEY>`
+
 ## Project Structure
 The project has a modular structure to facilitate development and maintenance:
 
@@ -130,10 +143,14 @@ Most OpenAI API clients can be configured to use this server by specifying the b
 http://localhost:5001/v1
 ```
 
-When sending requests to the API, use your 1min.ai API key in the Authorization header:
+When sending requests to the API, use your 1min.ai API key in the Authorization header (OpenAI-compatible):
 ```
 Authorization: Bearer your-1min-api-key
 ```
+
+### Streaming
+For `stream: true` on `/v1/chat/completions`, the server will stream responses as **OpenAI-style SSE** (`data: {...}\n\n` + `data: [DONE]`),
+while consuming the upstream 1min.ai SSE events (`event: content/result/done/error`).
 
 ## Launching Using Docker
 You can also run the server in a Docker container:

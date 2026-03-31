@@ -17,10 +17,9 @@
 - `calculate_token`: Calculates the number of tokens in a text using tiktoken
 
 ### Constants: `1min-relay/utils/constants.py`
-- `ENDPOINTS`: Dictionary of API endpoints
-- `ROLES_MAPPING`: Mapping of roles for different models
-- `MODEL_CAPABILITIES`: Dictionary of model capabilities
-- Various other constants used throughout the application
+- Defines API URLs for 1min.ai upstream (features/assets/conversations/chat-with-ai)
+- Defines model lists and capability lists used in request routing (vision, retrieval, etc.)
+- Contains various other constants used throughout the application
 
 ### Imports: `1min-relay/utils/imports.py`
 - Central place for all standard library imports
@@ -43,11 +42,11 @@
 - Provides convenient import of functions in routes
 
 ### Shared functions: `1min-relay/routes/functions/shared_func.py`
-- `validate_auth`: Validates the authorization header
+- `validate_auth`: Validates auth headers (supports `Authorization: Bearer ...` and `API-KEY: ...`)
 - `handle_api_error`: Standardized error handling for API responses
 - `format_openai_response`: Formats responses to match OpenAI API
 - `format_image_response`: Formats image responses to match OpenAI API
-- `stream_response`: Streams API responses
+- `stream_response`: Streams upstream SSE (supports 1min.ai `event: content/result/done/error`) as OpenAI-style SSE
 - `get_full_url`: Creates a full URL from a relative path
 - `extract_data_from_api_response`: Common function for extracting data from API responses
 - `extract_text_from_response`: Extracts text from API responses
@@ -57,7 +56,7 @@
 ### Text functions: `1min-relay/routes/functions/txt_func.py`
 - `format_conversation_history`: Formats conversation history for models
 - `get_model_capabilities`: Gets capability information for a model
-- `prepare_payload`: Prepares the payload for API requests
+- `prepare_payload`: Prepares the payload for 1min.ai Chat with AI API (`UNIFY_CHAT_WITH_AI`, nested `settings`, `attachments`)
 - `transform_response`: Transforms API responses
 - `emulate_stream_response`: Emulates a streaming response
 - `streaming_request`: Handles streaming requests to the API
@@ -84,7 +83,7 @@
 - `create_api_response`: Creates HTTP response with proper headers
 - `find_file_by_id`: Finds file by ID in user's files list
 - `find_conversation_id`: Finds conversation ID in API response
-- `create_conversation_with_files`: Creates a new conversation with files
+- `create_conversation_with_files`: Creates a conversation via `POST /api/conversations` (uses `fileList`)
 
 ## Routes
 
@@ -92,6 +91,8 @@
 - `/v1/models`: Returns a list of available models
 - `/v1/chat/completions`: Handles chat completion requests
 - Various other text model endpoints
+
+Note: `/v1/chat/completions` is proxied to the upstream **Chat with AI API** endpoint (`/api/chat-with-ai`) using the `UNIFY_CHAT_WITH_AI` type.
 
 ### Image routes: `1min-relay/routes/images.py`
 - `/v1/images/generations`: Generates images from text

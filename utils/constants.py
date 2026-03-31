@@ -7,6 +7,7 @@ ONE_MIN_API_URL = "https://api.1min.ai/api/features"
 ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
 ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features/stream"
+ONE_MIN_CHAT_WITH_AI_URL = "https://api.1min.ai/api/chat-with-ai"
 
 # Базовые заголовки для запросов к 1min.ai.
 # Некоторые маршруты 1min.ai возвращают "Unknown error (code: 406)" при отсутствии браузероподобных заголовков.

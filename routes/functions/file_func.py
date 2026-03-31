@@ -285,7 +285,7 @@ def find_conversation_id(response_data, request_id=None):
         logger.error(f"[{request_id}] Error finding conversation ID: {str(e)}")
         return None
 
-def create_conversation_with_files(file_ids, title, model, api_key, request_id=None):
+def create_conversation_with_files(file_ids, title, model, api_key, request_id=None, conversation_type="UNIFY_CHAT_WITH_AI"):
     """
     Creates a new conversation with files
     
@@ -303,18 +303,21 @@ def create_conversation_with_files(file_ids, title, model, api_key, request_id=N
     logger.info(f"[{request_id}] Creating conversation with {len(file_ids)} files")
     
     try:
-        # Формируем payload для запроса
+        # Формируем payload для запроса согласно актуальной документации:
+        # POST https://api.1min.ai/api/conversations
+        # { title, type, model, fileList? }
         payload = {
             "title": title,
-            "type": "CHAT_WITH_PDF",
+            "type": conversation_type,
             "model": model,
-            "fileIds": file_ids,
         }
+        if file_ids:
+            payload["fileList"] = file_ids
         
         logger.debug(f"[{request_id}] Conversation payload: {json.dumps(payload)}")
         
-        # Используем правильный URL API
-        conversation_url = "https://api.1min.ai/api/features/conversations?type=CHAT_WITH_PDF"
+        # Актуальный URL Conversation API
+        conversation_url = ONE_MIN_CONVERSATION_API_URL
         
         logger.debug(f"[{request_id}] Creating conversation using URL: {conversation_url}")
         

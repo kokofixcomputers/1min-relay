@@ -12,6 +12,19 @@
 - Позволяет задать подмножество разрешенных моделей через переменные окружения
 - Оптимизированная модульная структура с минимальным дублированием кода
 
+## Примечания по upstream 1min.ai API
+Прокси конвертирует OpenAI-like запросы в **актуальный** API 1min.ai:
+
+- **Чат**: [Chat with AI API](https://docs.1min.ai/docs/api/chat-with-ai-api)
+  - `POST https://api.1min.ai/api/chat-with-ai`
+  - `POST https://api.1min.ai/api/chat-with-ai?isStreaming=true` (SSE)
+- **Не-чат фичи** (генерация/вариации изображений, аудио и т.д.): [AI Feature API](https://docs.1min.ai/docs/api/ai-feature-api)
+- **Загрузка файлов/картинок**: [Asset API](https://docs.1min.ai/docs/api/asset-api)
+
+Upstream 1min.ai использует заголовок `API-KEY`. Этот сервер принимает оба варианта:
+- `Authorization: Bearer <ВАШ_1MIN_API_KEY>` (рекомендуется для OpenAI-клиентов)
+- `API-KEY: <ВАШ_1MIN_API_KEY>`
+
 ## Структура проекта
 Проект имеет модульную структуру для облегчения разработки и поддержки:
 
@@ -130,10 +143,14 @@ cd ../
 http://localhost:5001/v1
 ```
 
-При отправке запросов к API используйте свой API ключ 1min.ai в заголовке Authorization:
+При отправке запросов к API используйте свой API ключ 1min.ai в заголовке Authorization (OpenAI-совместимо):
 ```
 Authorization: Bearer your-1min-api-key
 ```
+
+### Потоковый режим (streaming)
+Если вы передаёте `stream: true` в `/v1/chat/completions`, сервер вернёт **OpenAI-style SSE** (`data: {...}\n\n` + `data: [DONE]`),
+а upstream 1min.ai будет потребляться как SSE-события `event: content/result/done/error`.
 
 ## Запуск с использованием Docker
 Вы также можете запустить сервер в Docker-контейнере:

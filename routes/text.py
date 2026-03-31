@@ -70,11 +70,10 @@ def conversation():
     if not request.json:
         return jsonify({"error": "Invalid request format"}), 400
 
-    # We extract information from the request
-    api_key = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not api_key:
-        logger.error(f"[{request_id}] No API key provided")
-        return jsonify({"error": "API key required"}), 401
+    # Авторизация: принимаем как OpenAI-like Bearer, так и прямой API-KEY
+    api_key, auth_err = validate_auth(request, request_id)
+    if auth_err:
+        return auth_err
 
     try:
         # Build Payload for request
@@ -991,135 +990,10 @@ def conversation():
         # We check the request for keywords for file processing
         has_file_reference = any(keyword in extracted_prompt for keyword in all_file_keywords)
 
-        # If there is File_ids and the request contains keywords about files or there are ID conversations, we use Chat_with_PDF
+        # Если есть загруженные файлы, в актуальном Chat with AI API мы просто передаём их
+        # как attachments.files (без /features/conversations/messages).
         if file_ids and len(file_ids) > 0:
-            logger.debug(
-                f"[{request_id}] Creating CHAT_WITH_PDF request with {len(file_ids)} files"
-            )
-
-            # Add instructions for working with documents to Prompt
-            enhanced_prompt = all_messages
-            if not enhanced_prompt.strip().startswith(DOCUMENT_ANALYSIS_INSTRUCTION):
-                enhanced_prompt = f"{DOCUMENT_ANALYSIS_INSTRUCTION}\n\n{all_messages}"
-
-            # We get the user Team_id
-            team_id = None
-            try:
-                teams_url = "https://api.1min.ai/api/teams"  # Correct URL C /API /
-                teams_headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-
-                logger.debug(f"[{request_id}] Fetching team ID from: {teams_url}")
-                teams_response = requests.get(teams_url, headers=teams_headers)
-
-                if teams_response.status_code == 200:
-                    teams_data = teams_response.json()
-                    if "data" in teams_data and teams_data["data"]:
-                        team_id = teams_data["data"][0].get("id")
-                        logger.debug(f"[{request_id}] Got team ID: {team_id}")
-                else:
-                    logger.warning(
-                        f"[{request_id}] Failed to get team ID: {teams_response.status_code} - {teams_response.text}")
-            except Exception as e:
-                logger.error(f"[{request_id}] Error getting team ID: {str(e)}")
-
-            # If there is no Conversation_id, we create a new conversation
-            if not conversation_id:
-                conversation_id = create_conversation_with_files(
-                    file_ids, "Chat with documents", model, api_key, request_id
-                )
-                if not conversation_id:
-                    return (
-                        jsonify({"error": "Failed to create conversation with files"}),
-                        500,
-                    )
-
-            # We form Payload to request files
-            payload = {"message": enhanced_prompt}
-            if conversation_id:
-                payload["conversationId"] = conversation_id
-
-            # We use the correct URL API C /API /
-            api_url = "https://api.1min.ai/api/features/conversations/messages"
-            # Add Conversationid as a request parameter
-            api_params = {"conversationId": conversation_id}
-
-            logger.debug(
-                f"[{request_id}] Sending message to conversation using URL: {api_url} with params: {api_params}")
-
-            headers = {"API-KEY": api_key, "Content-Type": "application/json"}
-
-            # Depending on the Stream parameter, select the request method
-            if request_data.get("stream", False):
-                # Streaming request
-                return streaming_request(
-                    api_url, payload, headers, request_id, model, model_settings=None, api_params=api_params
-                )
-            else:
-                # The usual request
-                try:
-                    response = requests.post(api_url, json=payload, headers=headers, params=api_params)
-
-                    logger.debug(f"[{request_id}] API response status code: {response.status_code}")
-                    if response.status_code != 200:
-                        logger.error(
-                            f"[{request_id}] API error: {response.status_code} - {response.text}"
-                        )
-                        return (
-                            jsonify({"error": "API request failed", "details": response.text}),
-                            response.status_code,
-                        )
-
-                    # We convert the answer to the Openai format
-                    response_data = response.json()
-                    logger.debug(f"[{request_id}] Raw API response: {json.dumps(response_data)[:500]}...")
-
-                    # We extract a response from different places of data structure
-                    ai_response = None
-                    if "answer" in response_data:
-                        ai_response = response_data["answer"]
-                    elif "message" in response_data:
-                        ai_response = response_data["message"]
-                    elif "result" in response_data:
-                        ai_response = response_data["result"]
-                    elif "aiRecord" in response_data and "aiRecordDetail" in response_data["aiRecord"]:
-                        ai_response = response_data["aiRecord"]["aiRecordDetail"].get("answer", "")
-
-                    if not ai_response:
-                        # Recursively looking for a response on Keys Asswer, Message, Result
-                        def find_response(obj, path=""):
-                            if isinstance(obj, dict):
-                                for key in ["answer", "message", "result"]:
-                                    if key in obj:
-                                        logger.debug(f"[{request_id}] Found response at path '{path}.{key}'")
-                                        return obj[key]
-
-                                for key, value in obj.items():
-                                    result = find_response(value, f"{path}.{key}")
-                                    if result:
-                                        return result
-                            elif isinstance(obj, list):
-                                for i, item in enumerate(obj):
-                                    result = find_response(item, f"{path}[{i}]")
-                                    if result:
-                                        return result
-                            return None
-
-                        ai_response = find_response(response_data)
-
-                    if not ai_response:
-                        logger.error(f"[{request_id}] Could not extract AI response from API response")
-                        return jsonify({"error": "Could not extract AI response"}), 500
-
-                    openai_response = format_openai_response(
-                        ai_response, model, request_id
-                    )
-                    return jsonify(openai_response)
-                except Exception as e:
-                    logger.error(
-                        f"[{request_id}] Exception while processing API response: {str(e)}"
-                    )
-                    traceback.print_exc()
-                    return jsonify({"error": str(e)}), 500
+            logger.debug(f"[{request_id}] Attaching {len(file_ids)} file(s) to unified chat request")
 
         # Counting tokens
         prompt_token = calculate_token(str(all_messages))
@@ -1134,7 +1008,7 @@ def conversation():
 
         # Prepare Payload, taking into account the capabilities of the model
         payload = prepare_payload(
-            request_data, model, all_messages, image_paths, request_id
+            request_data, model, all_messages, image_paths, file_ids, request_id
         )
 
         headers = {
@@ -1156,7 +1030,7 @@ def conversation():
             # URL for streaming mode
             # Для 1min.ai потоковый режим включается query-параметром.
             # Ранее пробовали /api/features/stream, но он даёт 404.
-            streaming_url = f"{ONE_MIN_API_URL}?isStreaming=true"
+            streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
             headers["Accept"] = "text/event-stream"
 
             logger.debug(f"[{request_id}] Streaming URL: {streaming_url}")
@@ -1214,12 +1088,12 @@ def conversation():
         else:
             # The usual request
             logger.debug(
-                f"[{request_id}] Sending non-streaming request to {ONE_MIN_API_URL}"
+                f"[{request_id}] Sending non-streaming request to {ONE_MIN_CHAT_WITH_AI_URL}"
             )
 
             try:
                 response = api_request(
-                    "POST", ONE_MIN_API_URL, json=payload, headers=headers
+                    "POST", ONE_MIN_CHAT_WITH_AI_URL, json=payload, headers=headers
                 )
                 logger.debug(
                     f"[{request_id}] Response status code: {response.status_code}"
@@ -1264,12 +1138,10 @@ def create_assistant():
     if request.method == "OPTIONS":
         return handle_options_request()
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        logger.error("Invalid Authentication")
-        return ERROR_HANDLER(1021)
+    api_key, auth_err = validate_auth(request)
+    if auth_err:
+        return auth_err
 
-    api_key = auth_header.split(" ")[1]
     headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
     request_data = request.json
@@ -1278,17 +1150,15 @@ def create_assistant():
     model = request_data.get("model", "gpt-4o-mini")
     file_ids = request_data.get("file_ids", [])
 
-    # Creating a conversation with PDF in 1min.ai
+    # Создаём conversation для истории (актуальный endpoint /api/conversations)
     payload = {
         "title": name,
-        "type": "CHAT_WITH_PDF",
+        "type": "UNIFY_CHAT_WITH_AI",
         "model": model,
         "fileList": file_ids,
     }
 
-    response = requests.post(
-        ONE_MIN_CONVERSATION_API_URL, json=payload, headers=headers
-    )
+    response = requests.post(ONE_MIN_CONVERSATION_API_URL, json=payload, headers=headers)
 
     if response.status_code != 200:
         if response.status_code == 401:
@@ -1301,7 +1171,11 @@ def create_assistant():
     one_min_response = response.json()
 
     try:
-        conversation_id = one_min_response.get("id")
+        conversation_id = (
+            one_min_response.get("conversation", {}).get("uuid")
+            or one_min_response.get("uuid")
+            or one_min_response.get("id")
+        )
 
         openai_response = {
             "id": f"asst_{conversation_id}",

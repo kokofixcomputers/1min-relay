@@ -32,11 +32,6 @@ def generate_image():
     api_key, error = validate_auth(request, request_id)
     if error:
         return error
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        logger.error(f"[{request_id}] Invalid Authentication")
-        return ERROR_HANDLER(1021)
-    api_key = auth_header.split(" ")[1]
     headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
     if not request.is_json:
@@ -189,11 +184,9 @@ def image_variations():
     request_id = str(uuid.uuid4())
     logger.debug(f"[{request_id}] Processing image variation request")
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        logger.error(f"[{request_id}] Invalid Authentication")
-        return ERROR_HANDLER(1021)
-    api_key = auth_header.split(" ")[1]
+    api_key, error = validate_auth(request, request_id)
+    if error:
+        return error
 
     # Если запрос перенаправлен (передан request_id)
     if 'request_id' in request.args:

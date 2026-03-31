@@ -30,12 +30,22 @@ def validate_auth(request, request_id=None):
         tuple: (api_key, error_response)
         api_key будет None если авторизация не прошла
     """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
+    # Поддерживаем оба формата:
+    # - OpenAI-like клиенты обычно шлют: Authorization: Bearer <key>
+    # - 1min.ai upstream использует: API-KEY: <key>
+    auth_header = request.headers.get("Authorization") or ""
+    api_key_header = request.headers.get("API-KEY") or request.headers.get("Api-Key") or ""
+
+    api_key = None
+    if auth_header.startswith("Bearer "):
+        api_key = auth_header.split(" ", 1)[1].strip() or None
+    elif api_key_header:
+        api_key = str(api_key_header).strip() or None
+
+    if not api_key:
         logger.error(f"[{request_id}] Invalid Authentication")
         return None, ERROR_HANDLER(1021)
-    
-    api_key = auth_header.split(" ")[1]
+
     return api_key, None
 
 def handle_api_error(response, api_key=None, request_id=None):
@@ -307,8 +317,11 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                 if not block.strip():
                     continue
 
+                event_name = None
                 data_lines = []
                 for line in block.splitlines():
+                    if line.startswith("event:"):
+                        event_name = line[6:].strip() or None
                     if line.startswith("data:"):
                         data_lines.append(line[5:].lstrip())
                 if not data_lines:
@@ -317,6 +330,31 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                 data = "\n".join(data_lines).strip()
                 if data == "[DONE]":
                     continue
+
+                # Новый Chat with AI API использует события: content/result/done/error.
+                # - content: {"content": "..."}
+                # - result:  {"aiRecord": {...}}
+                # - done:    {"message":"Stream completed"}
+                # - error:   {"success":false,"error":{...}} (или иной формат)
+                if event_name == "done":
+                    buffer = ""
+                    break
+
+                if event_name == "error":
+                    err_text = None
+                    if data.startswith("{") and data.endswith("}"):
+                        try:
+                            obj = json.loads(data)
+                            if isinstance(obj, dict):
+                                if isinstance(obj.get("error"), dict):
+                                    err_text = obj["error"].get("message") or obj["error"].get("code")
+                                err_text = err_text or obj.get("message") or obj.get("error")
+                        except Exception:
+                            err_text = None
+                    err_text = err_text or data or "Unknown error"
+                    yield from _emit_delta(f"Error: {err_text}")
+                    buffer = ""
+                    break
 
                 # Пытаемся распарсить JSON с content.
                 content = None

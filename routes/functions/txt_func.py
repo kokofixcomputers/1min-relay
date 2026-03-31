@@ -151,7 +151,7 @@ def get_model_capabilities(model):
     return capabilities
 
 def prepare_payload(
-        request_data, model, all_messages, image_paths=None, request_id=None
+        request_data, model, all_messages, image_paths=None, file_ids=None, request_id=None
 ):
     """
     Prepares Payload for request, taking into account the capabilities of the model
@@ -210,75 +210,60 @@ def prepare_payload(
     num_of_site = request_data.get("num_of_site", 3)
     max_word = request_data.get("max_word", 500)
 
-    # We form the basic Payload
+    # Новый Chat with AI API:
+    # - endpoint: /api/chat-with-ai
+    # - type: UNIFY_CHAT_WITH_AI (по умолчанию, но указываем явно)
+    # - webSearch/settings/history/attachments вложены в promptObject
+    conversation_id = (
+        request_data.get("conversation_id")
+        or request_data.get("conversationId")
+        or request_data.get("conversation")
+    )
+
+    # If there are images - add instructions for vision-enabled models
+    prompt_text = all_messages
+    if image_paths and capabilities["vision"]:
+        if not prompt_text.strip().startswith(IMAGE_DESCRIPTION_INSTRUCTION):
+            prompt_text = f"{IMAGE_DESCRIPTION_INSTRUCTION}\n\n{prompt_text}"
+
+    # If there are files - add instructions for document understanding
+    if file_ids:
+        if not prompt_text.strip().startswith(DOCUMENT_ANALYSIS_INSTRUCTION):
+            prompt_text = f"{DOCUMENT_ANALYSIS_INSTRUCTION}\n\n{prompt_text}"
+
+    settings_obj = {}
+    if web_search:
+        settings_obj["webSearchSettings"] = {
+            "webSearch": True,
+            "numOfSite": num_of_site,
+            "maxWord": max_word,
+        }
+    settings_obj["historySettings"] = {
+        "isMixed": bool(request_data.get("is_mixed", False) or request_data.get("isMixed", False)),
+        "historyMessageLimit": int(request_data.get("history_message_limit", 10) or request_data.get("historyMessageLimit", 10) or 10),
+    }
+    if "with_memories" in request_data or "withMemories" in request_data:
+        settings_obj["withMemories"] = bool(request_data.get("with_memories", False) or request_data.get("withMemories", False))
+
+    attachments = {}
     if image_paths:
-        # Even if the model does not support images, we try to send as a text request
-        if capabilities["vision"]:
-            # Add instructions to the prompt field
-            enhanced_prompt = all_messages
-            if not enhanced_prompt.strip().startswith(IMAGE_DESCRIPTION_INSTRUCTION):
-                enhanced_prompt = f"{IMAGE_DESCRIPTION_INSTRUCTION}\n\n{all_messages}"
+        attachments["images"] = list(image_paths)
+    if file_ids:
+        attachments["files"] = list(file_ids)
 
-            payload = {
-                "type": "CHAT_WITH_IMAGE",
-                "model": model,
-                "promptObject": {
-                    "prompt": enhanced_prompt,
-                    "isMixed": False,
-                    "imageList": image_paths,
-                    "webSearch": web_search,
-                    "numOfSite": num_of_site if web_search else None,
-                    "maxWord": max_word if web_search else None,
-                },
-            }
+    prompt_object = {"prompt": prompt_text}
+    if conversation_id:
+        prompt_object["conversationId"] = conversation_id
+    if settings_obj:
+        prompt_object["settings"] = settings_obj
+    if attachments:
+        prompt_object["attachments"] = attachments
 
-            if web_search:
-                logger.debug(
-                    f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
-        else:
-            logger.debug(
-                f"[{request_id}] Model {model} does not support vision, falling back to text-only chat"
-            )
-            payload = {
-                "type": "CHAT_WITH_AI",
-                "model": model,
-                "promptObject": {
-                    "prompt": all_messages,
-                    "isMixed": False,
-                    "webSearch": web_search,
-                    "numOfSite": num_of_site if web_search else None,
-                    "maxWord": max_word if web_search else None,
-                },
-            }
-
-            if web_search:
-                logger.debug(
-                    f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
-    elif code_interpreter:
-        # If Code_interpreter is requested and supported
-        payload = {
-            "type": "CODE_GENERATOR",
-            "model": model,
-            "conversationId": "CODE_GENERATOR",
-            "promptObject": {"prompt": all_messages},
-        }
-    else:
-        # Basic text request
-        payload = {
-            "type": "CHAT_WITH_AI",
-            "model": model,
-            "promptObject": {
-                "prompt": all_messages,
-                "isMixed": False,
-                "webSearch": web_search,
-                "numOfSite": num_of_site if web_search else None,
-                "maxWord": max_word if web_search else None,
-            },
-        }
-
-        if web_search:
-            logger.debug(
-                f"[{request_id}] Web search enabled in payload with numOfSite={num_of_site}, maxWord={max_word}")
+    payload = {
+        "type": request_data.get("type") or "UNIFY_CHAT_WITH_AI",
+        "model": model,
+        "promptObject": prompt_object,
+    }
 
     return payload
 
