@@ -13,7 +13,8 @@ import json
 # Импортируем необходимые константы и функции из других модулей
 from .shared_func import (
     format_openai_response,
-    stream_response
+    stream_response,
+    extract_openai_usage_from_1min_metadata
 )
 
 # ------------------------------------------------------------------#
@@ -210,6 +211,33 @@ def prepare_payload(
     num_of_site = request_data.get("num_of_site", 3)
     max_word = request_data.get("max_word", 500)
 
+    # Если клиент явно попросил AI Feature API (ONE_MIN_API_URL) через поле type,
+    # готовим payload в "features"-формате. Это нужно для CODE_GENERATOR и других feature-эндпоинтов.
+    requested_type = (request_data.get("type") or "").strip()
+    if requested_type and requested_type != "UNIFY_CHAT_WITH_AI":
+        conversation_id = (
+            request_data.get("conversation_id")
+            or request_data.get("conversationId")
+            or request_data.get("conversation")
+            or requested_type
+        )
+
+        prompt_object = {"prompt": all_messages}
+        # features API использует webSearch/numOfSite/maxWord прямо в promptObject
+        if web_search:
+            prompt_object["webSearch"] = True
+            prompt_object["numOfSite"] = num_of_site
+            prompt_object["maxWord"] = max_word
+
+        # Некоторые фичи ожидают imageUrl/imageList — не трогаем здесь, т.к. эти маршруты
+        # обрабатываются отдельно (images/audio routes). Для CODE_GENERATOR достаточно prompt.
+        return {
+            "type": requested_type,
+            "model": model,
+            "conversationId": conversation_id,
+            "promptObject": prompt_object,
+        }
+
     # Новый Chat with AI API:
     # - endpoint: /api/chat-with-ai
     # - type: UNIFY_CHAT_WITH_AI (по умолчанию, но указываем явно)
@@ -303,6 +331,12 @@ def transform_response(one_min_response, request_data, prompt_token):
         )
         logger.debug(f"Total tokens: {str(completion_token + prompt_token)}")
 
+        usage = extract_openai_usage_from_1min_metadata(one_min_response) or {
+            "prompt_tokens": prompt_token,
+            "completion_tokens": completion_token,
+            "total_tokens": prompt_token + completion_token,
+        }
+
         return {
             "id": f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion",
@@ -318,11 +352,7 @@ def transform_response(one_min_response, request_data, prompt_token):
                     "finish_reason": "stop",
                 }
             ],
-            "usage": {
-                "prompt_tokens": prompt_token,
-                "completion_tokens": completion_token,
-                "total_tokens": prompt_token + completion_token,
-            },
+            "usage": usage,
         }
     except Exception as e:
         logger.error(f"Error in transform_response: {str(e)}")

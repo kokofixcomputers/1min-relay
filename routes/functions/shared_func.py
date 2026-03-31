@@ -189,6 +189,47 @@ def format_image_response(image_urls, request_id=None, model=None):
     logger.debug(f"[{request_id}] Formatted response with {len(full_urls)} images")
     return response 
 
+def extract_openai_usage_from_1min_metadata(one_min_response: dict):
+    """
+    Пробуем взять реальные токены из aiRecord.metadata и привести к OpenAI usage.
+    Ожидаемые поля (часто встречаются в 1min.ai):
+      - inputToken, outputToken, totalToken
+    Возвращает dict или None.
+    """
+    if not isinstance(one_min_response, dict):
+        return None
+    ai_record = one_min_response.get("aiRecord")
+    if not isinstance(ai_record, dict):
+        return None
+    meta = ai_record.get("metadata")
+    if not isinstance(meta, dict):
+        return None
+
+    def _to_int(v):
+        try:
+            if v is None:
+                return None
+            return int(v)
+        except Exception:
+            return None
+
+    prompt_tokens = _to_int(meta.get("inputToken"))
+    completion_tokens = _to_int(meta.get("outputToken"))
+    total_tokens = _to_int(meta.get("totalToken"))
+
+    # Если total не прислали, но есть prompt+completion — посчитаем.
+    if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+        total_tokens = int((prompt_tokens or 0) + (completion_tokens or 0))
+
+    if prompt_tokens is None and completion_tokens is None and total_tokens is None:
+        return None
+
+    return {
+        "prompt_tokens": int(prompt_tokens or 0),
+        "completion_tokens": int(completion_tokens or 0),
+        "total_tokens": int(total_tokens or ((prompt_tokens or 0) + (completion_tokens or 0))),
+    }
+
 def stream_response(response, request_data, model, prompt_tokens, session=None):
     """
     Стримит ответ от API в формате OpenAI
@@ -284,6 +325,7 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
         seen_sse = False
         skipping_prefix = True
         expect_tool_args = False
+        upstream_usage = None
 
         for raw in response.iter_content(chunk_size=1024):
             if not raw:
@@ -359,6 +401,14 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                 # Важно: event=result содержит финальный aiRecord (метаданные/токены/модель),
                 # его нельзя прокидывать пользователю как часть текста ответа.
                 if event_name == "result":
+                    if upstream_usage is None and data.startswith("{") and data.endswith("}"):
+                        try:
+                            obj = json.loads(data)
+                            if isinstance(obj, dict):
+                                # обычно там {"aiRecord": {...}}
+                                upstream_usage = extract_openai_usage_from_1min_metadata(obj) or None
+                        except Exception:
+                            pass
                     continue
 
                 # Пытаемся распарсить JSON с content.
@@ -446,11 +496,11 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
                 "delta": {"content": ""},
                 "finish_reason": "stop"
             }],
-            "usage": {
+            "usage": upstream_usage or {
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": tokens,
                 "total_tokens": tokens + prompt_tokens
-            }
+            },
         }
         
         yield f"data: {json.dumps(final_chunk)}\n\n"

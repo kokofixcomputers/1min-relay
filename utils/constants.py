@@ -27,6 +27,7 @@ MIDJOURNEY_TIMEOUT = 600  # 10 minutes for requests for Midjourney
 # Constants for query types
 IMAGE_GENERATOR = "IMAGE_GENERATOR"
 IMAGE_VARIATOR = "IMAGE_VARIATOR"
+CODE_GENERATOR = "CODE_GENERATOR"
 
 # Максимальный размер кэша для изображений
 MAX_CACHE_SIZE = 100
@@ -101,6 +102,7 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gpt-o4-mini",
     "gpt-4.1-nano",
     "gpt-4.1-mini",
+    "gpt-4.1",
     "o4-mini-deep-research",    
     "o3-mini",
     "o3",
@@ -198,7 +200,14 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "grok-4-0709",
     "grok-4-fast-non-reasoning",
     "grok-4-fast-reasoning",
+    "grok-code-fast-1",
     # Alibaba / Qwen (1min.ai)
+    "qwen3-vl-plus",
+    "qwen3-vl-flash",
+    "qwen-vl-plus",
+    "qwen-vl-max",
+    "qwen3-coder-plus",
+    "qwen3-coder-flash",
     "qwen3-max",
     "qwen-plus",
     "qwen-max",
@@ -247,8 +256,13 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
     "gemini-3-pro-image-preview",
     "gemini-3.1-flash-image-preview",
     "grok-2-image-1212",
+    "qwen-image",
     "qwen-image-plus",
     "qwen-image-max",
+    "qwen3-tts-flash",
+    "qwen3-asr-flash",
+    "flux-redux-dev",
+    "flux-redux-schnell",
     "dzine",
     "recraft",
     "6b645e3a-d64f-4341-a6d8-7a3690fbf042",
@@ -264,34 +278,36 @@ ALL_ONE_MIN_AVAILABLE_MODELS = [
 
 # Define the models that support vision inputs
 VISION_SUPPORTED_MODELS = [
-    "gpt-5.1",
-    "gpt-5-nano",
-    "gpt-5", 
-    "gpt-5-mini", 
-    "gpt-5-chat-latest",
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4-turbo",
-    "grok-4-fast-non-reasoning",
-    "grok-4-fast-reasoning",
-    "gemini-2.0-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",    
-    "gemini-3-pro-preview",
-    "gemini-3.1-pro-preview",
-    "gemini-3.1-flash-lite-preview",
-    "gemini-3-flash-preview",
-    "claude-3-haiku-20240307",
-    "claude-3-5-haiku-20241022",
+    # Per official "Chat with Image" available models (docs.1min.ai)
+    # Keep this list tight to avoid advertising unsupported vision models.
+    # Alibaba (Qwen VL)
+    "qwen3-vl-plus",
+    "qwen3-vl-flash",
+    "qwen-vl-plus",
+    "qwen-vl-max",
+    # Anthropic
+    "claude-sonnet-4-5-20250929",
     "claude-sonnet-4-20250514",
-    "claude-opus-4-20250514",
-    "claude-sonnet-4-6",
-    "claude-opus-4-6",
-    "claude-haiku-4-5-20251001",
-    "claude-opus-4-1-20250805",
     "claude-opus-4-5-20251101",
-    "claude-sonnet-4-5-20250929"
+    "claude-opus-4-20250514",
+    "claude-opus-4-1-20250805",
+    "claude-haiku-4-5-20251001",
+    # GoogleAI
+    "gemini-3-flash-preview",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    # OpenAI
+    "gpt-5.2",
+    "gpt-5.1",
+    "gpt-5-mini",
+    "gpt-5-chat-latest",
+    "gpt-5",
+    "gpt-4o-mini",
+    "gpt-4o",
+    "gpt-4-turbo",
+    # xAI
+    "grok-4-fast-reasoning",
+    "grok-4-fast-non-reasoning"
 ]
 
 # Define the models that support code interpreter
@@ -380,6 +396,7 @@ IMAGE_GENERATION_MODELS = [
     "gemini-3-pro-image-preview",
     "gemini-3.1-flash-image-preview",
     "grok-2-image-1212",
+    "qwen-image",
     "qwen-image-plus",
     "qwen-image-max",
     "dzine",
@@ -392,7 +409,14 @@ VARIATION_SUPPORTED_MODELS = [
     "midjourney",
     "midjourney_6_1",
     "dall-e-2",
-    "clipdrop"
+    "clipdrop",
+    "dzine",
+    "magic-art",
+    "magic-art_6_1",
+    "magic-art_7_0",
+    "flux-redux-dev",
+    "flux-redux-schnell",
+    "recraft"
 ]
 
 # We determine the Image_variation_Models Constant based on Variation_Supported_Models
@@ -433,19 +457,22 @@ LEONARDO_SIZES = ALBEDO_SIZES = {"1:1": "1024x1024", "4:3": "1024x768", "3:4": "
 # Determination of models for speech synthesis (TTS)
 TEXT_TO_SPEECH_MODELS = [
     "tts-1",
-    "tts-1-hd" #,
-    # "google-tts",
-    # "elevenlabs-tts"
+    "tts-1-hd",
+    "google-tts",
+    "elevenlabs-tts",
+    "qwen3-tts-flash",
 ]
 
 # Determination of models for speech recognition (STT)
 SPEECH_TO_TEXT_MODELS = [
-    "whisper-1"  # ,
-    #"latest_long",
-    #"latest_short",
-    #"phone_call",
-    #"telephony",
-    #"telephony_short",
-    #"medical_dictation",
-    #"medical_conversation"
+    "whisper-1",
+    "latest_long",
+    "latest_short",
+    "phone_call",
+    "telephony",
+    "telephony_short",
+    "medical_dictation",
+    "medical_conversation",
+    "elevenlabs",
+    "qwen3-asr-flash",
 ]

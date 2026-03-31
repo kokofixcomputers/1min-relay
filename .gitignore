@@ -1,4 +1,22 @@
-
-
 __pycache__/
+.cursor-ssh/
 
+# env / secrets
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+*.crt
+*.cer
+
+# local / IDE
+.vscode/
+*.code-workspace
+
+# local VPS configs (may contain tokens)
+vps-systemd/

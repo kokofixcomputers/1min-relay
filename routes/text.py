@@ -174,7 +174,7 @@ def conversation():
                             else:
                                 image_urls.append(url)
                         
-                        # We delete all None values ​​from the list
+                        # We delete all None values from the list
                         image_urls = [url for url in image_urls if url is not None]
                         
                         if image_urls:
@@ -1028,8 +1028,24 @@ def conversation():
             logger.debug(f"[{request_id}] Sending streaming request")
 
             # URL for streaming mode
-            # Для 1min.ai потоковый режим включается query-параметром.
-            # Ранее пробовали /api/features/stream, но он даёт 404.
+            # Chat with AI API: /api/chat-with-ai?isStreaming=true
+            # AI Feature API: /api/features (streaming для feature-типов не гарантируется)
+            requested_type = (payload.get("type") or "").strip()
+            if requested_type and requested_type != "UNIFY_CHAT_WITH_AI":
+                # Фоллбек: делаем обычный запрос без стрима
+                response = api_request(
+                    "POST", ONE_MIN_API_URL, json=payload, headers=headers
+                )
+                if response.status_code != 200:
+                    if response.status_code == 401:
+                        return ERROR_HANDLER(1020, key=api_key)
+                    return ERROR_HANDLER(response.status_code)
+                one_min_response = response.json()
+                transformed_response = transform_response(one_min_response, request_data, prompt_token)
+                response = make_response(jsonify(transformed_response))
+                set_response_headers(response)
+                return response, 200
+
             streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
             headers["Accept"] = "text/event-stream"
 
@@ -1088,13 +1104,13 @@ def conversation():
         else:
             # The usual request
             logger.debug(
-                f"[{request_id}] Sending non-streaming request to {ONE_MIN_CHAT_WITH_AI_URL}"
+                f"[{request_id}] Sending non-streaming request"
             )
 
             try:
-                response = api_request(
-                    "POST", ONE_MIN_CHAT_WITH_AI_URL, json=payload, headers=headers
-                )
+                requested_type = (payload.get("type") or "").strip()
+                api_url = ONE_MIN_CHAT_WITH_AI_URL if (not requested_type or requested_type == "UNIFY_CHAT_WITH_AI") else ONE_MIN_API_URL
+                response = api_request("POST", api_url, json=payload, headers=headers)
                 logger.debug(
                     f"[{request_id}] Response status code: {response.status_code}"
                 )
