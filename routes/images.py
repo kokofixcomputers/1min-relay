@@ -148,8 +148,9 @@ def generate_image():
             markdown_text = f"![Image]({full_image_urls[0]}) `[_V1_]`"
         else:
             markdown_text = "\n".join([f"![Image {i+1}]({url}) `[_V{i+1}_]`" for i, url in enumerate(full_image_urls)])
-        markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]**" \
-                         " - **[_V4_]** and send it (paste) in the next **prompt**"
+        if model in IMAGE_VARIATION_MODELS:
+            markdown_text += "\n\n> To generate **variants** of an **image** - tap (copy) **[_V1_]**" \
+                             " - **[_V4_]** and send it (paste) in the next **prompt**"
 
         openai_response = {
             "created": int(time.time()),
@@ -253,12 +254,13 @@ def image_variations():
         logger.debug(f"[{request_id}] Using relative image path: {relative_image_path}")
     logger.debug(f"[{request_id}] Original model requested: {original_model} for image variations")
 
-    fallback_models = ["midjourney_6_1", "midjourney", "clipdrop", "dall-e-2"]
-    if original_model in IMAGE_VARIATION_MODELS:
-        models_to_try = [original_model] + [m for m in fallback_models if m != original_model]
-    else:
-        logger.warning(f"[{request_id}] Model {original_model} does not support image variations. Using fallback models.")
-        models_to_try = fallback_models
+    # Variations are allowed only for models that are BOTH generator+variator.
+    if original_model not in IMAGE_VARIATION_MODELS:
+        logger.warning(f"[{request_id}] Model {original_model} does not support image variations (not in IMAGE_VARIATION_MODELS)")
+        return jsonify({"error": f"Model '{original_model}' does not support image variations"}), 400
+
+    # Try ONLY the requested model (no fallbacks/substitutions).
+    models_to_try = [original_model]
 
     try:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")

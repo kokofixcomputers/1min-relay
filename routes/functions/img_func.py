@@ -78,6 +78,85 @@ def build_generation_payload(model, prompt, request_data, negative_prompt, aspec
                 "steps": request_data.get("steps", 30),
             },
         }
+    elif model in ["stable-image", "stable-image-ultra"]:
+        # Stability "Stable Image" models (core/ultra)
+        # Keep payload minimal; upstream will validate options.
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": model,
+            "promptObject": {
+                "prompt": prompt,
+                "n": request_data.get("n", 1),
+                # Some backends accept aspect_ratio; ignore if missing/unsupported.
+                "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
+            },
+        }
+        if negative_prompt or request_data.get("negativePrompt"):
+            payload["promptObject"]["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
+    elif model in ["gpt-image-1", "gpt-image-1-mini"]:
+        # OpenAI image models via 1min.ai Image Generator
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": model,
+            "promptObject": {
+                "prompt": prompt,
+                "n": request_data.get("n", 1),
+                # OpenAI-like images API uses size, keep it when provided.
+                "size": size or request_data.get("size", "1024x1024"),
+            },
+        }
+    elif model in ["magic-art", "magic-art_6_1", "magic-art_7_0"]:
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": model,
+            "promptObject": {
+                "prompt": prompt,
+                "n": request_data.get("n", 1),
+                "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
+            },
+        }
+        if negative_prompt or request_data.get("negativePrompt"):
+            payload["promptObject"]["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
+    elif model in ["dzine", "recraft"]:
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": model,
+            "promptObject": {
+                "prompt": prompt,
+                "n": request_data.get("n", 1),
+                "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
+            },
+        }
+        if negative_prompt or request_data.get("negativePrompt"):
+            payload["promptObject"]["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
+    elif model in ["gemini-2.5-flash-image", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"]:
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": model,
+            "promptObject": {
+                "prompt": prompt,
+                "n": request_data.get("n", 1),
+            },
+        }
+    elif model in ["grok-2-image-1212"]:
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": model,
+            "promptObject": {
+                "prompt": prompt,
+                "n": request_data.get("n", 1),
+            },
+        }
+    elif model in ["qwen-image", "qwen-image-plus", "qwen-image-max"]:
+        payload = {
+            "type": "IMAGE_GENERATOR",
+            "model": model,
+            "promptObject": {
+                "prompt": prompt,
+                "n": request_data.get("n", 1),
+                "aspect_ratio": aspect_ratio or request_data.get("aspect_ratio", "1:1"),
+            },
+        }
     elif model in ["midjourney", "midjourney_6_1"]:
         # Parse aspect ratio parts (default 1:1)
         try:
@@ -107,7 +186,11 @@ def build_generation_payload(model, prompt, request_data, negative_prompt, aspec
     elif model in ["black-forest-labs/flux-schnell", "flux-schnell",
                    "black-forest-labs/flux-dev", "flux-dev",
                    "black-forest-labs/flux-pro", "flux-pro",
-                   "black-forest-labs/flux-1.1-pro", "flux-1.1-pro"]:
+                   "black-forest-labs/flux-1.1-pro", "flux-1.1-pro",
+                   "black-forest-labs/flux-1.1-pro-ultra", "flux-1.1-pro-ultra",
+                   "black-forest-labs/flux-krea-dev", "flux-krea-dev",
+                   "black-forest-labs/flux-schnell-lora", "flux-schnell-lora",
+                   "black-forest-labs/flux-dev-lora", "flux-dev-lora"]:
         # Всегда добавляем префикс black-forest-labs/ для моделей flux, если его нет
         model_name = model
         if not model.startswith("black-forest-labs/"):
@@ -124,6 +207,8 @@ def build_generation_payload(model, prompt, request_data, negative_prompt, aspec
                 "output_format": request_data.get("output_format", "webp"),
             },
         }
+        if negative_prompt or request_data.get("negativePrompt"):
+            payload["promptObject"]["negativePrompt"] = negative_prompt or request_data.get("negativePrompt", "")
     elif model in [
         "6b645e3a-d64f-4341-a6d8-7a3690fbf042", "phoenix",
         "b24e16ff-06e3-43eb-8d33-4416c2d75876", "lightning-xl",
@@ -357,14 +442,14 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
             mode = generation_params.get("mode")
             logger.debug(f"[{request_id}] Using saved mode: {mode}")
     
-    # Determine which models to try for variations
-    variation_models = []
-    if user_model in VARIATION_SUPPORTED_MODELS:
-        variation_models.append(user_model)
-    # Add fallback models
-    variation_models.extend([m for m in ["midjourney_6_1", "midjourney", "clipdrop", "dall-e-2"] if m != user_model])
-    variation_models = list(dict.fromkeys(variation_models))
-    logger.info(f"[{request_id}] Trying image variations with models: {variation_models}")
+    # Variations are allowed only for models that are BOTH generator+variator.
+    if user_model not in IMAGE_VARIATION_MODELS:
+        logger.warning(f"[{request_id}] Model {user_model} does not support variations (not in IMAGE_VARIATION_MODELS)")
+        return jsonify({"error": f"Model '{user_model}' does not support image variations"}), 400
+
+    # Try ONLY the requested model (no fallbacks/substitutions).
+    variation_models = [user_model]
+    logger.info(f"[{request_id}] Trying image variations with model: {variation_models}")
     
     try:
         # Get API key from request
@@ -522,6 +607,17 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
                             break
                         else:
                             logger.warning(f"[{request_id}] No variation URLs found in Clipdrop response")
+                    elif model in ["dzine", "recraft", "magic-art", "magic-art_6_1", "magic-art_7_0", "flux-redux-dev", "flux-redux-schnell"]:
+                        # Common 1min.ai Image Variator models (per docs list). Keep payload minimal.
+                        payload = {
+                            "type": "IMAGE_VARIATOR",
+                            "model": model,
+                            "promptObject": {
+                                "imageUrl": image_path,
+                                "n": n,
+                            },
+                        }
+                        logger.info(f"[{request_id}] Variation payload for {model}: {json.dumps(payload, indent=2)}")
                     
                     # If we reach here for midjourney or if previous attempts didn't succeed, try main API endpoint
                     if payload:

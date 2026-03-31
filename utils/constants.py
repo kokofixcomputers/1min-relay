@@ -455,7 +455,10 @@ VARIATION_SUPPORTED_MODELS = [
 ]
 
 # We determine the Image_variation_Models Constant based on Variation_Supported_Models
-IMAGE_VARIATION_MODELS = VARIATION_SUPPORTED_MODELS
+# Variations are allowed only for models that are BOTH:
+# - available for image generation, AND
+# - supported by image variation API.
+IMAGE_VARIATION_MODELS = sorted(list(set(IMAGE_GENERATION_MODELS).intersection(set(VARIATION_SUPPORTED_MODELS))))
 
 # Permissible parties for different models
 MIDJOURNEY_ALLOWED_ASPECT_RATIOS = [
