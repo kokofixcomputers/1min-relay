@@ -1399,50 +1399,53 @@ def conversation():
                         ):
                             today = time.strftime("%Y-%m-%d", time.gmtime())
                             mem_path = f"memory/{today}.md"
-                            mem_content = f\"{today} — Запись памяти\\n\\n\" + extracted_prompt.strip() + \"\\n\"
+                            mem_content = (
+                                f"{today} — Запись памяти\n\n" + extracted_prompt.strip() + "\n"
+                            )
                             long_content = (
-                                \"# MEMORY.md - Long-Term Memory\\n\\n\"
-                                \"_This file is the agent's curated long-term memory._\\n\\n\"
-                                \"## Facts\\n\\n\" +
-                                extracted_prompt.strip() + \"\\n\"
+                                "# MEMORY.md - Long-Term Memory\n\n"
+                                "_This file is the agent's curated long-term memory._\n\n"
+                                "## Facts\n\n"
+                                + extracted_prompt.strip()
+                                + "\n"
                             )
                             tool_calls = [
                                 {
-                                    \"id\": \"call_1\",
-                                    \"type\": \"function\",
-                                    \"function\": {
-                                        \"name\": \"write\",
-                                        \"arguments\": json.dumps({\"path\": mem_path, \"content\": mem_content}, ensure_ascii=False),
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "write",
+                                        "arguments": json.dumps({"path": mem_path, "content": mem_content}, ensure_ascii=False),
                                     },
                                 },
                                 {
-                                    \"id\": \"call_2\",
-                                    \"type\": \"function\",
-                                    \"function\": {
-                                        \"name\": \"write\",
-                                        \"arguments\": json.dumps({\"path\": \"MEMORY.md\", \"content\": long_content}, ensure_ascii=False),
+                                    "id": "call_2",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "write",
+                                        "arguments": json.dumps({"path": "MEMORY.md", "content": long_content}, ensure_ascii=False),
                                     },
                                 },
                             ]
                             direct = {
-                                \"id\": f\"chatcmpl-{uuid.uuid4()}\",
-                                \"object\": \"chat.completion\",
-                                \"created\": int(time.time()),
-                                \"model\": model,
-                                \"choices\": [
+                                "id": f"chatcmpl-{uuid.uuid4()}",
+                                "object": "chat.completion",
+                                "created": int(time.time()),
+                                "model": model,
+                                "choices": [
                                     {
-                                        \"index\": 0,
-                                        \"message\": {\"role\": \"assistant\", \"content\": \"\", \"tool_calls\": tool_calls},
-                                        \"finish_reason\": \"tool_calls\",
+                                        "index": 0,
+                                        "message": {"role": "assistant", "content": "", "tool_calls": tool_calls},
+                                        "finish_reason": "tool_calls",
                                     }
                                 ],
-                                \"usage\": {\"prompt_tokens\": prompt_token, \"completion_tokens\": 0, \"total_tokens\": prompt_token},
+                                "usage": {"prompt_tokens": prompt_token, "completion_tokens": 0, "total_tokens": prompt_token},
                             }
                             resp = make_response(jsonify(direct))
                             set_response_headers(resp)
                             return resp, 200
                     except Exception as e_mem:
-                        logger.error(f\"[{request_id}] Memory tool-call synthesis failed (non-stream): {str(e_mem)}\")
+                        logger.error(f"[{request_id}] Memory tool-call synthesis failed (non-stream): {str(e_mem)}")
 
                 requested_type = (payload.get("type") or "").strip()
                 api_url = ONE_MIN_CHAT_WITH_AI_URL if (not requested_type or requested_type == "UNIFY_CHAT_WITH_AI") else ONE_MIN_API_URL
