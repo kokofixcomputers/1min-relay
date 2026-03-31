@@ -294,23 +294,24 @@ def image_variations():
         current_model = model
         logger.info(f"[{request_id}] Trying model: {model} for image variations")
         try:
-            # Определяем MIME-type и расширение
-            content_type = "image/png"
-            if "content-type" in image_response.headers:
-                content_type = image_response.headers["content-type"]
-            elif image_url.lower().endswith(".webp"):
-                content_type = "image/webp"
-            elif image_url.lower().endswith(".jpg") or image_url.lower().endswith(".jpeg"):
-                content_type = "image/jpeg"
-            elif image_url.lower().endswith(".gif"):
-                content_type = "image/gif"
+            # Определяем MIME-type и расширение из загруженного файла.
+            content_type = (getattr(image_file, "content_type", None) or "").lower()
+            filename = (getattr(image_file, "filename", None) or "").lower()
+
+            if not content_type:
+                content_type = "image/png"
+
             ext = "png"
-            if "webp" in content_type:
+            if "webp" in content_type or filename.endswith(".webp"):
                 ext = "webp"
-            elif "jpeg" in content_type or "jpg" in content_type:
+                content_type = "image/webp"
+            elif "jpeg" in content_type or "jpg" in content_type or filename.endswith((".jpg", ".jpeg")):
                 ext = "jpg"
-            elif "gif" in content_type:
+                content_type = "image/jpeg"
+            elif "gif" in content_type or filename.endswith(".gif"):
                 ext = "gif"
+                content_type = "image/gif"
+
             logger.debug(f"[{request_id}] Detected image type: {content_type}, extension: {ext}")
 
             # Загружаем изображение на сервер

@@ -216,23 +216,115 @@ def stream_response(response, request_data, model, prompt_tokens, session=None):
     
     yield f"data: {json.dumps(first_chunk)}\n\n"
     
+    def _is_crawl_line(s: str) -> bool:
+        if not s:
+            return False
+        t = s.lstrip()
+        # "ðŸŒ" — это тот же 🌐, если где-то пошла неверная декодировка.
+        return t.startswith("🌐 Crawling site") or t.startswith("ðŸŒ Crawling site")
+
+    def _emit_delta(text: str):
+        nonlocal all_chunks
+        if not text:
+            return
+        return_chunk = {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": text},
+                "finish_reason": None
+            }]
+        }
+        all_chunks += text
+        yield f"data: {json.dumps(return_chunk)}\n\n"
+
     try:
-        # Обрабатываем контент
-        for chunk in response.iter_content(chunk_size=1024):
-            if chunk:
-                return_chunk = {
-                    "id": f"chatcmpl-{uuid.uuid4()}",
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": model,
-                    "choices": [{
-                        "index": 0,
-                        "delta": {"content": chunk.decode('utf-8')},
-                        "finish_reason": None
-                    }]
-                }
-                all_chunks += chunk.decode('utf-8')
-                yield f"data: {json.dumps(return_chunk)}\n\n"
+        # 1min.ai иногда возвращает SSE вида:
+        # event: content
+        # data: {"content":"..."}
+        # Поэтому сначала пытаемся распарсить как SSE и извлечь поле content.
+        buffer = ""
+        seen_sse = False
+        skipping_crawl_prefix = True
+
+        for raw in response.iter_content(chunk_size=1024):
+            if not raw:
+                continue
+            part = raw.decode("utf-8", errors="replace")
+            buffer += part
+
+            # Быстро определяем, что это SSE.
+            if not seen_sse and ("event:" in buffer or "data:" in buffer):
+                seen_sse = True
+
+            if not seen_sse:
+                # Фоллбек: API шлёт просто текст.
+                yield from _emit_delta(part)
+                continue
+
+            # SSE: обрабатываем завершённые блоки, разделённые пустой строкой.
+            while "\n\n" in buffer:
+                block, buffer = buffer.split("\n\n", 1)
+                if not block.strip():
+                    continue
+
+                data_lines = []
+                for line in block.splitlines():
+                    if line.startswith("data:"):
+                        data_lines.append(line[5:].lstrip())
+                if not data_lines:
+                    continue
+
+                data = "\n".join(data_lines).strip()
+                if data == "[DONE]":
+                    continue
+
+                # Пытаемся распарсить JSON с content.
+                content = None
+                if data.startswith("{") and data.endswith("}"):
+                    try:
+                        obj = json.loads(data)
+                        if isinstance(obj, dict):
+                            content = obj.get("content")
+                    except Exception:
+                        content = None
+
+                if content is None:
+                    # Если не JSON — считаем, что это текст.
+                    content = data
+
+                if not isinstance(content, str):
+                    continue
+
+                # Гасим "🌐 Crawling site ..." только в начале ответа.
+                if skipping_crawl_prefix and _is_crawl_line(content):
+                    continue
+                if skipping_crawl_prefix and content.strip() == "":
+                    # 1min.ai часто шлёт пустой content после crawl-линий.
+                    continue
+                skipping_crawl_prefix = False
+
+                yield from _emit_delta(content)
+
+        # Остаток буфера (если вдруг API оборвалось без \n\n)
+        if seen_sse and buffer.strip():
+            # Пытаемся вытащить последнюю data:... строку
+            for line in buffer.splitlines():
+                if line.startswith("data:"):
+                    tail = line[5:].lstrip()
+                    if tail and tail != "[DONE]":
+                        try:
+                            obj = json.loads(tail)
+                            tail_content = obj.get("content") if isinstance(obj, dict) else None
+                        except Exception:
+                            tail_content = tail
+                        if isinstance(tail_content, str):
+                            if not (skipping_crawl_prefix and _is_crawl_line(tail_content)):
+                                yield from _emit_delta(tail_content)
+            buffer = ""
         
         # Считаем токены
         tokens = calculate_token(all_chunks)

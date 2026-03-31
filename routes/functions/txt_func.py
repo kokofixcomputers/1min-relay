@@ -5,14 +5,33 @@ from utils.logger import logger
 from utils.constants import *
 from utils.common import (
     ERROR_HANDLER, 
-    calculate_token
+    calculate_token,
+    create_session
 )
 import json
 
 # Импортируем необходимые константы и функции из других модулей
 from .shared_func import (
-    format_openai_response
+    format_openai_response,
+    stream_response
 )
+
+# ------------------------------------------------------------------#
+# 1min.ai иногда стримит "🌐 Crawling site ..." как часть контента.
+# Это служебный трейс: в UI он уходит в Related links, но в OpenAI-like
+# прокси его нужно убрать из текста ответа.
+# ------------------------------------------------------------------#
+
+_CRAWL_LINE_RE = re.compile(
+    r"^(?:\s*(?:🌐|ðŸŒ)\s*Crawling site[^\n]*\r?\n)+",
+    re.UNICODE,
+)
+
+def strip_crawl_prefix(text: str) -> str:
+    if not isinstance(text, str) or not text:
+        return text or ""
+    # Убираем только ведущий блок crawl-строк, остальной текст не трогаем.
+    return _CRAWL_LINE_RE.sub("", text)
 
 #=================================================================#
 # ----------- Функции для работы с текстовыми моделями -----------#
@@ -240,6 +259,9 @@ def transform_response(one_min_response, request_data, prompt_token):
                 # If you have not found an answer along the well -known paths, we return the error
                 logger.error(f"Cannot extract response text from API result")
                 result_text = "Error: Could not extract response from API"
+
+        # Убираем служебный префикс 1min.ai (crawl trace), если он попал в текст.
+        result_text = strip_crawl_prefix(result_text)
 
         completion_token = calculate_token(result_text)
         logger.debug(
