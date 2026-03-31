@@ -183,6 +183,41 @@ def _maybe_extract_tool_calls_from_text(text: str):
     if not raw:
         return "", None
 
+    # Some providers emit "tool traces" instead of a single JSON object, e.g.:
+    #   tool
+    #   write
+    #   {"path":"memory/2026-03-31.md","content":"..."}
+    #   Content loaded.
+    # Convert this to OpenAI-style tool_calls.
+    try:
+        lines = [ln.strip() for ln in raw.splitlines()]
+        tokens = [ln for ln in lines if ln]
+        if len(tokens) >= 3 and tokens[0].lower() == "tool":
+            tool_name = tokens[1]
+            args_raw = tokens[2]
+            if args_raw.startswith("{") and args_raw.endswith("}"):
+                try:
+                    args_obj = json.loads(args_raw)
+                except Exception:
+                    args_obj = None
+                if isinstance(args_obj, dict) and tool_name:
+                    return (
+                        "",
+                        [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": str(tool_name),
+                                    "arguments": json.dumps(args_obj, ensure_ascii=False),
+                                },
+                            }
+                        ],
+                    )
+    except Exception:
+        # best-effort: if parsing fails, continue with other extraction methods
+        pass
+
     # allow ```json fenced blocks
     if raw.startswith("```"):
         raw2 = raw.strip("`").strip()
