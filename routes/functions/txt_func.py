@@ -133,45 +133,6 @@ def format_conversation_history(messages, new_input):
     return "\n".join(formatted_history)
 
 
-def _build_tool_calling_instructions(tools: list) -> str:
-    """
-    Инструкция для провайдера, который НЕ поддерживает нативные tool_calls,
-    но способен следовать формату (эмуляция tool calling через JSON в тексте).
-    """
-    fn_tools = []
-    for t in tools or []:
-        if isinstance(t, dict) and t.get("type") == "function" and isinstance(t.get("function"), dict):
-            fn_tools.append(t)
-    if not fn_tools:
-        return ""
-    try:
-        tools_json = json.dumps(fn_tools, ensure_ascii=False)
-    except Exception:
-        tools_json = "[]"
-
-    return (
-        "TOOL CALLING MODE (OpenAI-compatible emulation)\n"
-        "You MAY call tools. If the user asks to read/write files or update memory, you SHOULD use the appropriate tool.\n"
-        "If you decide to call a tool, respond with ONLY a JSON object and nothing else.\n"
-        "Schema:\n"
-        "{\n"
-        '  "tool_calls": [\n'
-        "    {\n"
-        '      "id": "call_1",\n'
-        '      "type": "function",\n'
-        '      "function": {\n'
-        '        "name": "<tool name>",\n'
-        '        "arguments": { <json object arguments> }\n'
-        "      }\n"
-        "    }\n"
-        "  ]\n"
-        "}\n"
-        "If you do NOT need a tool, respond normally with plain text.\n"
-        "Available tools (OpenAI tools JSON):\n"
-        f"{tools_json}\n"
-    )
-
-
 def _maybe_extract_tool_calls_from_text(text: str):
     """
     Если модель вернула JSON c tool_calls в тексте — выделяем tool_calls для OpenAI-like ответа.
@@ -424,13 +385,6 @@ def prepare_payload(
         if not prompt_text.strip().startswith(DOCUMENT_ANALYSIS_INSTRUCTION):
             prompt_text = f"{DOCUMENT_ANALYSIS_INSTRUCTION}\n\n{prompt_text}"
 
-    # Tools: function-calling emulation for OpenAI-like clients (OpenClaw, etc.)
-    tools = request_data.get("tools", []) or []
-    if tools and bool(request_data.get("_openclaw")) and capabilities.get("function_calling"):
-        instr = _build_tool_calling_instructions(tools)
-        if instr:
-            prompt_text = f"{instr}\n\n{prompt_text}"
-
     settings_obj = {}
     # Align with the shape used by OpenClaw 1min.ai plugin: always include webSearchSettings (webSearch defaults to false)
     settings_obj["webSearchSettings"] = {
@@ -564,18 +518,10 @@ def transform_response(one_min_response, request_data, prompt_token):
                 logger.error(f"Cannot extract response text from API result")
                 result_text = "Error: Could not extract response from API"
 
-        # In OpenClaw tool-calling mode, 1min.ai may return tool traces like:
-        #   tool\nwrite\n{...}\nContent loaded.
-        # Our `strip_crawl_prefix()` would remove these lines and make the content empty.
-        # So: first try to extract tool_calls from the raw text; only then strip crawl/tool noise.
         raw_text = result_text
-
-        clean_text, tool_calls = _maybe_extract_tool_calls_from_text(raw_text) if request_data.get("_openclaw") else (raw_text, None)
-        if not tool_calls:
-            # Убираем служебный префикс 1min.ai (crawl trace / agent noise), если он попал в текст.
-            result_text = strip_crawl_prefix(raw_text)
-            # Tool-calling emulation: convert JSON tool_calls in text -> OpenAI tool_calls field.
-            clean_text, tool_calls = _maybe_extract_tool_calls_from_text(result_text)
+        # Убираем служебный префикс 1min.ai (crawl trace / agent noise), затем пробуем извлечь JSON tool_calls из текста.
+        result_text = strip_crawl_prefix(raw_text)
+        clean_text, tool_calls = _maybe_extract_tool_calls_from_text(result_text)
 
         completion_token = calculate_token(clean_text)
         logger.debug(

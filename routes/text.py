@@ -25,7 +25,6 @@ from .functions import (
     format_conversation_history,
     prepare_payload,
     transform_response,
-    emulate_stream_response,
     streaming_request,
     create_conversation_with_files
 )  # Импортируем функции из functions.py
@@ -88,28 +87,6 @@ def models():
 @app.route("/v1/chat/completions", methods=["POST"])
 @limiter.limit("60 per minute")
 def conversation():
-    def _is_openclaw_request(req) -> bool:
-        """
-        Detect OpenClaw client requests.
-        We intentionally use a permissive detection to avoid breaking if header naming changes:
-        - X-OpenClaw: 1/true/yes
-        - X-Client: openclaw
-        - User-Agent contains "openclaw"
-        """
-        try:
-            v = (req.headers.get("X-OpenClaw") or "").strip().lower()
-            if v in {"1", "true", "yes", "on"}:
-                return True
-            v2 = (req.headers.get("X-Client") or "").strip().lower()
-            if v2 == "openclaw":
-                return True
-            ua = (req.headers.get("User-Agent") or "").strip().lower()
-            if "openclaw" in ua:
-                return True
-        except Exception:
-            pass
-        return False
-
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Received request: /v1/chat/completions")
 
@@ -126,7 +103,6 @@ def conversation():
         request_data = request.json.copy()
         # Pass API key down to helper functions without changing external contract
         request_data["_api_key"] = api_key
-        request_data["_openclaw"] = _is_openclaw_request(request)
 
         # We get and normalize the model
         model = request_data.get("model", "").strip()
@@ -138,15 +114,13 @@ def conversation():
         # Tools / web-search requested through OpenAI-like tools
         web_search_requested = False
         tools = request_data.get("tools", [])
-        # Tool calling is supported only for OpenClaw. For other clients we ignore it completely
-        # and, critically, we do NOT disable streaming because many clients always include tools.
-        if not request_data.get("_openclaw"):
-            if tools:
-                logger.debug(f"[{request_id}] Ignoring tools from non-OpenClaw client")
-            request_data.pop("tools", None)
-            request_data.pop("tool_choice", None)
-            request_data.pop("parallel_tool_calls", None)
-            tools = []
+        # OpenAI-like tools are not forwarded to 1min.ai here; use openclaw-bridge for agent tool-calling.
+        if tools:
+            logger.debug(f"[{request_id}] Ignoring tools (use openclaw-bridge for tool calling)")
+        request_data.pop("tools", None)
+        request_data.pop("tool_choice", None)
+        request_data.pop("parallel_tool_calls", None)
+        tools = []
         for tool in tools:
             if tool.get("type") == "retrieval":
                 web_search_requested = True
@@ -167,16 +141,6 @@ def conversation():
                 logger.info(f"[{request_id}] Web search enabled for model {model}")
             else:
                 logger.warning(f"[{request_id}] Model {model} does not support web search, ignoring request")
-
-        # OpenClaw tool-calling mode:
-        # - default stream is ON
-        # - BUT if OpenClaw provided function tools, we may need to return a tool_calls JSON response.
-        # Since tool_calls must be a complete JSON (not partial SSE deltas) for OpenClaw executor,
-        # we "probe" with a single non-stream upstream call and then:
-        # - if tool_calls were requested by the model -> return non-stream tool_calls response
-        # - else -> keep streaming (emulated stream from the full content)
-        has_function_tools = any(isinstance(t, dict) and t.get("type") == "function" for t in (tools or []))
-        openclaw_tool_mode = bool(request_data.get("_openclaw")) and bool(has_function_tools)
 
         # We extract the contents of the last message for possible generation of images
         messages = request_data.get("messages", [])
@@ -1090,183 +1054,8 @@ def conversation():
             "Referer": "https://app.1min.ai/",
         }
 
-        def _is_effectively_empty(s) -> bool:
-            """
-            Treat whitespace and common zero-width characters as empty.
-            Some upstreams return only zero-width chars which `.strip()` won't remove.
-            """
-            if not isinstance(s, str):
-                return True
-            t = s
-            # remove common zero-width / BOM
-            t = t.replace("\u200b", "").replace("\ufeff", "").replace("\u2060", "")
-            return not t.strip()
-
         # Request depending on Stream
         if request_data.get("stream", False):
-            # OpenClaw: tool calling probe (single upstream non-stream call)
-            if openclaw_tool_mode:
-                logger.info(f"[{request_id}] OpenClaw tool-calling mode: probing non-stream to decide tool_calls vs stream")
-                try:
-                    requested_type = (payload.get("type") or "").strip()
-                    api_url = ONE_MIN_CHAT_WITH_AI_URL if (not requested_type or requested_type == "UNIFY_CHAT_WITH_AI") else ONE_MIN_API_URL
-                    response, degraded = api_request_with_websearch_degradation(
-                        "POST", api_url, json=payload, headers=headers, timeout=45
-                    )
-                    if response.status_code != 200:
-                        if response.status_code == 401:
-                            return ERROR_HANDLER(1020, key=api_key)
-                        return ERROR_HANDLER(response.status_code)
-
-                    one_min_response = response.json()
-                    transformed_response = transform_response(one_min_response, request_data, prompt_token)
-
-                    # If model decided to call tools, return a single JSON response (non-stream) for OpenClaw.
-                    choice0 = (transformed_response.get("choices") or [{}])[0] or {}
-                    finish_reason = choice0.get("finish_reason")
-                    if finish_reason == "tool_calls":
-                        resp = make_response(jsonify(transformed_response))
-                        set_response_headers(resp)
-                        if degraded:
-                            resp.headers["X-WebSearch-Degraded"] = "true"
-                        return resp, 200
-
-                    # Otherwise: keep streaming UX by emulating SSE from the final content.
-                    msg = (choice0.get("message") or {}) if isinstance(choice0.get("message"), dict) else {}
-                    full_content = msg.get("content") or ""
-
-                    # Some upstreams return empty content for non-stream calls, while streaming has content/tool traces.
-                    # If probe returned empty, fall back to upstream streaming, collect full content, then decide again.
-                    meta = ((one_min_response.get("aiRecord") or {}).get("metadata") or {}) if isinstance(one_min_response, dict) else {}
-                    try:
-                        upstream_output_tokens = int(meta.get("outputToken") or 0)
-                    except Exception:
-                        upstream_output_tokens = 0
-
-                    usage0 = transformed_response.get("usage") if isinstance(transformed_response, dict) else None
-                    try:
-                        completion_tokens0 = int((usage0 or {}).get("completion_tokens") or 0)
-                    except Exception:
-                        completion_tokens0 = 0
-
-                    should_force_stream_fallback = (
-                        (upstream_output_tokens == 0 or completion_tokens0 == 0)
-                        and not msg.get("tool_calls")
-                    )
-
-                    if should_force_stream_fallback:
-                        logger.info(f"[{request_id}] OpenClaw probe returned 0 completion/output tokens; forcing upstream streaming fallback")
-
-                    if should_force_stream_fallback or _is_effectively_empty(full_content or ""):
-                        try:
-                            streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
-                            stream_headers = dict(headers)
-                            stream_headers["Accept"] = "text/event-stream"
-                            session = create_session()
-                            rs = session.post(streaming_url, json=payload, headers=stream_headers, stream=True)
-                            logger.info(f"[{request_id}] OpenClaw streaming fallback status: {rs.status_code}")
-                            if rs.status_code == 200:
-                                buffer = ""
-                                collected = ""
-                                best_obj = None
-                                seen_sse = False
-                                for raw in rs.iter_content(chunk_size=1024):
-                                    if not raw:
-                                        continue
-                                    part = raw.decode("utf-8", errors="replace")
-                                    buffer += part
-                                    if not seen_sse and ("event:" in buffer or "data:" in buffer):
-                                        seen_sse = True
-
-                                    if not seen_sse:
-                                        collected += part
-                                        continue
-
-                                    while "\n\n" in buffer:
-                                        block, buffer = buffer.split("\n\n", 1)
-                                        if not block.strip():
-                                            continue
-                                        event_name = None
-                                        data_lines = []
-                                        for line in block.splitlines():
-                                            if line.startswith("event:"):
-                                                event_name = line[6:].strip() or None
-                                            if line.startswith("data:"):
-                                                data_lines.append(line[5:].lstrip())
-                                        if not data_lines:
-                                            continue
-                                        data = "\n".join(data_lines).strip()
-                                        if not data or data == "[DONE]":
-                                            continue
-                                        if event_name == "done":
-                                            buffer = ""
-                                            break
-                                        if event_name == "result":
-                                            # event:result contains final aiRecord; keep it for parsing, but don't append to text
-                                            if data.startswith("{") and data.endswith("}"):
-                                                try:
-                                                    best_obj = json.loads(data)
-                                                except Exception:
-                                                    best_obj = None
-                                            continue
-                                        content = None
-                                        if data.startswith("{") and data.endswith("}"):
-                                            try:
-                                                obj = json.loads(data)
-                                                if isinstance(obj, dict):
-                                                    content = obj.get("content")
-                                                    # ignore aiRecord-like blobs
-                                                    if content is None and ("aiRecord" in obj or "resultObject" in obj):
-                                                        content = None
-                                            except Exception:
-                                                content = None
-                                        if content is None:
-                                            content = data
-                                        if isinstance(content, str):
-                                            collected += content
-                                try:
-                                    rs.close()
-                                finally:
-                                    session.close()
-
-                                if collected.strip():
-                                    # Prefer parsing final result object if present; otherwise re-run on collected text.
-                                    if isinstance(best_obj, dict) and best_obj:
-                                        transformed2 = transform_response(best_obj, request_data, prompt_token)
-                                    else:
-                                        synthesized = {
-                                            "aiRecord": {"aiRecordDetail": {"resultObject": [collected]}}
-                                        }
-                                        transformed2 = transform_response(synthesized, request_data, prompt_token)
-                                    choice2 = (transformed2.get("choices") or [{}])[0] or {}
-                                    if choice2.get("finish_reason") == "tool_calls":
-                                        resp = make_response(jsonify(transformed2))
-                                        set_response_headers(resp)
-                                        if degraded:
-                                            resp.headers["X-WebSearch-Degraded"] = "true"
-                                        return resp, 200
-                                    msg2 = (choice2.get("message") or {}) if isinstance(choice2.get("message"), dict) else {}
-                                    full_content = msg2.get("content") or collected
-                        except Exception as e2:
-                            logger.error(f"[{request_id}] OpenClaw probe-empty fallback stream exception: {str(e2)}")
-
-                    if _is_effectively_empty(full_content or "") and not msg.get("tool_calls"):
-                        logger.error(
-                            f"[{request_id}] OpenClaw upstream returned empty content (non-stream + stream fallback); returning non-empty error message to avoid silent replies"
-                        )
-                        full_content = (
-                            "Ошибка: upstream (1min.ai) вернул пустой ответ (0 токенов) и в обычном запросе, и в стриминге. "
-                            "Это не tool-calling, а сбой/ограничение upstream. Попробуйте повторить запрос позже или сменить модель/тип API."
-                        )
-
-                    return Response(
-                        emulate_stream_response(full_content, request_data, model, prompt_token),
-                        content_type="text/event-stream",
-                    )
-                except Exception as e:
-                    logger.error(f"[{request_id}] Exception during OpenClaw tool probe: {str(e)}")
-                    return jsonify({"error": str(e)}), 500
-
             # Streaming request
             logger.debug(f"[{request_id}] Sending streaming request")
 
@@ -1376,90 +1165,6 @@ def conversation():
                 transformed_response = transform_response(
                     one_min_response, request_data, prompt_token
                 )
-
-                # OpenClaw tool-mode: some upstreams return empty content in non-stream calls.
-                # If so, fall back to upstream streaming, collect content/tool traces, and transform again.
-                if openclaw_tool_mode:
-                    try:
-                        choice0 = (transformed_response.get("choices") or [{}])[0] or {}
-                        msg0 = (choice0.get("message") or {}) if isinstance(choice0.get("message"), dict) else {}
-                        if _is_effectively_empty(msg0.get("content") or "") and not msg0.get("tool_calls"):
-                            streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
-                            stream_headers = dict(headers)
-                            stream_headers["Accept"] = "text/event-stream"
-                            session = create_session()
-                            rs = session.post(streaming_url, json=payload, headers=stream_headers, stream=True)
-                            logger.debug(f"[{request_id}] OpenClaw non-stream empty fallback stream status: {rs.status_code}")
-                            collected = ""
-                            best_obj = None
-                            if rs.status_code == 200:
-                                buffer = ""
-                                seen_sse = False
-                                for raw in rs.iter_content(chunk_size=1024):
-                                    if not raw:
-                                        continue
-                                    part = raw.decode("utf-8", errors="replace")
-                                    buffer += part
-                                    if not seen_sse and ("event:" in buffer or "data:" in buffer):
-                                        seen_sse = True
-
-                                    if not seen_sse:
-                                        collected += part
-                                        continue
-
-                                    while "\n\n" in buffer:
-                                        block, buffer = buffer.split("\n\n", 1)
-                                        if not block.strip():
-                                            continue
-                                        event_name = None
-                                        data_lines = []
-                                        for line in block.splitlines():
-                                            if line.startswith("event:"):
-                                                event_name = line[6:].strip() or None
-                                            if line.startswith("data:"):
-                                                data_lines.append(line[5:].lstrip())
-                                        if not data_lines:
-                                            continue
-                                        data = "\n".join(data_lines).strip()
-                                        if not data or data == "[DONE]":
-                                            continue
-                                        if event_name == "done":
-                                            buffer = ""
-                                            break
-                                        if event_name == "result" and data.startswith("{") and data.endswith("}"):
-                                            try:
-                                                best_obj = json.loads(data)
-                                            except Exception:
-                                                best_obj = None
-                                            continue
-                                        content = None
-                                        if data.startswith("{") and data.endswith("}"):
-                                            try:
-                                                obj = json.loads(data)
-                                                if isinstance(obj, dict):
-                                                    content = obj.get("content")
-                                                    if content is None and ("aiRecord" in obj or "resultObject" in obj):
-                                                        content = None
-                                            except Exception:
-                                                content = None
-                                        if content is None:
-                                            content = data
-                                        if isinstance(content, str):
-                                            collected += content
-                                try:
-                                    rs.close()
-                                finally:
-                                    session.close()
-
-                            # Prefer parsing the final result object if present, otherwise use collected text.
-                            if isinstance(best_obj, dict) and best_obj:
-                                transformed2 = transform_response(best_obj, request_data, prompt_token)
-                            else:
-                                synthesized = {"aiRecord": {"aiRecordDetail": {"resultObject": [collected]}}}
-                                transformed2 = transform_response(synthesized, request_data, prompt_token)
-                            transformed_response = transformed2
-                    except Exception as e2:
-                        logger.error(f"[{request_id}] OpenClaw non-stream empty fallback exception: {str(e2)}")
 
                 response = make_response(jsonify(transformed_response))
                 set_response_headers(response)

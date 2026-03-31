@@ -156,17 +156,19 @@ Authorization: Bearer your-1min-api-key
 Если вы передаёте `stream: true` в `/v1/chat/completions`, сервер вернёт **OpenAI-style SSE** (`data: {...}\n\n` + `data: [DONE]`),
 а upstream 1min.ai будет потребляться как SSE-события `event: content/result/done/error`.
 
-### OpenClaw: tool calling (эмуляция, best-effort)
-1min.ai в режиме `UNIFY_CHAT_WITH_AI` не гарантирует нативный OpenAI tool-calling формат, поэтому для OpenClaw реализована **эмуляция**:
+### OpenClaw: отдельный bridge (рекомендуется)
+Агентный **tool calling** вынесен из этого релея в отдельный сервис **`openclaw-bridge`** (каталог в репозитории): он слушает **только loopback** (`127.0.0.1`) на том же хосте, что и OpenClaw, принимает OpenAI-совместимый `POST /v1/chat/completions` с `tools`, сам переводит запрос в «простой» чат к вашему **1min-relay** и парсит ответ модели в `tool_calls` при необходимости.
 
-- **Распознавание OpenClaw-клиента**: по HTTP-заголовкам `X-OpenClaw: true` и/или `X-Client: openclaw` (также допускается `User-Agent` содержащий `openclaw`)
-- **Изоляция от остальных клиентов**: для не-OpenClaw запросов поля `tools`, `tool_choice`, `parallel_tool_calls` **игнорируются/удаляются**, чтобы не отключать стриминг и не ломать поведение обычных OpenAI-клиентов
-- **Стриминг по умолчанию сохраняется**: даже для OpenClaw
-- **Только для одного ответа стрим может быть “погашен”**: если OpenClaw прислал `tools` (function), сервер делает 1 “probe” нестриминговый запрос upstream
-  - если в ответе обнаружены `tool_calls` (в виде JSON в тексте) — возвращается **нестриминговый** OpenAI-like ответ с `finish_reason="tool_calls"` и полем `message.tool_calls`
-  - если `tool_calls` не обнаружены — возвращается **эмулированный стрим** (SSE) из полного текста ответа
+Схема: **OpenClaw → `http://127.0.0.1:<порт>/v1` (bridge) → 1min-relay (например `https://…`) → 1min.ai**.
 
-Примечание: был добавлен “robust” парсинг текста ответа upstream, т.к. 1min.ai может возвращать результат в разных полях. Это устраняет ситуацию, когда ответ приходил пустым (0 completion tokens), и OpenClaw не мог выполнить запись `MEMORY.md`/`memory/*.md`.
+- В конфиге провайдера OpenClaw укажите `baseUrl` на bridge, например `http://127.0.0.1:8765/v1`. Пример полей см. `openclaw-bridge/openclaw.provider.example.json`.
+- **Сам 1min-relay** по-прежнему не принимает поля `tools` / `tool_choice` / `parallel_tool_calls` — они отбрасываются; для агентов с инструментами используйте только bridge.
+
+Развёртывание bridge на LXC: `openclaw-bridge/deploy/install-lxc.sh`, unit `openclaw-bridge/deploy/openclaw-bridge.service`, переменные — `openclaw-bridge/deploy/env.example`. Проверка после запуска:
+
+```bash
+curl -sS http://127.0.0.1:8765/health
+```
 
 ### Responses API (best-effort)
 Также поддерживается `POST /v1/responses` (нестриминговый). Пример запроса:

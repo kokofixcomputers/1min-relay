@@ -1,0 +1,5 @@
+{
+  "comment": "Фрагмент для провайдера OpenAI в конфиге OpenClaw: укажите baseUrl на loopback bridge",
+  "baseUrl": "http://127.0.0.1:8765/v1",
+  "apiKey": "YOUR_1MIN_OR_RELAY_API_KEY"
+}

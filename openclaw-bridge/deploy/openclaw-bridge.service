@@ -1,0 +1,19 @@
+[Unit]
+Description=OpenClaw tool bridge (OpenAI API) to 1min-relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Раскомментируйте и создайте пользователя при необходимости:
+# User=openclaw
+# Group=openclaw
+WorkingDirectory=/opt/openclaw-bridge
+EnvironmentFile=-/etc/openclaw-bridge.env
+# app.py читает BRIDGE_HOST, BRIDGE_PORT, UPSTREAM_BASE_URL и т.д. и запускает uvicorn
+ExecStart=/opt/openclaw-bridge/venv/bin/python /opt/openclaw-bridge/app.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
