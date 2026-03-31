@@ -1154,6 +1154,9 @@ def conversation():
                         and not msg.get("tool_calls")
                     )
 
+                    if should_force_stream_fallback:
+                        logger.info(f"[{request_id}] OpenClaw probe returned 0 completion/output tokens; forcing upstream streaming fallback")
+
                     if should_force_stream_fallback or _is_effectively_empty(full_content or ""):
                         try:
                             streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
@@ -1161,7 +1164,7 @@ def conversation():
                             stream_headers["Accept"] = "text/event-stream"
                             session = create_session()
                             rs = session.post(streaming_url, json=payload, headers=stream_headers, stream=True)
-                            logger.debug(f"[{request_id}] OpenClaw probe-empty fallback stream status: {rs.status_code}")
+                            logger.info(f"[{request_id}] OpenClaw streaming fallback status: {rs.status_code}")
                             if rs.status_code == 200:
                                 buffer = ""
                                 collected = ""
