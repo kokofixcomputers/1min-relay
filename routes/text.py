@@ -1137,7 +1137,18 @@ def conversation():
 
                     # Some upstreams return empty content for non-stream calls, while streaming has content/tool traces.
                     # If probe returned empty, fall back to upstream streaming, collect full content, then decide again.
-                    if _is_effectively_empty(full_content or ""):
+                    meta = ((one_min_response.get("aiRecord") or {}).get("metadata") or {}) if isinstance(one_min_response, dict) else {}
+                    try:
+                        upstream_output_tokens = int(meta.get("outputToken") or 0)
+                    except Exception:
+                        upstream_output_tokens = 0
+
+                    should_force_stream_fallback = (
+                        upstream_output_tokens == 0
+                        and not msg.get("tool_calls")
+                    )
+
+                    if should_force_stream_fallback or _is_effectively_empty(full_content or ""):
                         try:
                             streaming_url = f"{ONE_MIN_CHAT_WITH_AI_URL}?isStreaming=true"
                             stream_headers = dict(headers)
