@@ -43,7 +43,9 @@ def build_tool_calling_instructions(tools: list) -> str:
         "You MAY call tools.\n"
         "If you decide to call a tool, respond with ONLY a JSON object and nothing else.\n"
         "Return ONLY one top-level JSON object.\n"
-        "When updating MEMORY.md: preserve existing headings/structure; prefer minimal edits (do not rewrite the whole file).\n"
+        "When updating MEMORY.md:\n"
+        "- preserve existing headings/structure; prefer minimal edits (do not rewrite the whole file)\n"
+        "- if you plan to call an edit/replace tool that requires an exact oldText match, FIRST call the read tool for that file and then use the exact substring.\n"
         "Schema:\n"
         "{\n"
         '  "tool_calls": [\n'
