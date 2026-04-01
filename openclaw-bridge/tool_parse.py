@@ -40,26 +40,36 @@ def build_tool_calling_instructions(tools: list) -> str:
 
     return (
         "TOOL CALLING MODE (OpenAI-compatible emulation)\n"
+        "\n"
         "You MAY call tools.\n"
-        "If you decide to call a tool, respond with ONLY a JSON object and nothing else.\n"
-        "Return ONLY one top-level JSON object.\n"
-        "When updating MEMORY.md:\n"
-        "- preserve existing headings/structure; prefer minimal edits (do not rewrite the whole file)\n"
-        "- if you plan to call an edit/replace tool that requires an exact oldText match, FIRST call the read tool for that file and then use the exact substring.\n"
-        "Schema:\n"
+        "\n"
+        "STRICT TOOLS CONTRACT (IMPORTANT):\n"
+        "- If you claim you read/write/update/create/delete/execute/send anything outside the chat, you MUST return tool_calls.\n"
+        "- Do NOT say you changed files / sent messages / executed commands unless tool_calls are present.\n"
+        "- When you return tool_calls, return ONLY a single JSON object (no prose, no markdown, no code fences).\n"
+        "- tool_calls MUST be a non-empty array when you choose to call tools.\n"
+        "- Arguments MUST follow the provided JSON Schema exactly (including required fields and exact key names).\n"
+        "\n"
+        "General guidance:\n"
+        "- If you need exact oldText matching for an edit/replace tool: first call the read tool and copy the exact substring.\n"
+        "- For small files, prefer writing the full new content to avoid fragile edit matches.\n"
+        "\n"
+        "Output schema (example):\n"
         "{\n"
-        '  "tool_calls": [\n'
+        '  \"tool_calls\": [\n'
         "    {\n"
-        '      "id": "call_1",\n'
-        '      "type": "function",\n'
-        '      "function": {\n'
-        '        "name": "<tool name>",\n'
-        '        "arguments": { <json object arguments> }\n'
+        '      \"id\": \"call_1\",\n'
+        '      \"type\": \"function\",\n'
+        '      \"function\": {\n'
+        '        \"name\": \"<tool name>\",\n'
+        '        \"arguments\": { \"key\": \"value\" }\n'
         "      }\n"
         "    }\n"
         "  ]\n"
         "}\n"
+        "\n"
         "If you do NOT need a tool, respond normally with plain text.\n"
+        "\n"
         "Available tools (minimized OpenAI tools JSON):\n"
         f"{tools_hint}\n"
     )

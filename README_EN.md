@@ -13,7 +13,7 @@
 - Allows you to set a subset of allowed models through environment variables
 - **Best-effort dynamic `/v1/models`**: when an API key is provided, the server can fetch a live model list from upstream with caching (otherwise falls back to the static list)
 - **Graceful web_search degradation**: if upstream returns `400` when webSearch is enabled, the proxy retries once with webSearch disabled and sets `X-WebSearch-Degraded: true`
-- **OpenClaw tool-calling (emulation, best-effort)**: tool calling is enabled **only** for OpenClaw requests (by headers). For other clients, `tools` are ignored so streaming is not impacted.
+- **OpenClaw tool-calling**: implemented in the separate **`openclaw-bridge`** service (see below). The relay itself always **drops** `tools` / `tool_choice` / `parallel_tool_calls` to remain a thin proxy and keep streaming stable for normal clients.
 - Optimized modular structure with minimal code duplication
 
 ## 1min.ai API Notes (Upstream)
