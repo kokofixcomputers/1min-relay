@@ -408,12 +408,14 @@ async def chat_completions(request: Request):
                 directive = (
                     "The user requested an actual file update (MEMORY.md). "
                     "Do NOT claim the file was updated unless you return tool_calls that perform the update. "
+                    "You MUST return at least one tool_call (non-empty tool_calls array). "
                     "Return ONLY a JSON object with tool_calls (no prose)."
                 )
             else:
                 directive = (
                     "The user requested to read/quote MEMORY.md. "
-                    "Return ONLY a JSON object with tool_calls that reads the file content (no prose)."
+                    "You MUST return a non-empty tool_calls array that reads the file content. "
+                    "Return ONLY a JSON object with tool_calls (no prose)."
                 )
             forced["messages"] = list(inner.get("messages") or []) + [
                 {
