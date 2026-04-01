@@ -58,6 +58,74 @@ GENERATOR_TO_VARIATOR = {
 
 DEFAULT_VARIATOR_FALLBACK = "flux-redux-schnell"
 
+_OPENAI_IMAGE_GENERATORS = {
+    "dall-e-3",
+    "dall-e-2",
+    "gpt-image-1",
+    "gpt-image-1-mini",
+}
+
+
+def _best_effort_vendor_variator(model: str, supported_variators: set[str]) -> Optional[str]:
+    """
+    Pick the closest variator model by family/vendor, even if names differ.
+    Priority:
+    - Flux family -> Flux Redux (Black Forest Labs)
+    - Magic Art / Midjourney family -> Magic Art
+    - OpenAI image family -> dall-e-2 (only OpenAI variator we support)
+    - Models that already have a variator (dzine/recraft) are handled earlier
+    - Otherwise: DEFAULT_VARIATOR_FALLBACK
+    """
+    if not model:
+        return None
+
+    ml = str(model).strip().lower()
+
+    # --------------------
+    # Black Forest Labs / Flux family
+    # --------------------
+    if "flux" in ml:
+        mapped = GENERATOR_TO_VARIATOR.get(model) or GENERATOR_TO_VARIATOR.get(canonicalize_image_model_name(model))
+        if mapped and mapped in supported_variators:
+            return mapped
+        # Prefer Schnell for "schnell" generators, else Dev.
+        if "schnell" in ml and "flux-redux-schnell" in supported_variators:
+            return "flux-redux-schnell"
+        if "flux-redux-dev" in supported_variators:
+            return "flux-redux-dev"
+        if "flux-redux-schnell" in supported_variators:
+            return "flux-redux-schnell"
+
+    # --------------------
+    # Magic Art / Midjourney family (1min.ai migrated MJ -> Magic Art)
+    # --------------------
+    if "magic art" in ml or "magic-art" in ml or "midjourney" in ml:
+        # Preserve version when possible.
+        if ("6.1" in ml or "_6_1" in ml) and "magic-art_6_1" in supported_variators:
+            return "magic-art_6_1"
+        if ("7.0" in ml or "_7_0" in ml) and "magic-art_7_0" in supported_variators:
+            return "magic-art_7_0"
+        if "magic-art" in supported_variators:
+            return "magic-art"
+
+    # --------------------
+    # OpenAI image family: only dall-e-2 variations supported
+    # --------------------
+    if model in _OPENAI_IMAGE_GENERATORS or "dall-e" in ml or "gpt-image" in ml:
+        if "dall-e-2" in supported_variators:
+            return "dall-e-2"
+
+    # --------------------
+    # Explicit known families that have variators
+    # --------------------
+    if "dzine" in ml and "dzine" in supported_variators:
+        return "dzine"
+    if "recraft" in ml and "recraft" in supported_variators:
+        return "recraft"
+
+    # Otherwise: no close match
+    return None
+
 
 def canonicalize_image_model_name(name: str) -> str:
     """
@@ -85,6 +153,10 @@ def choose_variator_model(generator_or_user_model: str, *, supported_variators: 
     # direct support
     if m in supported_variators:
         return m
+    # vendor/family closest match
+    vendor_pick = _best_effort_vendor_variator(m, supported_variators)
+    if vendor_pick and vendor_pick in supported_variators:
+        return vendor_pick
     # try generator->variator
     mapped = GENERATOR_TO_VARIATOR.get(m)
     if mapped and mapped in supported_variators:
