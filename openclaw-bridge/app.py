@@ -66,6 +66,52 @@ async def _collect_openai_sse_text(resp: httpx.Response) -> str:
                 collected.append(piece)
     return "".join(collected)
 
+def _tool_required_map(tools: Any) -> Dict[str, list]:
+    req: Dict[str, list] = {}
+    if not isinstance(tools, list):
+        return req
+    for t in tools:
+        if not isinstance(t, dict) or t.get("type") != "function":
+            continue
+        fn = t.get("function") if isinstance(t.get("function"), dict) else {}
+        name = fn.get("name")
+        params = fn.get("parameters") if isinstance(fn.get("parameters"), dict) else {}
+        required = params.get("required") if isinstance(params.get("required"), list) else []
+        if isinstance(name, str) and name:
+            req[name] = [str(x) for x in required if isinstance(x, (str, int, float, bool))]
+    return req
+
+
+def _tool_calls_missing_required(tool_calls: Any, required_map: Dict[str, list]) -> str | None:
+    if not isinstance(tool_calls, list) or not required_map:
+        return None
+    for call in tool_calls:
+        if not isinstance(call, dict):
+            continue
+        fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+        name = fn.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        required = required_map.get(name) or []
+        if not required:
+            continue
+        args_raw = fn.get("arguments")
+        args_obj: Any = None
+        if isinstance(args_raw, str):
+            try:
+                args_obj = json.loads(args_raw)
+            except Exception:
+                args_obj = None
+        elif isinstance(args_raw, dict):
+            args_obj = args_raw
+        else:
+            args_obj = None
+        args_obj = args_obj if isinstance(args_obj, dict) else {}
+        missing = [k for k in required if k not in args_obj]
+        if missing:
+            return f"tool '{name}' missing required keys: {missing}"
+    return None
+
 
 def _upstream_headers(request: Request) -> Dict[str, str]:
     headers = {"Content-Type": "application/json"}
@@ -174,6 +220,7 @@ async def chat_completions(request: Request):
     tools = body.get("tools") or []
     stream = bool(body.get("stream", False))
     model = (body.get("model") or "gpt-4o-mini").strip()
+    required_map = _tool_required_map(tools)
 
     url = f"{UPSTREAM_BASE_URL}/v1/chat/completions"
 
@@ -219,6 +266,37 @@ async def chat_completions(request: Request):
     pt = int(usage.get("prompt_tokens") or 0)
 
     if tool_calls:
+        # Validate required parameters against the provided tools schema.
+        # If invalid, do ONE retry asking for corrected tool_calls JSON only.
+        miss = _tool_calls_missing_required(tool_calls, required_map)
+        if miss:
+            try:
+                inner_retry = dict(inner)
+                inner_retry["messages"] = list(inner.get("messages") or []) + [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Your previous tool_calls JSON is invalid for the provided tool schema: "
+                            f"{miss}. Return ONLY a corrected JSON object with tool_calls."
+                        ),
+                    }
+                ]
+                r2 = await client.post(url, json=inner_retry, headers=headers)
+                if r2.status_code == 200:
+                    d2 = r2.json()
+                    c2 = (d2.get("choices") or [{}])[0] or {}
+                    m2 = (c2.get("message") or {}) if isinstance(c2.get("message"), dict) else {}
+                    t2 = m2.get("content") if isinstance(m2.get("content"), str) else ""
+                    clean2, tool_calls2 = maybe_extract_tool_calls_from_text(t2)
+                    if tool_calls2 and not _tool_calls_missing_required(tool_calls2, required_map):
+                        tool_calls = tool_calls2
+                        clean = clean2
+                        data = d2
+                        usage = d2.get("usage") if isinstance(d2.get("usage"), dict) else usage
+                        pt = int((usage or {}).get("prompt_tokens") or pt)
+            except Exception:
+                pass
+
         if stream:
             def gen_tc():
                 yield from _sse_tool_calls(tool_calls, model, pt or 1)

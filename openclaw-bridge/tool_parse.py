@@ -16,33 +16,34 @@ def build_tool_calling_instructions(tools: list) -> str:
     if not fn_tools:
         return ""
 
-    # IMPORTANT:
-    # Don't dump full JSON schema for all tools into the prompt.
-    # Large tool lists can explode the prompt and cause upstreams to return empty outputs (0 completion tokens).
-    # We provide a compact summary: name + required keys (best-effort).
-    summaries = []
+    # We must include the *actual* parameter names/required fields (e.g. pathAlias vs path),
+    # otherwise OpenClaw tool execution may fail and cause many retries.
+    # To keep prompts small we include a minimized tool schema (name/description/parameters only).
+    minimized = []
     for t in fn_tools:
         fn = t.get("function") if isinstance(t.get("function"), dict) else {}
-        name = fn.get("name") or ""
         params = fn.get("parameters") if isinstance(fn.get("parameters"), dict) else {}
-        props = params.get("properties") if isinstance(params.get("properties"), dict) else {}
-        required = params.get("required") if isinstance(params.get("required"), list) else []
-        keys = list(props.keys())[:20]
-        summaries.append(
+        minimized.append(
             {
-                "name": name,
-                "required": required[:20],
-                "keys": keys,
+                "type": "function",
+                "function": {
+                    "name": fn.get("name"),
+                    "description": fn.get("description"),
+                    "parameters": params,
+                },
             }
         )
-    tools_hint = json.dumps(summaries, ensure_ascii=False)
+    try:
+        tools_hint = json.dumps(minimized, ensure_ascii=False)
+    except Exception:
+        tools_hint = "[]"
 
     return (
         "TOOL CALLING MODE (OpenAI-compatible emulation)\n"
         "You MAY call tools.\n"
         "If you decide to call a tool, respond with ONLY a JSON object and nothing else.\n"
         "Return ONLY one top-level JSON object.\n"
-        "If you decide to call a tool, respond with ONLY a JSON object and nothing else.\n"
+        "When updating MEMORY.md: preserve existing headings/structure; prefer minimal edits (do not rewrite the whole file).\n"
         "Schema:\n"
         "{\n"
         '  "tool_calls": [\n'
@@ -57,7 +58,7 @@ def build_tool_calling_instructions(tools: list) -> str:
         "  ]\n"
         "}\n"
         "If you do NOT need a tool, respond normally with plain text.\n"
-        "Available tools (compact summary):\n"
+        "Available tools (minimized OpenAI tools JSON):\n"
         f"{tools_hint}\n"
     )
 
