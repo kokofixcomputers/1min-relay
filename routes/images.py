@@ -138,6 +138,28 @@ def generate_image():
 
         full_image_urls = [get_full_url(url) for url in image_urls if url]
 
+        # Cache last generated images per user+model to support Telegram bots that send only [_V1_]..[_V4_]
+        # without passing the full message history back to /v1/chat/completions.
+        try:
+            # Keep only up to 10 to match 1min.ai variator limits (we show 4, but keep some buffer).
+            last_urls = full_image_urls[:10]
+            safe_memcached_operation(
+                "set",
+                f"last_images:{api_key}:{model}",
+                {"urls": last_urls, "created": int(time.time())},
+                expiry=3600 * 24 * 7,
+            )
+            safe_memcached_operation(
+                "set",
+                f"last_images:{api_key}",
+                {"urls": last_urls, "model": model, "created": int(time.time())},
+                expiry=3600 * 24 * 7,
+            )
+            logger.info(f"[{request_id}] Cached last_images for api_key={api_key[:6]}..., model={model}, n={len(last_urls)}")
+        except Exception as _e:
+            # Best-effort; do not fail image generation if cache write fails.
+            pass
+
         openai_data = []
         for i, url in enumerate(full_image_urls):
             if model in IMAGE_VARIATION_MODELS:

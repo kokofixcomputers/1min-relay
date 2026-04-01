@@ -168,6 +168,58 @@ def conversation():
             # We are looking for a new format with monoshyrin text `[_V1_]` -` [_V4_] `
             mono_variation_match = re.search(r'`\[_V([1-4])_\]`', prompt_text)
 
+            def _fallback_last_image_url(var_num: int):
+                """
+                Best-effort: when bots send only [_Vx_] without passing assistant history,
+                use cached last generated images for this api_key+model.
+                """
+                try:
+                    k1 = f"last_images:{api_key}:{model}"
+                    k2 = f"last_images:{api_key}"
+                    data = safe_memcached_operation("get", k1) or safe_memcached_operation("get", k2)
+                    if isinstance(data, str):
+                        try:
+                            data = json.loads(data)
+                        except Exception:
+                            data = None
+                    urls = None
+                    if isinstance(data, dict):
+                        urls = data.get("urls")
+                    if isinstance(urls, list) and urls:
+                        idx = max(0, min(var_num - 1, len(urls) - 1))
+                        return urls[idx]
+                except Exception:
+                    return None
+                return None
+
+            def _normalize_magic_art_aspect(aw: int, ah: int):
+                """
+                Magic Art Image Variator supports only specific aspect ratios.
+                Map arbitrary (aw,ah) to the nearest supported pair.
+                Source: 1min.ai docs.
+                """
+                allowed = [(4, 5), (2, 3), (4, 7), (1, 1), (5, 4), (3, 2), (7, 4)]
+                try:
+                    aw = int(aw or 1)
+                    ah = int(ah or 1)
+                except Exception:
+                    return (1, 1)
+                if (aw, ah) in allowed:
+                    return (aw, ah)
+                # nearest by ratio distance
+                try:
+                    r = aw / ah if ah else 1.0
+                except Exception:
+                    r = 1.0
+                best = (1, 1)
+                best_d = 1e9
+                for x, y in allowed:
+                    d = abs((x / y) - r)
+                    if d < best_d:
+                        best_d = d
+                        best = (x, y)
+                return best
+
             # If a monoshyrin format is found, we check if there is a URL dialogue in the history
             if mono_variation_match and request_data.get("messages"):
                 variation_number = int(mono_variation_match.group(1))
@@ -228,6 +280,12 @@ def conversation():
                     variation_match = mono_variation_match
                     logger.info(
                         f"[{request_id}] Detected monospace variation command: {variation_number} for URL: {image_url}")
+                else:
+                    # Fallback: no history / no URLs found
+                    image_url = _fallback_last_image_url(variation_number)
+                    if image_url:
+                        variation_match = mono_variation_match
+                        logger.info(f"[{request_id}] Using cached last_images URL for variation #{variation_number}: {image_url}")
             # If a format with square brackets is found, we check if there is a URL dialogue in the history
             elif square_variation_match and request_data.get("messages"):
                 variation_number = int(square_variation_match.group(1))
@@ -260,6 +318,11 @@ def conversation():
                     variation_match = square_variation_match
                     logger.info(
                         f"[{request_id}] Detected square bracket variation command: {variation_number} for URL: {image_url}")
+                else:
+                    image_url = _fallback_last_image_url(variation_number)
+                    if image_url:
+                        variation_match = square_variation_match
+                        logger.info(f"[{request_id}] Using cached last_images URL for variation #{variation_number}: {image_url}")
             # If the old format is found, we use it
             elif old_variation_match:
                 variation_match = old_variation_match
@@ -267,6 +330,13 @@ def conversation():
                 image_url = old_variation_match.group(2)
                 logger.info(
                     f"[{request_id}] Detected old format variation command: {variation_number} for URL: {image_url}")
+            # If we have a square bracket variation command but no messages were provided, try cache.
+            elif square_variation_match:
+                variation_number = int(square_variation_match.group(1))
+                image_url = _fallback_last_image_url(variation_number)
+                if image_url:
+                    variation_match = square_variation_match
+                    logger.info(f"[{request_id}] Detected square bracket variation command (no history); using cached URL: {image_url}")
 
         if variation_match:
             # We process the variation of the image
@@ -372,6 +442,15 @@ def conversation():
                             # We use the ratio of 1: 1
                             payload["promptObject"]["aspect_width"] = 1
                             payload["promptObject"]["aspect_height"] = 1
+
+                        # Magic Art variator supports only a fixed set of aspect ratios; normalize if needed.
+                        if model in ["magic-art", "magic-art_6_1", "magic-art_7_0"]:
+                            aw, ah = _normalize_magic_art_aspect(
+                                payload["promptObject"].get("aspect_width", 1),
+                                payload["promptObject"].get("aspect_height", 1),
+                            )
+                            payload["promptObject"]["aspect_width"] = aw
+                            payload["promptObject"]["aspect_height"] = ah
                         
                         # We send a request for variation directly
                         logger.info(f"[{request_id}] Sending direct variation request: {json.dumps(payload)}")
