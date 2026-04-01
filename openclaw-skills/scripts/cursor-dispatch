@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# OpenClaw → Cursor Agent CLI (headless). Всегда задаёт PATH к ~/.local/bin (agent часто не в PATH у exec).
+# Использование: cursor-dispatch <task-file> <repo-dir>
+# Лог: $OPENCLAW_CURSOR_DISPATCH_LOG или ~/.openclaw/logs/cursor-dispatch.log
+set -euo pipefail
+
+export PATH="/root/.local/bin:/usr/local/bin:/usr/bin:/bin"
+LOG="${OPENCLAW_CURSOR_DISPATCH_LOG:-/root/.openclaw/logs/cursor-dispatch.log}"
+AGENT_BIN="${CURSOR_AGENT_BIN:-/root/.local/bin/agent}"
+MODEL="${CURSOR_AGENT_MODEL:-auto}"
+
+TASK_FILE="${1:?usage: cursor-dispatch <task-file> <repo-dir>}"
+REPO_DIR="${2:?usage: cursor-dispatch <task-file> <repo-dir>}"
+
+if [[ ! -f "$TASK_FILE" ]]; then
+  echo "task file not found: $TASK_FILE" >&2
+  exit 2
+fi
+if [[ ! -d "$REPO_DIR" ]]; then
+  echo "repo dir not found: $REPO_DIR" >&2
+  exit 2
+fi
+if [[ ! -e "$AGENT_BIN" ]]; then
+  echo "Cursor Agent CLI not found: $AGENT_BIN (install or set CURSOR_AGENT_BIN)" >&2
+  exit 127
+fi
+
+mkdir -p "$(dirname "$LOG")"
+{
+  echo "===== $(date -Is) ====="
+  echo "repo=$REPO_DIR"
+  echo "agent=$AGENT_BIN"
+  echo "model=$MODEL"
+  echo "task_file=$TASK_FILE"
+} >>"$LOG"
+
+set -o pipefail
+cd "$REPO_DIR"
+"$AGENT_BIN" --trust --model "$MODEL" --print -p "$(cat "$TASK_FILE")" 2>&1 | tee -a "$LOG"
+exit "${PIPESTATUS[0]}"

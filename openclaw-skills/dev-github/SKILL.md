@@ -8,6 +8,16 @@ metadata: {"openclaw":{"emoji":"🛠️","requires":{"bins":["gh","git","python3
 Если в сообщении владельца есть команда **`/git`** (как отдельное слово или в начале строки) — **обязательно** следуй этому skill (workflow GitHub: gh, clone, ветки, commit, push, PR, инструмент правок по правилам ниже). Не игнорируй `/git`: сначала **напиши в чат**, что активирован skill **dev-github**, затем выполняй шаги.
 
 
+## Оркестратор vs правки в репозитории (важно)
+OpenClaw в этом workflow — **оркестратор**: он не должен сам править файлы проекта встроенными инструментами редактирования (`apply_patch`, прямой `write` в файлы репо и т.п.), если задача — **изменить код**. Все правки в рабочей копии делает **только** выбранный CLI (Cursor `agent` или `claude`) через **exec**.
+
+- После запуска CLI: проверяй результат через **`git status`**, **`git diff`**, вывод тестов — и кратко отчитывайся пользователю.
+- Для **Cursor** предпочтительно вызывать **`/opt/openclaw/bin/cursor-dispatch`** (ставит `PATH` к `/root/.local/bin`, пишет метку вызова в лог для проверки факта запуска):
+  - Задачу в файл: `printf '%s\n' "…текст задачи…" > /tmp/oc-task.txt`
+  - Запуск: `/opt/openclaw/bin/cursor-dispatch /tmp/oc-task.txt /root/dev-workspace/<repo>`
+  - Лог по умолчанию: `/root/.openclaw/logs/cursor-dispatch.log` (переменная `OPENCLAW_CURSOR_DISPATCH_LOG` переопределяет путь).
+- Если `cursor-dispatch` недоступен — эквивалент: `export PATH="/root/.local/bin:$PATH"` и `cd <repo> && agent --trust --model auto --print -p "..."`.
+
 ## Выбор инструмента правок (обязательно по тексту запроса)
 Смотри **текущее сообщение пользователя** (не только `/git`):
 
@@ -17,7 +27,8 @@ metadata: {"openclaw":{"emoji":"🛠️","requires":{"bins":["gh","git","python3
 - Если **ни одного** слова нет — по умолчанию **Cursor Agent CLI** (`agent --trust --model auto --print -p "..."`), если `agent` доступен; иначе `claude` с моделью из этого skill.
 
 Команды (напоминание):
-- Cursor: `cd <repo> && agent --trust --model auto --print -p "<задача + тест-план>"` (ask/plan: `--mode ask` / `--mode plan`).
+- Cursor (предпочтительно): `/opt/openclaw/bin/cursor-dispatch /tmp/oc-task.txt /root/dev-workspace/<repo>` с текстом задачи в файле.
+- Cursor (вручную): `cd <repo> && agent --trust --model auto --print -p "<задача + тест-план>"` (ask/plan: `--mode ask` / `--mode plan`). Убедись, что в PATH есть `/root/.local/bin`.
 - Claude: `cd <repo> && claude --model glm-4.7 --print "<задача + тест-план>"`.
 
 
