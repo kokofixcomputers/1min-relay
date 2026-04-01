@@ -201,10 +201,15 @@ def _should_force_tool_calls(messages: Any) -> bool:
     t = _last_user_text(messages).lower()
     if not t:
         return False
-    if "memory.md" in t:
-        return True
-    # Russian variants
-    if "память" in t and ("обнов" in t or "запом" in t):
+    wants_update = (
+        ("update" in t)
+        or ("обнов" in t)
+        or ("запом" in t)
+        or ("добав" in t)
+        or ("измени" in t)
+        or ("внеси" in t)
+    )
+    if ("memory.md" in t or "память" in t) and wants_update:
         return True
     return False
 
