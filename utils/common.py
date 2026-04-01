@@ -100,8 +100,26 @@ def api_request(req_method, url, headers=None, requester_ip=None, data=None,
             is_image_operation = True
             logger.debug(f"Обнаружена операция с изображением: {operation_type}, используем расширенный таймаут")
 
-    # Устанавливаем таймаут в зависимости от типа операции
-    req_params["timeout"] = timeout or (MIDJOURNEY_TIMEOUT if is_image_operation else DEFAULT_TIMEOUT)
+    # Устанавливаем таймаут в зависимости от типа операции.
+    # Для image-операций стараемся учитывать режим (fast/relax) из promptObject.mode.
+    if timeout is not None:
+        req_params["timeout"] = timeout
+    elif is_image_operation:
+        mode = None
+        try:
+            mode = ((json or {}).get("promptObject") or {}).get("mode")
+        except Exception:
+            mode = None
+        if isinstance(mode, str):
+            mode = mode.strip().lower()
+        if mode == "relax":
+            req_params["timeout"] = max(MIDJOURNEY_TIMEOUT, IMAGE_TIMEOUT_RELAX)
+        elif mode == "fast":
+            req_params["timeout"] = max(DEFAULT_TIMEOUT, IMAGE_TIMEOUT_FAST)
+        else:
+            req_params["timeout"] = MIDJOURNEY_TIMEOUT
+    else:
+        req_params["timeout"] = DEFAULT_TIMEOUT
 
     # Выполняем запрос
     try:

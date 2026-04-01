@@ -282,13 +282,14 @@ def conversation():
 
                 logger.info(f"[{request_id}] Processing variation for image: {image_url}")
 
-                # For Midjourney models, add a direct call of the API without downloading the image
-                if model.startswith("midjourney") and "asset.1min.ai" in image_url:
+                # For Midjourney/Magic Art models, call the Image Variator directly without downloading the image
+                # (1min.ai supports varying generated images by their asset relative path).
+                if (model.startswith("midjourney") or model in ["magic-art", "magic-art_6_1", "magic-art_7_0"]) and "asset.1min.ai" in image_url:
                     # We extract a relative path from the URL
                     path_match = re.search(r'(?:asset\.1min\.ai)/?(images/[^?#]+)', image_url)
                     if path_match:
                         relative_path = path_match.group(1)
-                        logger.info(f"[{request_id}] Detected Midjourney variation with relative path: {relative_path}")
+                        logger.info(f"[{request_id}] Detected direct variation with relative path: {relative_path}")
                         
                         # We get the saved generation parameters from Memcached by Request_id
                         saved_params = None
@@ -373,7 +374,7 @@ def conversation():
                             payload["promptObject"]["aspect_height"] = 1
                         
                         # We send a request for variation directly
-                        logger.info(f"[{request_id}] Sending direct Midjourney variation request: {json.dumps(payload)}")
+                        logger.info(f"[{request_id}] Sending direct variation request: {json.dumps(payload)}")
                         
                         try:
                             variation_response = api_request(
@@ -387,12 +388,12 @@ def conversation():
                             if variation_response.status_code == 200:
                                 # We process a successful answer
                                 variation_data = variation_response.json()
-                                logger.info(f"[{request_id}] Received Midjourney variation response: {json.dumps(variation_data)}")
+                                logger.info(f"[{request_id}] Received variation response: {json.dumps(variation_data)}")
                                 
                                 # We extract the URL variations
                                 variation_urls = []
                                 
-                                # Midjourney structure structure
+                                # Midjourney/Magic Art response structure
                                 if "aiRecord" in variation_data and "aiRecordDetail" in variation_data["aiRecord"]:
                                     record_detail = variation_data["aiRecord"]["aiRecordDetail"]
                                     if "resultObject" in record_detail:

@@ -25,6 +25,11 @@ ONE_MIN_DEFAULT_HEADERS = {
 DEFAULT_TIMEOUT = 60 # 60 seconds for regular requests
 MIDJOURNEY_TIMEOUT = 600  # 10 minutes for requests for Midjourney
 
+# Image operation timeouts (seconds)
+# 1min.ai UI hints: fast < 1 minute, relax 2-10 minutes. Keep a safety buffer.
+IMAGE_TIMEOUT_FAST = 120
+IMAGE_TIMEOUT_RELAX = 750  # 12.5 minutes safety buffer for "relax"
+
 # Constants for query types
 IMAGE_GENERATOR = "IMAGE_GENERATOR"
 IMAGE_VARIATOR = "IMAGE_VARIATOR"
