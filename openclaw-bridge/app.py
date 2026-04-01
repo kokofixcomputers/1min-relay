@@ -23,6 +23,7 @@ REQUEST_TIMEOUT = float(os.environ.get("BRIDGE_UPSTREAM_TIMEOUT", "120"))
 LOOP_WINDOW_S = int(os.environ.get("BRIDGE_LOOP_WINDOW_S", "180"))
 LOOP_MAX_CALLS = int(os.environ.get("BRIDGE_LOOP_MAX_CALLS", "8"))
 TOOL_FALLBACK_MODEL = os.environ.get("BRIDGE_TOOL_FALLBACK_MODEL", "").strip()
+STRICT_TOOL_CONTRACT = os.environ.get("BRIDGE_STRICT_TOOL_CONTRACT", "1").strip().lower() not in ("0", "false", "no", "off", "")
 
 app = FastAPI(title="openclaw-bridge", version="1.0.0")
 
@@ -192,43 +193,78 @@ def _last_user_text(messages: Any) -> str:
     return ""
 
 
-def _force_tool_reason(messages: Any) -> str | None:
+def _looks_like_side_effect_claim(text: str) -> bool:
     """
-    Heuristic: when the user explicitly asks to update/read/quote MEMORY.md, the model MUST use tools.
-    Cheap models sometimes hallucinate "updated file" text without any tool_calls; we detect this and
-    do one extra attempt (optionally with a fallback model).
+    Detect "I already did X" claims that MUST be backed by tool_calls.
+    Language-agnostic-ish: a small set of RU/EN stems for edits/reads/writes/exec/sends.
+    This is not per-tool; it's a general truthfulness gate to prevent hallucinated writes.
     """
-    t = _last_user_text(messages).lower()
+    t = (text or "").strip().lower()
     if not t:
-        return None
-    mentions_memory = ("memory.md" in t) or ("память" in t)
-    if not mentions_memory:
-        return None
-
-    wants_update = (
-        ("update" in t)
-        or ("обнов" in t)
-        or ("запом" in t)
-        or ("добав" in t)
-        or ("измени" in t)
-        or ("внеси" in t)
+        return False
+    # common file/tool claims RU
+    ru = (
+        "обновил",
+        "обновила",
+        "обновлено",
+        "записал",
+        "записала",
+        "записано",
+        "изменил",
+        "изменила",
+        "изменено",
+        "добавил",
+        "добавила",
+        "добавлено",
+        "удалил",
+        "удалила",
+        "удалено",
+        "создал",
+        "создала",
+        "создано",
+        "прочитал",
+        "прочитала",
+        "прочитано",
+        "отправил",
+        "отправила",
+        "отправлено",
+        "выполнил",
+        "выполнила",
+        "выполнено",
+        "выполнил команд",
+        "запустил",
+        "запустила",
     )
-    if wants_update:
-        return "update"
-
-    wants_read = (
-        ("прочитай" in t)
-        or ("прочти" in t)
-        or ("покажи" in t)
-        or ("пришли" in t)
-        or ("содержим" in t)
-        or ("процит" in t)
-        or ("цитир" in t)
+    # common file/tool claims EN
+    en = (
+        "i updated",
+        "updated ",
+        "i wrote",
+        "wrote ",
+        "i changed",
+        "changed ",
+        "i edited",
+        "edited ",
+        "i created",
+        "created ",
+        "i deleted",
+        "deleted ",
+        "i removed",
+        "removed ",
+        "i read",
+        "here is the file",
+        "here's the file",
+        "i ran",
+        "i executed",
+        "i sent",
     )
-    if wants_read:
-        return "read"
-
-    return None
+    if any(k in t for k in ru) or any(k in t for k in en):
+        return True
+    # explicit filename mentions often indicate claimed file interaction
+    if ".md" in t or "memory.md" in t:
+        if any(k in t for k in ("обнов", "проч", "write", "read", "edit", "update")):
+            return True
+    return False
 
 
 def _sse_chunks(content: str, model: str, prompt_tokens: int):
@@ -396,27 +432,19 @@ async def chat_completions(request: Request):
     usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
     pt = int(usage.get("prompt_tokens") or 0)
 
-    # If tools were requested but the model returned plain text (no tool_calls) for an explicit
-    # "update MEMORY.md" request, do one strict retry. Optionally switch to a more reliable model.
-    force_reason = _force_tool_reason(inner.get("messages"))
-    if not tool_calls and force_reason:
+    # Universal strict tool contract:
+    # If tools were provided but the model returned plain text that looks like a side-effect claim
+    # (read/write/update/exec/send/etc) without tool_calls, do one strict retry (optionally with fallback model).
+    if STRICT_TOOL_CONTRACT and has_function_tools(tools) and not tool_calls and _looks_like_side_effect_claim(clean or content):
         try:
             forced = dict(inner)
             if TOOL_FALLBACK_MODEL:
                 forced["model"] = TOOL_FALLBACK_MODEL
-            if force_reason == "update":
-                directive = (
-                    "The user requested an actual file update (MEMORY.md). "
-                    "Do NOT claim the file was updated unless you return tool_calls that perform the update. "
-                    "You MUST return at least one tool_call (non-empty tool_calls array). "
-                    "Return ONLY a JSON object with tool_calls (no prose)."
-                )
-            else:
-                directive = (
-                    "The user requested to read/quote MEMORY.md. "
-                    "You MUST return a non-empty tool_calls array that reads the file content. "
-                    "Return ONLY a JSON object with tool_calls (no prose)."
-                )
+            directive = (
+                "TOOLS CONTRACT (STRICT): If tools are provided, you MUST NOT claim any external action "
+                "(read/write/update/create/delete/execute/send) unless you return tool_calls that perform it. "
+                "Return ONLY a JSON object with tool_calls. tool_calls MUST be a non-empty array."
+            )
             forced["messages"] = list(inner.get("messages") or []) + [
                 {
                     "role": "system",
