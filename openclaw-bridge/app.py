@@ -453,7 +453,9 @@ async def chat_completions(request: Request):
     user_text = _last_user_text(inner.get("messages"))
     needs_read = _looks_like_external_read_request(user_text)
     bad_claim = _looks_like_side_effect_claim(clean or content)
+    strict_triggered = False
     if STRICT_TOOL_CONTRACT and has_function_tools(tools) and not tool_calls and (bad_claim or needs_read):
+        strict_triggered = True
         try:
             forced = dict(inner)
             if TOOL_FALLBACK_MODEL:
@@ -487,6 +489,30 @@ async def chat_completions(request: Request):
                         model = TOOL_FALLBACK_MODEL
         except Exception:
             pass
+
+    # If strict contract was triggered but we still have no tool_calls, return a hard failure message
+    # instead of misleading "I updated/read/executed" prose.
+    if strict_triggered and not tool_calls:
+        final_text = (
+            "Ошибка tool-calling: модель не вернула корректные tool_calls при запросе, который требует "
+            "чтения/изменения внешнего состояния. Действие НЕ выполнено. "
+            "Попробуйте повторить запрос или временно переключить модель на более надёжную для tool-calling."
+        )
+        if stream:
+            def gen_tc_fail():
+                yield from _sse_chunks(final_text, model, pt or 1)
+            return StreamingResponse(gen_tc_fail(), media_type="text/event-stream")
+        ct = max(1, len(final_text) // 4)
+        return JSONResponse(
+            {
+                "id": data.get("id") or f"chatcmpl-{uuid.uuid4()}",
+                "object": "chat.completion",
+                "created": data.get("created") or int(time.time()),
+                "model": model,
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": final_text}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": pt or 1, "completion_tokens": ct, "total_tokens": (pt or 1) + ct},
+            }
+        )
 
     if tool_calls:
         # Validate required parameters against the provided tools schema.

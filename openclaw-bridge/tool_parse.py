@@ -82,6 +82,61 @@ def maybe_extract_tool_calls_from_text(text: str) -> Tuple[str, Optional[List[di
     if not raw:
         return "", None
 
+    # OpenClaw-style shorthand: function_name(key="value", n=1, flag=true)
+    # Example: memory_search(query="Память", maxResults=3, minScore=0.0)
+    try:
+        import re
+
+        m = re.match(r"^\s*([A-Za-z_]\w*)\s*\((.*)\)\s*$", raw)
+        if m:
+            fname = m.group(1)
+            args_src = m.group(2).strip()
+            args_obj: dict[str, Any] = {}
+            if args_src:
+                # split by commas at top-level (no nesting support; best-effort)
+                parts = [p.strip() for p in args_src.split(",") if p.strip()]
+                for p in parts:
+                    if "=" not in p:
+                        continue
+                    k, v = p.split("=", 1)
+                    k = k.strip()
+                    v = v.strip()
+                    # strip quotes
+                    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                        v2 = v[1:-1]
+                        args_obj[k] = v2
+                        continue
+                    # bool/null
+                    vl = v.lower()
+                    if vl in ("true", "false"):
+                        args_obj[k] = (vl == "true")
+                        continue
+                    if vl in ("null", "none"):
+                        args_obj[k] = None
+                        continue
+                    # int/float
+                    try:
+                        if "." in v or "e" in vl:
+                            args_obj[k] = float(v)
+                        else:
+                            args_obj[k] = int(v)
+                        continue
+                    except Exception:
+                        args_obj[k] = v
+            if fname:
+                return (
+                    "",
+                    [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": str(fname), "arguments": json.dumps(args_obj, ensure_ascii=False)},
+                        }
+                    ],
+                )
+    except Exception:
+        pass
+
     try:
         lines = [ln.strip() for ln in raw.splitlines()]
         tokens = [ln for ln in lines if ln]
