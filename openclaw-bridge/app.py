@@ -23,6 +23,7 @@ REQUEST_TIMEOUT = float(os.environ.get("BRIDGE_UPSTREAM_TIMEOUT", "120"))
 LOOP_WINDOW_S = int(os.environ.get("BRIDGE_LOOP_WINDOW_S", "180"))
 LOOP_MAX_CALLS = int(os.environ.get("BRIDGE_LOOP_MAX_CALLS", "8"))
 TOOL_FALLBACK_MODEL = os.environ.get("BRIDGE_TOOL_FALLBACK_MODEL", "").strip()
+FORCE_TOOL_MODEL = os.environ.get("BRIDGE_FORCE_TOOL_MODEL", "").strip()
 STRICT_TOOL_CONTRACT = os.environ.get("BRIDGE_STRICT_TOOL_CONTRACT", "1").strip().lower() not in ("0", "false", "no", "off", "")
 
 app = FastAPI(title="openclaw-bridge", version="1.0.0")
@@ -456,6 +457,10 @@ async def chat_completions(request: Request):
     inner = {k: v for k, v in body.items() if k not in ("tools", "tool_choice", "parallel_tool_calls")}
     inner["stream"] = False
     inner["messages"] = augment_messages_with_tools(body.get("messages") or [], tools)
+    # When tools are present, optionally force a more reliable model for tool-calling.
+    if FORCE_TOOL_MODEL:
+        inner["model"] = FORCE_TOOL_MODEL
+        model = FORCE_TOOL_MODEL
 
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         resp = await client.post(url, json=inner, headers=headers)
