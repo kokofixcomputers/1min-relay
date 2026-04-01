@@ -19,6 +19,7 @@ from flask import jsonify, request
 import math
 import base64
 import traceback
+from utils.model_mapping import canonicalize_image_model_name, choose_variator_model
 
 from .file_func import upload_asset, get_mime_type
 from .shared_func import format_image_response
@@ -30,6 +31,7 @@ from .shared_func import format_image_response
 def build_generation_payload(model, prompt, request_data, negative_prompt, aspect_ratio, size, mode, request_id):
     """Build payload for image generation based on model."""
     payload = {}
+    model = canonicalize_image_model_name(model)
     # Normalize model aliases (e.g., Midjourney -> Magic Art).
     alias_target = IMAGE_MODEL_ALIASES.get(model)
     if alias_target:
@@ -549,6 +551,7 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
             mode = generation_params.get("mode")
             logger.debug(f"[{request_id}] Using saved mode: {mode}")
     
+    user_model = canonicalize_image_model_name(user_model)
     # Normalize model aliases (e.g., Midjourney -> Magic Art) BEFORE variation checks.
     alias_target = IMAGE_MODEL_ALIASES.get(user_model)
     if alias_target:
@@ -556,9 +559,14 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
         user_model = alias_target
 
     # Variations are allowed only for models that are BOTH generator+variator.
-    if user_model not in IMAGE_VARIATION_MODELS:
-        logger.warning(f"[{request_id}] Model {user_model} does not support variations (not in IMAGE_VARIATION_MODELS)")
+    # If a generator name doesn't match a variator name, map/fallback to a safe variator model.
+    chosen_model = choose_variator_model(user_model, supported_variators=set(IMAGE_VARIATION_MODELS))
+    if not chosen_model:
+        logger.warning(f"[{request_id}] Model {user_model} does not support variations (no supported variator)")
         return jsonify({"error": f"Model '{user_model}' does not support image variations"}), 400
+    if chosen_model != user_model:
+        logger.info(f"[{request_id}] Variator model fallback/mapping: {user_model} -> {chosen_model}")
+    user_model = chosen_model
 
     # Try ONLY the requested model (no fallbacks/substitutions).
     variation_models = [user_model]

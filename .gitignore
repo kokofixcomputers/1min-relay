@@ -24,6 +24,7 @@ vps-systemd/
 # local comparisons / scratch
 _compare_kokofix_1min_relay/
 .tmp-openclaw/
+.tmp-remote/
 
 # local logs
 logs/

@@ -16,6 +16,7 @@ from utils.common import (
 from utils.memcached import safe_memcached_operation
 from routes.functions.shared_func import validate_auth, handle_api_error, format_image_response, get_full_url, extract_image_urls
 from routes.functions.img_func import build_generation_payload, parse_aspect_ratio, create_image_variations, retry_image_upload
+from utils.model_mapping import canonicalize_image_model_name, choose_variator_model
 from . import app, limiter, MEMORY_STORAGE  # Импортируем app, limiter и MEMORY_STORAGE из модуля routes
 
 # ----------------------- Endpoints -----------------------
@@ -39,7 +40,7 @@ def generate_image():
         return jsonify({"error": "Content-type must be application/json"}), 400
     request_data = request.get_json()
 
-    model = request_data.get("model", "dall-e-3").strip()
+    model = canonicalize_image_model_name(request_data.get("model", "dall-e-3"))
     # Normalize image model aliases (Midjourney -> Magic Art).
     alias_target = IMAGE_MODEL_ALIASES.get(model)
     if alias_target:
@@ -273,7 +274,7 @@ def image_variations():
         return jsonify({"error": "No image file provided"}), 400
 
     image_file = request.files["image"]
-    original_model = request.form.get("model", "dall-e-2").strip()
+    original_model = canonicalize_image_model_name(request.form.get("model", "dall-e-2"))
     # Normalize image model aliases (Midjourney -> Magic Art).
     alias_target = IMAGE_MODEL_ALIASES.get(original_model)
     if alias_target:
@@ -288,9 +289,14 @@ def image_variations():
     logger.debug(f"[{request_id}] Original model requested: {original_model} for image variations")
 
     # Variations are allowed only for models that are BOTH generator+variator.
-    if original_model not in IMAGE_VARIATION_MODELS:
-        logger.warning(f"[{request_id}] Model {original_model} does not support image variations (not in IMAGE_VARIATION_MODELS)")
+    # If a generator model name doesn't have a matching variator model, fall back to Flux Redux Schnell.
+    chosen_model = choose_variator_model(original_model, supported_variators=set(IMAGE_VARIATION_MODELS))
+    if not chosen_model:
+        logger.warning(f"[{request_id}] No supported variator model for requested '{original_model}'")
         return jsonify({"error": f"Model '{original_model}' does not support image variations"}), 400
+    if chosen_model != original_model:
+        logger.info(f"[{request_id}] Variator model fallback/mapping: {original_model} -> {chosen_model}")
+    original_model = chosen_model
 
     # Try ONLY the requested model (no fallbacks/substitutions).
     models_to_try = [original_model]
