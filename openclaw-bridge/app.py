@@ -15,6 +15,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 import logging
+from pathlib import Path
 
 from tool_parse import augment_messages_with_tools, has_function_tools, maybe_extract_tool_calls_from_text
 
@@ -26,6 +27,8 @@ LOOP_MAX_CALLS = int(os.environ.get("BRIDGE_LOOP_MAX_CALLS", "8"))
 TOOL_FALLBACK_MODEL = os.environ.get("BRIDGE_TOOL_FALLBACK_MODEL", "").strip()
 FORCE_TOOL_MODEL = os.environ.get("BRIDGE_FORCE_TOOL_MODEL", "").strip()
 STRICT_TOOL_CONTRACT = os.environ.get("BRIDGE_STRICT_TOOL_CONTRACT", "1").strip().lower() not in ("0", "false", "no", "off", "")
+LOCAL_MEMORY_MD_PATH = os.environ.get("BRIDGE_LOCAL_MEMORY_MD_PATH", "/root/.openclaw/workspace/MEMORY.md").strip()
+LOCAL_READ_MAX_CHARS = int(os.environ.get("BRIDGE_LOCAL_READ_MAX_CHARS", "200000"))
 
 app = FastAPI(title="openclaw-bridge", version="1.0.0")
 log = logging.getLogger("openclaw-bridge")
@@ -316,6 +319,30 @@ def _looks_like_external_update_request(user_text: str) -> bool:
     return wants_change and mentions_artifact
 
 
+def _mentions_memory_md(user_text: str) -> bool:
+    t = (user_text or "").strip().lower()
+    return ("memory.md" in t) or ("memory md" in t)
+
+
+def _as_markdown_quote(s: str) -> str:
+    # Telegram Markdown quote: prefix each line with "> "
+    lines = s.splitlines() or [""]
+    return "\n".join(["> " + ln for ln in lines])
+
+
+def _local_read_memory_md() -> str | None:
+    try:
+        p = Path(LOCAL_MEMORY_MD_PATH)
+        if not p.exists() or not p.is_file():
+            return None
+        raw = p.read_text(encoding="utf-8", errors="replace")
+        if len(raw) > LOCAL_READ_MAX_CHARS:
+            raw = raw[:LOCAL_READ_MAX_CHARS] + "\n…(truncated)\n"
+        return raw
+    except Exception:
+        return None
+
+
 def _sse_chunks(content: str, model: str, prompt_tokens: int):
     words = content.split()
     chunks = [" ".join(words[i : i + 5]) for i in range(0, len(words), 5)]
@@ -464,6 +491,29 @@ async def chat_completions(request: Request):
     if FORCE_TOOL_MODEL:
         inner["model"] = FORCE_TOOL_MODEL
         model = FORCE_TOOL_MODEL
+
+    # Deterministic local read for MEMORY.md (no LLM needed):
+    # This prevents "tool_calls" brittleness for the common "show/quote MEMORY.md verbatim" request.
+    user_text = _last_user_text(inner.get("messages"))
+    if _looks_like_external_read_request(user_text) and _mentions_memory_md(user_text):
+        raw = _local_read_memory_md()
+        if raw is not None:
+            quoted = _as_markdown_quote(raw)
+            if stream:
+                def gen_mem():
+                    yield from _sse_chunks(quoted, model or "unknown", 1)
+                return StreamingResponse(gen_mem(), media_type="text/event-stream")
+            ct = max(1, len(quoted) // 4)
+            return JSONResponse(
+                {
+                    "id": f"chatcmpl-{uuid.uuid4()}",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": model or "unknown",
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": quoted}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": ct, "total_tokens": 1 + ct},
+                }
+            )
 
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         resp = await client.post(url, json=inner, headers=headers)
