@@ -22,6 +22,7 @@ BRIDGE_SECRET = os.environ.get("BRIDGE_SECRET", "").strip()
 REQUEST_TIMEOUT = float(os.environ.get("BRIDGE_UPSTREAM_TIMEOUT", "120"))
 LOOP_WINDOW_S = int(os.environ.get("BRIDGE_LOOP_WINDOW_S", "180"))
 LOOP_MAX_CALLS = int(os.environ.get("BRIDGE_LOOP_MAX_CALLS", "8"))
+TOOL_FALLBACK_MODEL = os.environ.get("BRIDGE_TOOL_FALLBACK_MODEL", "").strip()
 
 app = FastAPI(title="openclaw-bridge", version="1.0.0")
 
@@ -170,6 +171,42 @@ def _loop_guard_allow(key: str) -> bool:
     times.append(now)
     _loop_guard[key] = times
     return len(times) <= LOOP_MAX_CALLS
+
+
+def _last_user_text(messages: Any) -> str:
+    if not isinstance(messages, list):
+        return ""
+    for m in reversed(messages):
+        if not isinstance(m, dict) or m.get("role") != "user":
+            continue
+        c = m.get("content")
+        if isinstance(c, str):
+            return c
+        if isinstance(c, list):
+            parts: list[str] = []
+            for it in c:
+                if isinstance(it, dict) and isinstance(it.get("text"), str):
+                    parts.append(it["text"])
+            return "\n".join(parts)
+        return ""
+    return ""
+
+
+def _should_force_tool_calls(messages: Any) -> bool:
+    """
+    Heuristic: when the user explicitly asks to update MEMORY.md / memory, the model MUST use tools.
+    Cheap models sometimes hallucinate "updated file" text without any tool_calls; we detect this and
+    do one extra attempt (optionally with a fallback model).
+    """
+    t = _last_user_text(messages).lower()
+    if not t:
+        return False
+    if "memory.md" in t:
+        return True
+    # Russian variants
+    if "память" in t and ("обнов" in t or "запом" in t):
+        return True
+    return False
 
 
 def _sse_chunks(content: str, model: str, prompt_tokens: int):
@@ -336,6 +373,42 @@ async def chat_completions(request: Request):
 
     usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
     pt = int(usage.get("prompt_tokens") or 0)
+
+    # If tools were requested but the model returned plain text (no tool_calls) for an explicit
+    # "update MEMORY.md" request, do one strict retry. Optionally switch to a more reliable model.
+    if not tool_calls and _should_force_tool_calls(inner.get("messages")):
+        try:
+            forced = dict(inner)
+            if TOOL_FALLBACK_MODEL:
+                forced["model"] = TOOL_FALLBACK_MODEL
+            forced["messages"] = list(inner.get("messages") or []) + [
+                {
+                    "role": "system",
+                    "content": (
+                        "The user requested an actual file update (MEMORY.md). "
+                        "Do NOT claim the file was updated unless you return tool_calls. "
+                        "Return ONLY a JSON object with tool_calls (no prose)."
+                    ),
+                }
+            ]
+            r_force = await client.post(url, json=forced, headers=headers)
+            if r_force.status_code == 200:
+                d_force = r_force.json()
+                c_force = (d_force.get("choices") or [{}])[0] or {}
+                m_force = (c_force.get("message") or {}) if isinstance(c_force.get("message"), dict) else {}
+                t_force = m_force.get("content") if isinstance(m_force.get("content"), str) else ""
+                clean_f, tool_calls_f = maybe_extract_tool_calls_from_text(t_force)
+                if tool_calls_f and not _tool_calls_missing_required(tool_calls_f, required_map):
+                    tool_calls = tool_calls_f
+                    clean = clean_f
+                    data = d_force
+                    usage = d_force.get("usage") if isinstance(d_force.get("usage"), dict) else usage
+                    pt = int((usage or {}).get("prompt_tokens") or pt)
+                    # reflect model switch in our response model field for transparency
+                    if TOOL_FALLBACK_MODEL:
+                        model = TOOL_FALLBACK_MODEL
+        except Exception:
+            pass
 
     if tool_calls:
         # Validate required parameters against the provided tools schema.
