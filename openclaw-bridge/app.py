@@ -192,15 +192,19 @@ def _last_user_text(messages: Any) -> str:
     return ""
 
 
-def _should_force_tool_calls(messages: Any) -> bool:
+def _force_tool_reason(messages: Any) -> str | None:
     """
-    Heuristic: when the user explicitly asks to update MEMORY.md / memory, the model MUST use tools.
+    Heuristic: when the user explicitly asks to update/read/quote MEMORY.md, the model MUST use tools.
     Cheap models sometimes hallucinate "updated file" text without any tool_calls; we detect this and
     do one extra attempt (optionally with a fallback model).
     """
     t = _last_user_text(messages).lower()
     if not t:
-        return False
+        return None
+    mentions_memory = ("memory.md" in t) or ("память" in t)
+    if not mentions_memory:
+        return None
+
     wants_update = (
         ("update" in t)
         or ("обнов" in t)
@@ -209,9 +213,22 @@ def _should_force_tool_calls(messages: Any) -> bool:
         or ("измени" in t)
         or ("внеси" in t)
     )
-    if ("memory.md" in t or "память" in t) and wants_update:
-        return True
-    return False
+    if wants_update:
+        return "update"
+
+    wants_read = (
+        ("прочитай" in t)
+        or ("прочти" in t)
+        or ("покажи" in t)
+        or ("пришли" in t)
+        or ("содержим" in t)
+        or ("процит" in t)
+        or ("цитир" in t)
+    )
+    if wants_read:
+        return "read"
+
+    return None
 
 
 def _sse_chunks(content: str, model: str, prompt_tokens: int):
@@ -381,19 +398,27 @@ async def chat_completions(request: Request):
 
     # If tools were requested but the model returned plain text (no tool_calls) for an explicit
     # "update MEMORY.md" request, do one strict retry. Optionally switch to a more reliable model.
-    if not tool_calls and _should_force_tool_calls(inner.get("messages")):
+    force_reason = _force_tool_reason(inner.get("messages"))
+    if not tool_calls and force_reason:
         try:
             forced = dict(inner)
             if TOOL_FALLBACK_MODEL:
                 forced["model"] = TOOL_FALLBACK_MODEL
+            if force_reason == "update":
+                directive = (
+                    "The user requested an actual file update (MEMORY.md). "
+                    "Do NOT claim the file was updated unless you return tool_calls that perform the update. "
+                    "Return ONLY a JSON object with tool_calls (no prose)."
+                )
+            else:
+                directive = (
+                    "The user requested to read/quote MEMORY.md. "
+                    "Return ONLY a JSON object with tool_calls that reads the file content (no prose)."
+                )
             forced["messages"] = list(inner.get("messages") or []) + [
                 {
                     "role": "system",
-                    "content": (
-                        "The user requested an actual file update (MEMORY.md). "
-                        "Do NOT claim the file was updated unless you return tool_calls. "
-                        "Return ONLY a JSON object with tool_calls (no prose)."
-                    ),
+                    "content": directive,
                 }
             ]
             r_force = await client.post(url, json=forced, headers=headers)
