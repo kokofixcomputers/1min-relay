@@ -270,15 +270,29 @@ async def chat_completions(request: Request):
     required_map = _tool_required_map(tools)
     lk = _loop_key(body, tools)
     if has_function_tools(tools) and not _loop_guard_allow(lk):
-        # Stop token-draining loops: OpenClaw will otherwise keep retrying failed tool calls.
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                "Loop guard: слишком много повторов одного и того же tool-запроса. "
-                "Остановлено, чтобы не сжигать токены. "
-                "Сделайте /reset и повторите запрос, либо исправьте схему tools/аргументы."
-            ),
+        # Stop token-draining loops: OpenClaw may interpret non-2xx as API rate limit and enter cooldown.
+        # Return a normal assistant response (200) instead.
+        final_text = (
+            "Loop guard: слишком много повторов одного и того же tool-запроса. "
+            "Остановлено, чтобы не сжигать токены. "
+            "Сделайте /reset и повторите запрос; если проблема повторится — это означает, что tool_calls "
+            "ломаются (алиасы/аргументы edit/write) и их нужно исправлять."
         )
+        if stream:
+            def gen_lg():
+                yield from _sse_chunks(final_text, model or "unknown", 1)
+            return StreamingResponse(gen_lg(), media_type="text/event-stream")
+        out = {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": model or "unknown",
+            "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": final_text}, "finish_reason": "stop"}
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": max(1, len(final_text) // 4), "total_tokens": 1 + max(1, len(final_text) // 4)},
+        }
+        return JSONResponse(out)
 
     url = f"{UPSTREAM_BASE_URL}/v1/chat/completions"
 
