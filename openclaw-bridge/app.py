@@ -9,6 +9,7 @@ import os
 import time
 import uuid
 from typing import Any, AsyncIterator, Dict
+import hashlib
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -19,8 +20,12 @@ from tool_parse import augment_messages_with_tools, has_function_tools, maybe_ex
 UPSTREAM_BASE_URL = os.environ.get("UPSTREAM_BASE_URL", "https://api.ratu.sh").rstrip("/")
 BRIDGE_SECRET = os.environ.get("BRIDGE_SECRET", "").strip()
 REQUEST_TIMEOUT = float(os.environ.get("BRIDGE_UPSTREAM_TIMEOUT", "120"))
+LOOP_WINDOW_S = int(os.environ.get("BRIDGE_LOOP_WINDOW_S", "180"))
+LOOP_MAX_CALLS = int(os.environ.get("BRIDGE_LOOP_MAX_CALLS", "8"))
 
 app = FastAPI(title="openclaw-bridge", version="1.0.0")
+
+_loop_guard: Dict[str, list[float]] = {}
 
 def _is_effectively_empty(s: Any) -> bool:
     if not isinstance(s, str):
@@ -124,6 +129,48 @@ def _upstream_headers(request: Request) -> Dict[str, str]:
             headers["API-KEY"] = ak
     return headers
 
+def _loop_key(body: Dict[str, Any], tools: Any) -> str:
+    """
+    Build a stable fingerprint for the likely "same request" loop.
+    We use: model + last user content (first 2KB) + tool names + tool_count.
+    """
+    model = str(body.get("model") or "").strip()
+    messages = body.get("messages") if isinstance(body.get("messages"), list) else []
+    last_user = ""
+    for m in reversed(messages):
+        if isinstance(m, dict) and m.get("role") == "user":
+            c = m.get("content")
+            if isinstance(c, str):
+                last_user = c
+            elif isinstance(c, list):
+                parts = []
+                for it in c:
+                    if isinstance(it, dict) and isinstance(it.get("text"), str):
+                        parts.append(it["text"])
+                last_user = "\n".join(parts)
+            break
+    last_user = (last_user or "")[:2048]
+    names = []
+    if isinstance(tools, list):
+        for t in tools:
+            if isinstance(t, dict) and t.get("type") == "function":
+                fn = t.get("function") if isinstance(t.get("function"), dict) else {}
+                n = fn.get("name")
+                if isinstance(n, str):
+                    names.append(n)
+    names = sorted(set(names))[:200]
+    raw = json.dumps({"m": model, "u": last_user, "tn": names, "tc": len(names)}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+def _loop_guard_allow(key: str) -> bool:
+    now = time.time()
+    window_start = now - LOOP_WINDOW_S
+    times = _loop_guard.get(key) or []
+    times = [t for t in times if t >= window_start]
+    times.append(now)
+    _loop_guard[key] = times
+    return len(times) <= LOOP_MAX_CALLS
+
 
 def _sse_chunks(content: str, model: str, prompt_tokens: int):
     words = content.split()
@@ -221,6 +268,17 @@ async def chat_completions(request: Request):
     stream = bool(body.get("stream", False))
     model = (body.get("model") or "gpt-4o-mini").strip()
     required_map = _tool_required_map(tools)
+    lk = _loop_key(body, tools)
+    if has_function_tools(tools) and not _loop_guard_allow(lk):
+        # Stop token-draining loops: OpenClaw will otherwise keep retrying failed tool calls.
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Loop guard: слишком много повторов одного и того же tool-запроса. "
+                "Остановлено, чтобы не сжигать токены. "
+                "Сделайте /reset и повторите запрос, либо исправьте схему tools/аргументы."
+            ),
+        )
 
     url = f"{UPSTREAM_BASE_URL}/v1/chat/completions"
 
