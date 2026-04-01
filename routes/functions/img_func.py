@@ -560,7 +560,9 @@ def create_image_variations(image_url, user_model, n, aspect_width=None, aspect_
 
     # Variations are allowed only for models that are BOTH generator+variator.
     # If a generator name doesn't match a variator name, map/fallback to a safe variator model.
-    chosen_model = choose_variator_model(user_model, supported_variators=set(IMAGE_VARIATION_MODELS))
+    # IMPORTANT: some variator models (e.g. flux-redux-*) are not valid generator models,
+    # so IMAGE_VARIATION_MODELS (generator ∩ variator) would incorrectly exclude them.
+    chosen_model = choose_variator_model(user_model, supported_variators=set(VARIATION_SUPPORTED_MODELS))
     if not chosen_model:
         logger.warning(f"[{request_id}] Model {user_model} does not support variations (no supported variator)")
         return jsonify({"error": f"Model '{user_model}' does not support image variations"}), 400
