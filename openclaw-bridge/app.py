@@ -202,38 +202,19 @@ def _looks_like_side_effect_claim(text: str) -> bool:
     t = (text or "").strip().lower()
     if not t:
         return False
-    # common file/tool claims RU
+    # common file/tool claims RU (use stems to cover gender/tense)
     ru = (
-        "обновил",
-        "обновила",
-        "обновлено",
-        "записал",
-        "записала",
-        "записано",
-        "изменил",
-        "изменила",
-        "изменено",
-        "добавил",
-        "добавила",
-        "добавлено",
-        "удалил",
-        "удалила",
-        "удалено",
-        "создал",
-        "создала",
-        "создано",
-        "прочитал",
-        "прочитала",
-        "прочитано",
-        "отправил",
-        "отправила",
-        "отправлено",
-        "выполнил",
-        "выполнила",
-        "выполнено",
-        "выполнил команд",
-        "запустил",
-        "запустила",
+        "обновл",   # обновил/обновила/обновлено/обновлена/обновлены
+        "запис",    # записал/записала/записано/записана
+        "измен",    # изменил/изменила/изменено/изменена
+        "добавл",   # добавил/добавила/добавлено/добавлена
+        "удал",     # удалил/удалила/удалено/удалена
+        "созда",    # создал/создала/создано/создана
+        "прочит",   # прочитал/прочитала/прочитано/прочитана
+        "отправ",   # отправил/отправила/отправлено/отправлена
+        "выполн",   # выполнил/выполнила/выполнено/выполнена
+        "запуст",   # запустил/запустила/запущено/запущена
+        "перезапуст",  # перезапустил/перезапустила
     )
     # common file/tool claims EN
     en = (
@@ -265,6 +246,39 @@ def _looks_like_side_effect_claim(text: str) -> bool:
         if any(k in t for k in ("обнов", "проч", "write", "read", "edit", "update")):
             return True
     return False
+
+
+def _looks_like_external_read_request(user_text: str) -> bool:
+    """
+    Detect user requests that *require* reading external state (files, logs, configs).
+    This is not per-tool; it's a general "show me / quote / contents" detector.
+    """
+    t = (user_text or "").strip().lower()
+    if not t:
+        return False
+    wants_show = any(
+        k in t
+        for k in (
+            "прочитай",
+            "прочти",
+            "покажи",
+            "пришли",
+            "выведи",
+            "процит",
+            "цитир",
+            "содержим",
+            "что в файле",
+            "show me",
+            "print",
+            "output",
+            "quote",
+            "paste",
+            "contents",
+            "read the file",
+        )
+    )
+    mentions_artifact = any(k in t for k in (".md", ".json", ".txt", "memory.md", "файл", "лог", "конфиг", "config"))
+    return wants_show and mentions_artifact
 
 
 def _sse_chunks(content: str, model: str, prompt_tokens: int):
@@ -433,9 +447,13 @@ async def chat_completions(request: Request):
     pt = int(usage.get("prompt_tokens") or 0)
 
     # Universal strict tool contract:
-    # If tools were provided but the model returned plain text that looks like a side-effect claim
-    # (read/write/update/exec/send/etc) without tool_calls, do one strict retry (optionally with fallback model).
-    if STRICT_TOOL_CONTRACT and has_function_tools(tools) and not tool_calls and _looks_like_side_effect_claim(clean or content):
+    # If tools were provided but the model returned plain text without tool_calls, we do one strict retry when:
+    # - the assistant looks like it claims side-effects without tools, OR
+    # - the user request clearly requires reading external state (files/logs/configs) as evidence.
+    user_text = _last_user_text(inner.get("messages"))
+    needs_read = _looks_like_external_read_request(user_text)
+    bad_claim = _looks_like_side_effect_claim(clean or content)
+    if STRICT_TOOL_CONTRACT and has_function_tools(tools) and not tool_calls and (bad_claim or needs_read):
         try:
             forced = dict(inner)
             if TOOL_FALLBACK_MODEL:
