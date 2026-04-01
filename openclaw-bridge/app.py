@@ -14,6 +14,7 @@ import hashlib
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+import logging
 
 from tool_parse import augment_messages_with_tools, has_function_tools, maybe_extract_tool_calls_from_text
 
@@ -27,6 +28,8 @@ FORCE_TOOL_MODEL = os.environ.get("BRIDGE_FORCE_TOOL_MODEL", "").strip()
 STRICT_TOOL_CONTRACT = os.environ.get("BRIDGE_STRICT_TOOL_CONTRACT", "1").strip().lower() not in ("0", "false", "no", "off", "")
 
 app = FastAPI(title="openclaw-bridge", version="1.0.0")
+log = logging.getLogger("openclaw-bridge")
+DEBUG_TOOL_CONTRACT = os.environ.get("BRIDGE_DEBUG_TOOL_CONTRACT", "0").strip().lower() in ("1", "true", "yes", "on")
 
 _loop_guard: Dict[str, list[float]] = {}
 
@@ -494,6 +497,8 @@ async def chat_completions(request: Request):
     if STRICT_TOOL_CONTRACT and has_function_tools(tools) and not tool_calls and (bad_claim or needs_read or needs_update):
         strict_triggered = True
         try:
+            if DEBUG_TOOL_CONTRACT:
+                log.warning("strict_tools_contract: triggered; model=%s bad_claim=%s needs_read=%s needs_update=%s content_preview=%r", model, bad_claim, needs_read, needs_update, (clean or content)[:500])
             forced = dict(inner)
             if TOOL_FALLBACK_MODEL:
                 forced["model"] = TOOL_FALLBACK_MODEL
@@ -514,6 +519,8 @@ async def chat_completions(request: Request):
                 c_force = (d_force.get("choices") or [{}])[0] or {}
                 m_force = (c_force.get("message") or {}) if isinstance(c_force.get("message"), dict) else {}
                 t_force = m_force.get("content") if isinstance(m_force.get("content"), str) else ""
+                if DEBUG_TOOL_CONTRACT:
+                    log.warning("strict_tools_contract: retry_model=%s retry_content_preview=%r", forced.get("model") or model, (t_force or "")[:500])
                 clean_f, tool_calls_f = maybe_extract_tool_calls_from_text(t_force)
                 if tool_calls_f and not _tool_calls_missing_required(tool_calls_f, required_map):
                     tool_calls = tool_calls_f
