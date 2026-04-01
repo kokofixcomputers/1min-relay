@@ -109,6 +109,38 @@ def _sse_chunks(content: str, model: str, prompt_tokens: int):
     yield f"data: {json.dumps(final, ensure_ascii=False)}\n\n"
     yield "data: [DONE]\n\n"
 
+def _sse_tool_calls(tool_calls: list, model: str, prompt_tokens: int):
+    """
+    Best-effort OpenAI-style SSE for tool_calls.
+    Some clients (including gateways) request stream:true and may hang if they receive a plain JSON response.
+    We emit a single chunk that contains tool_calls and then a final finish_reason=tool_calls + [DONE].
+    """
+    cid = f"chatcmpl-{uuid.uuid4()}"
+    created = int(time.time())
+    # single payload chunk
+    payload = {
+        "id": cid,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [{"index": 0, "delta": {"tool_calls": tool_calls}, "finish_reason": None}],
+    }
+    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    final = {
+        "id": cid,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": 1,
+            "total_tokens": prompt_tokens + 1,
+        },
+    }
+    yield f"data: {json.dumps(final, ensure_ascii=False)}\n\n"
+    yield "data: [DONE]\n\n"
+
 
 @app.get("/health")
 async def health():
@@ -187,6 +219,11 @@ async def chat_completions(request: Request):
     pt = int(usage.get("prompt_tokens") or 0)
 
     if tool_calls:
+        if stream:
+            def gen_tc():
+                yield from _sse_tool_calls(tool_calls, model, pt or 1)
+            return StreamingResponse(gen_tc(), media_type="text/event-stream")
+
         out = {
             "id": data.get("id") or f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion",
@@ -216,6 +253,11 @@ async def chat_completions(request: Request):
                         if isinstance(streamed_text, str) and streamed_text:
                             clean2, tool_calls2 = maybe_extract_tool_calls_from_text(streamed_text)
                             if tool_calls2:
+                                if stream:
+                                    def gen_tc2():
+                                        yield from _sse_tool_calls(tool_calls2, model, pt or 1)
+                                    return StreamingResponse(gen_tc2(), media_type="text/event-stream")
+
                                 out = {
                                     "id": data.get("id") or f"chatcmpl-{uuid.uuid4()}",
                                     "object": "chat.completion",
