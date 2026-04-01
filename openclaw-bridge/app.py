@@ -281,6 +281,37 @@ def _looks_like_external_read_request(user_text: str) -> bool:
     return wants_show and mentions_artifact
 
 
+def _looks_like_external_update_request(user_text: str) -> bool:
+    """
+    Detect user requests that require changing external state (files/configs/etc).
+    Generic (not per-tool): update/edit/write/create/delete + mentions an artifact.
+    """
+    t = (user_text or "").strip().lower()
+    if not t:
+        return False
+    wants_change = any(
+        k in t
+        for k in (
+            "обнов",
+            "измени",
+            "внеси",
+            "добав",
+            "запиш",
+            "удал",
+            "созда",
+            "update",
+            "edit",
+            "change",
+            "write",
+            "append",
+            "delete",
+            "create",
+        )
+    )
+    mentions_artifact = any(k in t for k in (".md", ".json", ".txt", "memory.md", "файл", "лог", "конфиг", "config"))
+    return wants_change and mentions_artifact
+
+
 def _sse_chunks(content: str, model: str, prompt_tokens: int):
     words = content.split()
     chunks = [" ".join(words[i : i + 5]) for i in range(0, len(words), 5)]
@@ -452,9 +483,10 @@ async def chat_completions(request: Request):
     # - the user request clearly requires reading external state (files/logs/configs) as evidence.
     user_text = _last_user_text(inner.get("messages"))
     needs_read = _looks_like_external_read_request(user_text)
+    needs_update = _looks_like_external_update_request(user_text)
     bad_claim = _looks_like_side_effect_claim(clean or content)
     strict_triggered = False
-    if STRICT_TOOL_CONTRACT and has_function_tools(tools) and not tool_calls and (bad_claim or needs_read):
+    if STRICT_TOOL_CONTRACT and has_function_tools(tools) and not tool_calls and (bad_claim or needs_read or needs_update):
         strict_triggered = True
         try:
             forced = dict(inner)
