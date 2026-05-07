@@ -95,9 +95,9 @@ else:
     logger.warning("Memcached is not available. Using in-memory storage for rate limiting. Not-Recommended")
 
 
-ONE_MIN_API_URL = "https://api.1min.ai/api/features"
+ONE_MIN_API_URL = "https://api.1min.ai/api/chat-with-ai"
 ONE_MIN_CONVERSATION_API_URL = "https://api.1min.ai/api/conversations"
-ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/features?isStreaming=true"
+ONE_MIN_CONVERSATION_API_STREAMING_URL = "https://api.1min.ai/api/chat-with-ai?isStreaming=true"
 ONE_MIN_ASSET_URL = "https://api.1min.ai/api/assets"
 
 # Define the models that are available for use
@@ -335,7 +335,7 @@ def conversation():
 
     if not image:
         payload = {
-            "type": "CHAT_WITH_AI",
+            "type": "UNIFY_CHAT_WITH_AI",
             "model": request_data.get('model', 'mistral-nemo'),
             "promptObject": {
                 "prompt": all_messages,
@@ -345,12 +345,12 @@ def conversation():
         }
     else:
         payload = {
-            "type": "CHAT_WITH_IMAGE",
+            "type": "UNIFY_CHAT_WITH_AI",
             "model": request_data.get('model', 'mistral-nemo'),
             "promptObject": {
                 "prompt": all_messages,
                 "isMixed": False,
-                "imageList": image_paths
+                "images": image_paths
             }
         }
     
