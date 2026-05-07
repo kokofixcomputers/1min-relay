@@ -476,46 +476,46 @@ def set_response_headers(response):
 
 def stream_response(response, request_data, model, prompt_tokens):
     all_chunks = ""
-    for chunk in response.iter_content(chunk_size=1024):
-        finish_reason = None
-
+    for line in response.iter_lines():
+        if not line:
+            continue
+        decoded = line.decode('utf-8')
+        if decoded.startswith('event:'):
+            continue
+        if not decoded.startswith('data:'):
+            continue
+        data_str = decoded[len('data:'):].strip()
+        if not data_str or data_str == '[DONE]':
+            continue
+        try:
+            data = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+        # New API uses {"content":"..."} for content events
+        # and {"message":"..."} for done events
+        content = data.get('content')
+        if content is None:
+            continue
+        all_chunks += content
         return_chunk = {
             "id": f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": request_data.get('model', 'mistral-nemo'),
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {
-                        "content": chunk.decode('utf-8')
-                    },
-                    "finish_reason": finish_reason
-                }
-            ]
+            "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}]
         }
-        all_chunks += chunk.decode('utf-8')
         yield f"data: {json.dumps(return_chunk)}\n\n"
-        
+
     tokens = calculate_token(all_chunks)
     logger.debug(f"Finished processing streaming response. Completion tokens: {str(tokens)}")
     logger.debug(f"Total tokens: {str(tokens + prompt_tokens)}")
-        
-    # Final chunk when iteration stops
+
     final_chunk = {
         "id": f"chatcmpl-{uuid.uuid4()}",
         "object": "chat.completion.chunk",
         "created": int(time.time()),
         "model": request_data.get('model', 'mistral-nemo'),
-        "choices": [
-            {
-                "index": 0,
-                "delta": {
-                    "content": ""    
-                },
-                "finish_reason": "stop"
-            }
-        ],
+        "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}],
         "usage": {
             "prompt_tokens": prompt_tokens,
             "completion_tokens": tokens,
